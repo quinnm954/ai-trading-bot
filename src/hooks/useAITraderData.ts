@@ -140,12 +140,50 @@ export function useAITraderData() {
   useEffect(() => {
     fetchData();
     
-    // Auto-refresh every 30 seconds
+    // Subscribe to real-time paper account updates
+    const paperChannel = supabase
+      .channel('paper-account-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'paper_account',
+        },
+        (payload) => {
+          console.log('Paper account update:', payload);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to real-time live account updates
+    const liveChannel = supabase
+      .channel('live-account-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_account',
+        },
+        (payload) => {
+          console.log('Live account update:', payload);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    // Auto-refresh every 30 seconds as backup
     const intervalId = setInterval(() => {
       fetchData();
     }, 30000);
     
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      supabase.removeChannel(paperChannel);
+      supabase.removeChannel(liveChannel);
+    };
   }, [fetchData]);
 
   // Update AI settings in database

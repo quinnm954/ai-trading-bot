@@ -163,12 +163,59 @@ export function useDashboardData() {
   useEffect(() => {
     fetchData();
     
-    // Auto-refresh every 30 seconds
+    // Subscribe to real-time trades updates
+    const tradesChannel = supabase
+      .channel('dashboard-trades-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trades',
+        },
+        () => fetchData()
+      )
+      .subscribe();
+
+    // Subscribe to real-time positions updates
+    const positionsChannel = supabase
+      .channel('dashboard-positions-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'positions',
+        },
+        () => fetchData()
+      )
+      .subscribe();
+
+    // Subscribe to real-time paper account updates
+    const paperChannel = supabase
+      .channel('dashboard-paper-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'paper_account',
+        },
+        () => fetchData()
+      )
+      .subscribe();
+
+    // Auto-refresh every 30 seconds as backup
     const intervalId = setInterval(() => {
       fetchData();
     }, 30000);
     
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      supabase.removeChannel(tradesChannel);
+      supabase.removeChannel(positionsChannel);
+      supabase.removeChannel(paperChannel);
+    };
   }, [fetchData]);
 
   return {
