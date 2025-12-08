@@ -7,21 +7,92 @@ import {
   TrendingUp,
   BarChart3,
   Zap,
-  Plus
+  Plus,
+  Activity,
+  Target,
+  GitBranch
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { mockStrategies } from '@/lib/mockData';
+import type { Strategy } from '@/types/trading';
 
 const strategyIcons: Record<string, React.ReactNode> = {
   rsi: <BarChart3 className="w-5 h-5" />,
   ema_crossover: <TrendingUp className="w-5 h-5" />,
+  macd: <Activity className="w-5 h-5" />,
+  trend_breakout: <TrendingUp className="w-5 h-5" />,
+  volatility_breakout: <Zap className="w-5 h-5" />,
   grid: <Layers className="w-5 h-5" />,
-  dca: <Zap className="w-5 h-5" />,
+  dca: <Target className="w-5 h-5" />,
+  custom: <GitBranch className="w-5 h-5" />,
 };
 
+const allStrategies: Strategy[] = [
+  ...mockStrategies,
+  {
+    id: '5',
+    name: 'MACD Momentum',
+    type: 'macd',
+    description: 'Trade based on MACD histogram crossovers and divergences for momentum signals',
+    isActive: false,
+    params: {
+      fastPeriod: 12,
+      slowPeriod: 26,
+      signalPeriod: 9,
+      positionSize: 5,
+      stopLoss: 2.5,
+      takeProfit: 5,
+    },
+    performance: {
+      winRate: 54.2,
+      totalTrades: 67,
+      profit: 2890.40,
+    },
+  },
+  {
+    id: '6',
+    name: 'Trend Breakout',
+    type: 'trend_breakout',
+    description: 'Enter positions when price breaks through key resistance/support with volume confirmation',
+    isActive: false,
+    params: {
+      lookbackPeriod: 20,
+      breakoutThreshold: 1.5,
+      volumeMultiplier: 2.0,
+      positionSize: 6,
+      stopLoss: 3,
+      takeProfit: 8,
+    },
+    performance: {
+      winRate: 48.5,
+      totalTrades: 42,
+      profit: 4120.80,
+    },
+  },
+  {
+    id: '7',
+    name: 'Volatility Breakout',
+    type: 'volatility_breakout',
+    description: 'Capitalize on volatility expansion using ATR-based entries during range breakouts',
+    isActive: true,
+    params: {
+      atrPeriod: 14,
+      atrMultiplier: 2.0,
+      positionSize: 4,
+      stopLoss: 2,
+      takeProfit: 4,
+    },
+    performance: {
+      winRate: 52.8,
+      totalTrades: 89,
+      profit: 3650.25,
+    },
+  },
+];
+
 export default function Strategies() {
-  const [strategies, setStrategies] = useState(mockStrategies);
+  const [strategies, setStrategies] = useState(allStrategies);
 
   const toggleStrategy = (id: string) => {
     setStrategies(prev => 
@@ -61,7 +132,7 @@ export default function Strategies() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">{strategy.name}</h3>
-                  <p className="text-sm text-muted-foreground capitalize">{strategy.type.replace('_', ' ')}</p>
+                  <p className="text-sm text-muted-foreground capitalize">{strategy.type.replace(/_/g, ' ')}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
