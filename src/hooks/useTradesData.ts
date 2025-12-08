@@ -40,6 +40,7 @@ export function useTradesData() {
   const [isLoading, setIsLoading] = useState(true);
   const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRealtimeUpdate, setIsRealtimeUpdate] = useState(false);
 
   const strategyDisplayName: Record<string, string> = {
     rsi: 'RSI Strategy',
@@ -131,6 +132,12 @@ export function useTradesData() {
     }
   }, [user]);
 
+  // Trigger pulse animation
+  const triggerRealtimeUpdate = useCallback(() => {
+    setIsRealtimeUpdate(true);
+    setTimeout(() => setIsRealtimeUpdate(false), 1500);
+  }, []);
+
   useEffect(() => {
     fetchData();
 
@@ -146,6 +153,7 @@ export function useTradesData() {
         },
         (payload) => {
           console.log('Trades update:', payload);
+          triggerRealtimeUpdate();
           fetchData();
         }
       )
@@ -163,6 +171,7 @@ export function useTradesData() {
         },
         (payload) => {
           console.log('Positions update:', payload);
+          triggerRealtimeUpdate();
           fetchData();
         }
       )
@@ -178,7 +187,7 @@ export function useTradesData() {
       supabase.removeChannel(tradesChannel);
       supabase.removeChannel(positionsChannel);
     };
-  }, [fetchData]);
+  }, [fetchData, triggerRealtimeUpdate]);
 
   // Calculate P&L stats
   const closedTrades = trades.filter(t => t.status === 'closed');
@@ -203,6 +212,7 @@ export function useTradesData() {
     isLoading,
     tradingMode,
     lastUpdated,
+    isRealtimeUpdate,
     stats: {
       totalTrades: closedTrades.length,
       openPositions: positions.length,
