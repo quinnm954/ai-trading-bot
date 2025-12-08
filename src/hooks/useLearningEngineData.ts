@@ -106,6 +106,11 @@ export function useLearningEngineData() {
   useEffect(() => {
     fetchStrategyPerformance();
 
+    // Auto-refresh every 30 seconds
+    const intervalId = setInterval(() => {
+      fetchStrategyPerformance();
+    }, 30000);
+
     // Subscribe to real-time updates
     const channel = supabase
       .channel('strategy-performance-changes')
@@ -131,6 +136,7 @@ export function useLearningEngineData() {
       .subscribe();
 
     return () => {
+      clearInterval(intervalId);
       supabase.removeChannel(channel);
     };
   }, [fetchStrategyPerformance]);

@@ -55,6 +55,7 @@ export function useAITraderData() {
   const [connectedBrokers, setConnectedBrokers] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -132,11 +133,19 @@ export function useAITraderData() {
       console.error('Error in fetchData:', error);
     } finally {
       setIsLoading(false);
+      setLastUpdated(new Date());
     }
   }, [user]);
 
   useEffect(() => {
     fetchData();
+    
+    // Auto-refresh every 30 seconds
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, 30000);
+    
+    return () => clearInterval(intervalId);
   }, [fetchData]);
 
   // Update AI settings in database
@@ -223,6 +232,7 @@ export function useAITraderData() {
     connectedBrokers,
     isLoading,
     isSaving,
+    lastUpdated,
     tradingMode: aiSettings.tradingMode,
     isEnabled: aiSettings.enabled,
     currentBalance: getCurrentBalance(),

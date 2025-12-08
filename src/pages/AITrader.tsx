@@ -32,12 +32,14 @@ export default function AITrader() {
     connectedBrokers,
     isLoading,
     isSaving,
+    lastUpdated,
     tradingMode,
     isEnabled,
     currentBalance,
     setTradingMode,
     toggleEnabled,
     updateSettings,
+    refetch,
   } = useAITraderData();
 
   const toggleMarket = (market: string) => {
@@ -80,6 +82,23 @@ export default function AITrader() {
           <p className="text-muted-foreground mt-1">
             Set your risk limits and let AI make all trading decisions automatically
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {lastUpdated && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" />
+              Updated {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={refetch}
+            className="gap-1"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </Button>
         </div>
       </div>
 
