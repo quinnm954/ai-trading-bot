@@ -1,1 +1,7 @@
 project_id = "obtfgoktgigulszrfzvp"
+
+[functions.test-broker-connection]
+verify_jwt = false
+
+[functions.sync-broker-balances]
+verify_jwt = false
