@@ -41,6 +41,7 @@ export function useDashboardData() {
   });
   const [liveAccounts, setLiveAccounts] = useState<LiveAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -155,17 +156,26 @@ export function useDashboardData() {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setIsLoading(false);
+      setLastUpdated(new Date());
     }
   }, [user]);
 
   useEffect(() => {
     fetchData();
+    
+    // Auto-refresh every 30 seconds
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, 30000);
+    
+    return () => clearInterval(intervalId);
   }, [fetchData]);
 
   return {
     stats,
     liveAccounts,
     isLoading,
+    lastUpdated,
     refetch: fetchData,
   };
 }
