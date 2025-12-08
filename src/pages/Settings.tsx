@@ -1,0 +1,219 @@
+import { useState } from 'react';
+import { 
+  Settings as SettingsIcon, 
+  Bell, 
+  Shield, 
+  Palette,
+  Database,
+  Clock,
+  Save
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
+
+export default function Settings() {
+  const [notifications, setNotifications] = useState({
+    trades: true,
+    profits: true,
+    losses: true,
+    aiDecisions: true,
+  });
+
+  const [general, setGeneral] = useState({
+    timezone: 'America/New_York',
+    currency: 'USD',
+    defaultLeverage: 1,
+  });
+
+  const handleSave = () => {
+    toast.success('Settings saved successfully!');
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <SettingsIcon className="w-7 h-7 text-primary" />
+            Settings
+          </h1>
+          <p className="text-muted-foreground">Configure your trading preferences</p>
+        </div>
+        <Button onClick={handleSave} variant="glow" className="gap-2">
+          <Save className="w-4 h-4" />
+          Save Changes
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Notifications */}
+        <div className="glass-panel p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Bell className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Notifications</h3>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div>
+                <p className="font-medium text-foreground">Trade Executions</p>
+                <p className="text-xs text-muted-foreground">Get notified when trades are opened/closed</p>
+              </div>
+              <Switch 
+                checked={notifications.trades}
+                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, trades: checked }))}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div>
+                <p className="font-medium text-foreground">Profit Alerts</p>
+                <p className="text-xs text-muted-foreground">Notify when positions hit profit targets</p>
+              </div>
+              <Switch 
+                checked={notifications.profits}
+                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, profits: checked }))}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div>
+                <p className="font-medium text-foreground">Loss Alerts</p>
+                <p className="text-xs text-muted-foreground">Notify when stop-loss is triggered</p>
+              </div>
+              <Switch 
+                checked={notifications.losses}
+                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, losses: checked }))}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div>
+                <p className="font-medium text-foreground">AI Decisions</p>
+                <p className="text-xs text-muted-foreground">Get updates on AI trading decisions</p>
+              </div>
+              <Switch 
+                checked={notifications.aiDecisions}
+                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, aiDecisions: checked }))}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* General Settings */}
+        <div className="glass-panel p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Clock className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">General</h3>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-muted-foreground mb-2 block">Timezone</label>
+              <select 
+                value={general.timezone}
+                onChange={(e) => setGeneral(prev => ({ ...prev, timezone: e.target.value }))}
+                className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-foreground"
+              >
+                <option value="America/New_York">Eastern Time (ET)</option>
+                <option value="America/Chicago">Central Time (CT)</option>
+                <option value="America/Denver">Mountain Time (MT)</option>
+                <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm text-muted-foreground mb-2 block">Display Currency</label>
+              <select 
+                value={general.currency}
+                onChange={(e) => setGeneral(prev => ({ ...prev, currency: e.target.value }))}
+                className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-foreground"
+              >
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm text-muted-foreground mb-2 block">Default Leverage</label>
+              <Input 
+                type="number"
+                value={general.defaultLeverage}
+                onChange={(e) => setGeneral(prev => ({ ...prev, defaultLeverage: parseInt(e.target.value) }))}
+                min={1}
+                max={10}
+                className="bg-secondary border-border"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Paper trading only - real leverage coming in v2
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Data & Storage */}
+        <div className="glass-panel p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Database className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Data & Storage</h3>
+          </div>
+
+          <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium text-foreground">Trade History</span>
+                <span className="text-sm text-muted-foreground">156 trades</span>
+              </div>
+              <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full" style={{ width: '45%' }} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">45% of storage used</p>
+            </div>
+
+            <Button variant="outline" className="w-full">
+              Export All Data
+            </Button>
+            <Button variant="destructive" className="w-full">
+              Clear Paper Trading History
+            </Button>
+          </div>
+        </div>
+
+        {/* Security */}
+        <div className="glass-panel p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Shield className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Security</h3>
+          </div>
+
+          <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="font-medium text-foreground mb-2">Paper Trading Mode</p>
+              <p className="text-sm text-muted-foreground">
+                Currently operating in paper trading mode. All trades are simulated 
+                and no real money is at risk.
+              </p>
+              <div className="mt-3 px-3 py-1.5 rounded-full bg-warning/20 text-warning text-xs font-medium inline-block">
+                Demo Mode Active
+              </div>
+            </div>
+
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="font-medium text-foreground mb-2">API Key Encryption</p>
+              <p className="text-sm text-muted-foreground">
+                All API keys are encrypted using AES-256 encryption and stored securely.
+              </p>
+              <div className="mt-3 px-3 py-1.5 rounded-full bg-success/20 text-success text-xs font-medium inline-block">
+                Encrypted
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
