@@ -39,6 +39,7 @@ export function useTradesData() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const strategyDisplayName: Record<string, string> = {
     rsi: 'RSI Strategy',
@@ -126,11 +127,57 @@ export function useTradesData() {
       console.error('Error in fetchData:', error);
     } finally {
       setIsLoading(false);
+      setLastUpdated(new Date());
     }
   }, [user]);
 
   useEffect(() => {
     fetchData();
+
+    // Subscribe to real-time trades updates
+    const tradesChannel = supabase
+      .channel('trades-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trades',
+        },
+        (payload) => {
+          console.log('Trades update:', payload);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to real-time positions updates
+    const positionsChannel = supabase
+      .channel('positions-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'positions',
+        },
+        (payload) => {
+          console.log('Positions update:', payload);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    // Auto-refresh every 30 seconds as backup
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, 30000);
+
+    return () => {
+      clearInterval(intervalId);
+      supabase.removeChannel(tradesChannel);
+      supabase.removeChannel(positionsChannel);
+    };
   }, [fetchData]);
 
   // Calculate P&L stats
@@ -155,6 +202,7 @@ export function useTradesData() {
     positions,
     isLoading,
     tradingMode,
+    lastUpdated,
     stats: {
       totalTrades: closedTrades.length,
       openPositions: positions.length,
