@@ -16,7 +16,7 @@ const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/strategies', icon: Layers, label: 'Strategies' },
   { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
-  { path: '/ai-trader', icon: Bot, label: 'AI Auto-Trader' },
+  { path: '/ai-trader', icon: Bot, label: 'Autonomous AI', badge: 'AUTO' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
   { path: '/settings', icon: Settings, label: 'Settings' },
@@ -57,8 +57,13 @@ export function Sidebar() {
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
+                {'badge' in item && item.badge && (
+                  <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded bg-primary/20 text-primary">
+                    {item.badge}
+                  </span>
+                )}
                 {item.path === '/ai-trader' && (
-                  <span className="ml-auto flex items-center gap-1 text-xs text-success">
+                  <span className="ml-1 flex items-center gap-1 text-xs text-success">
                     <Zap className="w-3 h-3" />
                     Live
                   </span>
