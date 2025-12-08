@@ -46,15 +46,16 @@ async function testCoinbaseConnection(apiKey: string, secretKey: string, passphr
   const method = "GET";
   const requestPath = "/api/v3/brokerage/accounts";
   
-  // Create signature
+  // Create signature - secret key is base64 encoded, must decode first
   const message = timestamp + method + requestPath;
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secretKey);
-  const messageData = encoder.encode(message);
+  
+  // Decode the base64 secret key
+  const decodedSecret = Uint8Array.from(atob(secretKey), c => c.charCodeAt(0));
+  const messageData = new TextEncoder().encode(message);
   
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    keyData,
+    decodedSecret,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
