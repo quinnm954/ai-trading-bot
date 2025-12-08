@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encode as base64UrlEncode } from "https://deno.land/std@0.168.0/encoding/base64url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,17 +41,134 @@ async function testAlpacaConnection(apiKey: string, secretKey: string) {
   };
 }
 
-async function testCoinbaseConnection(apiKey: string, secretKey: string, passphrase?: string) {
-  // Coinbase has two API types:
-  // 1. Legacy Exchange API - uses HMAC + passphrase (secret is base64 encoded)
-  // 2. CDP Advanced Trade API - uses JWT with EC private key
+// Generate JWT for CDP API authentication
+async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<string> {
+  const currentTime = Math.floor(Date.now() / 1000);
   
+  // JWT header
+  const header = {
+    alg: "ES256",
+    kid: apiKey,
+    nonce: crypto.randomUUID(),
+    typ: "JWT"
+  };
+  
+  // JWT payload
+  const payload = {
+    iss: "cdp",
+    nbf: currentTime,
+    exp: currentTime + 120, // Valid for 2 minutes
+    sub: apiKey,
+  };
+  
+  // Clean up the private key - handle both formats
+  let cleanKey = privateKeyPem.trim();
+  
+  // If it doesn't have PEM headers, try to add them
+  if (!cleanKey.includes("-----BEGIN")) {
+    // Remove any whitespace and newlines
+    cleanKey = cleanKey.replace(/\s/g, '');
+    cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
+  }
+  
+  // Parse the PEM key
+  const pemContents = cleanKey
+    .replace("-----BEGIN EC PRIVATE KEY-----", "")
+    .replace("-----END EC PRIVATE KEY-----", "")
+    .replace("-----BEGIN PRIVATE KEY-----", "")
+    .replace("-----END PRIVATE KEY-----", "")
+    .replace(/\s/g, "");
+  
+  // Decode base64 to get the key bytes
+  const binaryString = atob(pemContents);
+  const keyBytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    keyBytes[i] = binaryString.charCodeAt(i);
+  }
+  
+  // Import the EC private key
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    keyBytes.buffer,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+  
+  // Encode header and payload
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  
+  // Sign the JWT
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    cryptoKey,
+    new TextEncoder().encode(signingInput)
+  );
+  
+  // Convert DER signature to raw format (r || s)
+  const signatureArray = new Uint8Array(signature);
+  const encodedSignature = base64UrlEncode(signatureArray.buffer);
+  
+  return `${signingInput}.${encodedSignature}`;
+}
+
+async function testCoinbaseConnection(apiKey: string, secretKey: string, passphrase?: string) {
   // Detect if this is a CDP API key (starts with "organizations/")
   const isCdpKey = apiKey.startsWith("organizations/");
   
   if (isCdpKey) {
-    // CDP API uses JWT authentication - not yet supported
-    throw new Error("CDP API keys (starting with 'organizations/') require JWT authentication. Please use Legacy API keys from the Coinbase Exchange API settings, or create API keys in the Coinbase Developer Platform with REST API access.");
+    // CDP API uses JWT authentication
+    console.log("Using CDP JWT authentication for Coinbase");
+    
+    try {
+      const jwt = await generateCdpJwt(apiKey, secretKey);
+      
+      const response = await fetch("https://api.coinbase.com/api/v3/brokerage/accounts", {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${jwt}`,
+          "Content-Type": "application/json",
+        },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Coinbase CDP API error:", response.status, errorText);
+        
+        if (response.status === 401) {
+          throw new Error("Invalid CDP API credentials. Please verify your API Key and Private Key are correct.");
+        }
+        throw new Error(`Coinbase API error (${response.status}): ${errorText}`);
+      }
+      
+      const data = await response.json();
+      
+      let totalBalance = 0;
+      if (data.accounts && Array.isArray(data.accounts)) {
+        for (const account of data.accounts) {
+          if (account.available_balance && account.available_balance.value) {
+            totalBalance += parseFloat(account.available_balance.value);
+          }
+        }
+      }
+      
+      return {
+        success: true,
+        accountInfo: {
+          balance: totalBalance,
+          buying_power: totalBalance,
+          equity: totalBalance,
+        },
+      };
+    } catch (e: any) {
+      console.error("CDP JWT error:", e);
+      if (e.message.includes("Invalid")) {
+        throw e;
+      }
+      throw new Error(`Failed to authenticate with CDP API. Please ensure your private key is in the correct format (EC Private Key PEM). Error: ${e.message}`);
+    }
   }
   
   // Legacy Exchange API authentication
@@ -59,7 +177,6 @@ async function testCoinbaseConnection(apiKey: string, secretKey: string, passphr
   const requestPath = "/api/v3/brokerage/accounts";
   const body = "";
   
-  // Create signature - secret key is base64 encoded, must decode first
   const message = timestamp + method + requestPath + body;
   
   let decodedSecret: ArrayBuffer;
@@ -94,14 +211,13 @@ async function testCoinbaseConnection(apiKey: string, secretKey: string, passphr
     "Content-Type": "application/json",
   };
 
-  // Passphrase is required for legacy Exchange API
   if (passphrase) {
     headers["CB-ACCESS-PASSPHRASE"] = passphrase;
   } else {
     throw new Error("Passphrase is required for Coinbase Exchange API authentication. Please provide your API passphrase.");
   }
 
-  console.log("Attempting Coinbase connection with timestamp:", timestamp);
+  console.log("Attempting Coinbase legacy connection with timestamp:", timestamp);
   
   const response = await fetch("https://api.coinbase.com" + requestPath, {
     method: "GET",
@@ -113,14 +229,13 @@ async function testCoinbaseConnection(apiKey: string, secretKey: string, passphr
     console.error("Coinbase API error response:", response.status, errorText);
     
     if (response.status === 401) {
-      throw new Error("Invalid API credentials. Please verify your API Key, Secret, and Passphrase are correct. Make sure you're using Coinbase Exchange API keys (not CDP keys).");
+      throw new Error("Invalid API credentials. Please verify your API Key, Secret, and Passphrase are correct.");
     }
     throw new Error(`Coinbase API error (${response.status}): ${errorText}`);
   }
 
   const data = await response.json();
   
-  // Calculate total balance from all accounts
   let totalBalance = 0;
   if (data.accounts && Array.isArray(data.accounts)) {
     for (const account of data.accounts) {
