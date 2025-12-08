@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { 
   Bot, 
   Zap, 
@@ -6,28 +5,58 @@ import {
   TrendingUp,
   Activity,
   AlertCircle,
+  AlertTriangle,
   Settings,
   Play,
-  Pause
+  Pause,
+  Wallet,
+  Banknote,
+  Link2,
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
-import { mockRiskSettings, mockAITraderState } from '@/lib/mockData';
+import { useAITraderData } from '@/hooks/useAITraderData';
+import { useNavigate } from 'react-router-dom';
 
 export default function AITrader() {
-  const [isEnabled, setIsEnabled] = useState(mockAITraderState.isEnabled);
-  const [riskSettings, setRiskSettings] = useState(mockRiskSettings);
-  const [allowedMarkets, setAllowedMarkets] = useState<('stocks' | 'crypto')[]>(mockRiskSettings.allowedMarkets);
+  const navigate = useNavigate();
+  const {
+    aiSettings,
+    paperAccount,
+    liveAccounts,
+    connectedBrokers,
+    isLoading,
+    isSaving,
+    tradingMode,
+    isEnabled,
+    currentBalance,
+    setTradingMode,
+    toggleEnabled,
+    updateSettings,
+  } = useAITraderData();
 
-  const toggleMarket = (market: 'stocks' | 'crypto') => {
-    setAllowedMarkets(prev => 
-      prev.includes(market) 
-        ? prev.filter(m => m !== market)
-        : [...prev, market]
-    );
+  const toggleMarket = (market: string) => {
+    const current = aiSettings.allowedMarkets;
+    const updated = current.includes(market)
+      ? current.filter(m => m !== market)
+      : [...current, market];
+    updateSettings({ allowedMarkets: updated });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const isLiveMode = tradingMode === 'live';
+  const hasConnectedBrokers = connectedBrokers.length > 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -38,30 +67,207 @@ export default function AITrader() {
               <Bot className="w-7 h-7 text-primary" />
               Fully Autonomous AI Trader
             </h1>
-            <span className="px-2 py-1 text-xs font-bold rounded-full bg-primary/20 text-primary border border-primary/30 animate-pulse">
-              AUTONOMOUS
+            <span className={cn(
+              "px-2 py-1 text-xs font-bold rounded-full border animate-pulse",
+              isLiveMode 
+                ? "bg-loss/20 text-loss border-loss/30" 
+                : "bg-primary/20 text-primary border-primary/30"
+            )}>
+              {isLiveMode ? 'LIVE TRADING' : 'PAPER TRADING'}
             </span>
           </div>
           <p className="text-muted-foreground mt-1">
-            Set your risk limits and let AI make all trading decisions automatically — no manual intervention required
+            Set your risk limits and let AI make all trading decisions automatically
           </p>
+        </div>
+      </div>
+
+      {/* Trading Mode Toggle */}
+      <div className="glass-panel p-6 gradient-border">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className={cn(
+              'p-3 rounded-xl transition-all',
+              isLiveMode ? 'bg-loss/20' : 'bg-primary/20'
+            )}>
+              {isLiveMode ? (
+                <Banknote className="w-6 h-6 text-loss" />
+              ) : (
+                <Wallet className="w-6 h-6 text-primary" />
+              )}
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Trading Mode</h2>
+              <p className="text-sm text-muted-foreground">
+                {isLiveMode 
+                  ? 'Real money trades on your connected broker accounts'
+                  : 'Simulated trades with virtual $100k balance'
+                }
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 bg-secondary/50 p-1 rounded-lg">
+            <button
+              onClick={() => setTradingMode('paper')}
+              disabled={isSaving}
+              className={cn(
+                'px-4 py-2 rounded-md text-sm font-medium transition-all',
+                !isLiveMode 
+                  ? 'bg-primary text-primary-foreground shadow-md' 
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Paper Trading
+            </button>
+            <button
+              onClick={() => setTradingMode('live')}
+              disabled={isSaving || !hasConnectedBrokers}
+              className={cn(
+                'px-4 py-2 rounded-md text-sm font-medium transition-all',
+                isLiveMode 
+                  ? 'bg-loss text-white shadow-md' 
+                  : 'text-muted-foreground hover:text-foreground',
+                !hasConnectedBrokers && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              Live Trading
+            </button>
+          </div>
+        </div>
+
+        {!hasConnectedBrokers && (
+          <div className="mt-4 p-3 rounded-lg bg-warning/10 border border-warning/20 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Link2 className="w-4 h-4 text-warning" />
+              <span className="text-sm text-warning">
+                Connect a broker to enable live trading
+              </span>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => navigate('/api-keys')}
+            >
+              Connect Broker
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Account Balances */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Paper Account */}
+        <div className={cn(
+          'glass-panel p-6 transition-all',
+          !isLiveMode && 'ring-2 ring-primary/50'
+        )}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-primary" />
+              <h3 className="text-lg font-semibold text-foreground">Paper Account</h3>
+            </div>
+            {!isLiveMode && (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-primary/20 text-primary">
+                Active
+              </span>
+            )}
+          </div>
+          
+          <div className="space-y-3">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground mb-1">Balance</p>
+              <p className="text-2xl font-bold text-foreground">
+                ${paperAccount.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </p>
+              <p className={cn(
+                'text-sm mt-1',
+                paperAccount.balance >= paperAccount.initialBalance ? 'text-profit' : 'text-loss'
+              )}>
+                {paperAccount.balance >= paperAccount.initialBalance ? '+' : ''}
+                ${(paperAccount.balance - paperAccount.initialBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {' '}
+                ({((paperAccount.balance - paperAccount.initialBalance) / paperAccount.initialBalance * 100).toFixed(2)}%)
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Accounts */}
+        <div className={cn(
+          'glass-panel p-6 transition-all',
+          isLiveMode && 'ring-2 ring-loss/50'
+        )}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-loss" />
+              <h3 className="text-lg font-semibold text-foreground">Live Accounts</h3>
+            </div>
+            {isLiveMode && (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-loss/20 text-loss">
+                Active
+              </span>
+            )}
+          </div>
+
+          {liveAccounts.length > 0 ? (
+            <div className="space-y-3">
+              {liveAccounts.map((account) => (
+                <div key={account.provider} className="p-4 rounded-lg bg-secondary/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-foreground capitalize">{account.provider}</span>
+                    {account.lastSynced && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3" />
+                        {account.lastSynced.toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xl font-bold text-foreground">
+                    ${account.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Buying Power: ${account.buyingPower.toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 rounded-lg bg-secondary/30 text-center">
+              <p className="text-muted-foreground text-sm">
+                No broker accounts connected
+              </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-3"
+                onClick={() => navigate('/api-keys')}
+              >
+                Connect Broker
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Control */}
       <div className={cn(
-        'glass-panel p-6 transition-all duration-500 gradient-border',
-        isEnabled && 'border-success/30'
+        'glass-panel p-6 transition-all duration-500',
+        isEnabled && (isLiveMode ? 'border-loss/30' : 'border-success/30')
       )}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className={cn(
               'p-4 rounded-2xl transition-all duration-300',
-              isEnabled ? 'bg-success/20 glow-success' : 'bg-secondary'
+              isEnabled 
+                ? (isLiveMode ? 'bg-loss/20' : 'bg-success/20') 
+                : 'bg-secondary'
             )}>
               <Bot className={cn(
                 'w-8 h-8 transition-colors',
-                isEnabled ? 'text-success' : 'text-muted-foreground'
+                isEnabled 
+                  ? (isLiveMode ? 'text-loss' : 'text-success') 
+                  : 'text-muted-foreground'
               )} />
             </div>
             <div>
@@ -70,35 +276,41 @@ export default function AITrader() {
                   {isEnabled ? 'Autonomous Trading Active' : 'Autonomous Trading Disabled'}
                 </h2>
                 {isEnabled && (
-                  <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-success/20 text-success">
+                  <span className={cn(
+                    'flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full',
+                    isLiveMode ? 'bg-loss/20 text-loss' : 'bg-success/20 text-success'
+                  )}>
                     <Zap className="w-3 h-3" />
-                    FULLY AUTONOMOUS
+                    {isLiveMode ? 'LIVE' : 'PAPER'}
                   </span>
                 )}
               </div>
               <p className="text-muted-foreground">
                 {isEnabled 
-                  ? 'AI is autonomously analyzing markets, selecting strategies, and executing trades'
-                  : 'Enable to let AI fully manage your trading — it will decide when, what, and how to trade'
+                  ? `AI is autonomously trading with ${isLiveMode ? 'real money' : 'simulated funds'}`
+                  : 'Enable to let AI fully manage your trading'
                 }
               </p>
             </div>
           </div>
           <Button 
-            onClick={() => setIsEnabled(!isEnabled)}
+            onClick={toggleEnabled}
+            disabled={isSaving}
             variant={isEnabled ? 'glow-danger' : 'glow-success'}
             size="lg"
             className="gap-2"
           >
-            {isEnabled ? (
+            {isSaving ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : isEnabled ? (
               <>
                 <Pause className="w-5 h-5" />
-                Stop Autonomous Mode
+                Stop Trading
               </>
             ) : (
               <>
                 <Play className="w-5 h-5" />
-                Enable Autonomous Mode
+                Start Trading
               </>
             )}
           </Button>
@@ -111,32 +323,63 @@ export default function AITrader() {
                 <Activity className="w-4 h-4 text-primary" />
                 <span className="text-xs text-muted-foreground">Status</span>
               </div>
-              <p className="text-lg font-bold text-success">Analyzing</p>
+              <p className={cn(
+                'text-lg font-bold',
+                isLiveMode ? 'text-loss' : 'text-success'
+              )}>
+                {aiSettings.botStatus === 'trading' ? 'Analyzing' : aiSettings.botStatus}
+              </p>
             </div>
             <div className="p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">Active Strategy</span>
+                <span className="text-xs text-muted-foreground">Active Balance</span>
               </div>
-              <p className="text-lg font-bold text-foreground">EMA Crossover</p>
+              <p className="text-lg font-bold text-foreground">
+                ${currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </p>
             </div>
             <div className="p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center gap-2 mb-2">
                 <Zap className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">Today's Trades</span>
+                <span className="text-xs text-muted-foreground">Mode</span>
               </div>
-              <p className="text-lg font-bold text-foreground">7</p>
+              <p className={cn(
+                'text-lg font-bold',
+                isLiveMode ? 'text-loss' : 'text-primary'
+              )}>
+                {isLiveMode ? 'Live' : 'Paper'}
+              </p>
             </div>
             <div className="p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center gap-2 mb-2">
                 <Shield className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">Today's P&L</span>
+                <span className="text-xs text-muted-foreground">Max Daily Loss</span>
               </div>
-              <p className="text-lg font-bold text-success">+$1,234.56</p>
+              <p className="text-lg font-bold text-foreground">
+                ${(currentBalance * aiSettings.maxDailyLoss / 100).toLocaleString(undefined, { minimumFractionDigits: 0 })}
+              </p>
             </div>
           </div>
         )}
       </div>
+
+      {/* Live Mode Warning */}
+      {isLiveMode && (
+        <div className="p-4 rounded-lg bg-loss/10 border border-loss/30">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-loss mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium text-loss">Live Trading Mode Active</p>
+              <p className="text-sm text-loss/80 mt-1">
+                The AI will execute real trades using funds from your connected broker accounts. 
+                All trades are final and may result in financial loss. Ensure your risk settings 
+                are configured appropriately.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Capital Allocation */}
@@ -150,31 +393,33 @@ export default function AITrader() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-muted-foreground">Max Capital for AI</span>
-                <span className="font-mono font-medium text-foreground">{riskSettings.maxCapitalPercent}%</span>
+                <span className="font-mono font-medium text-foreground">{aiSettings.maxCapitalUsage}%</span>
               </div>
               <Slider
-                value={[riskSettings.maxCapitalPercent]}
-                onValueChange={([value]) => setRiskSettings(prev => ({ ...prev, maxCapitalPercent: value }))}
+                value={[aiSettings.maxCapitalUsage]}
+                onValueChange={([value]) => updateSettings({ maxCapitalUsage: value })}
                 max={100}
                 step={5}
                 className="w-full"
+                disabled={isSaving}
               />
               <p className="text-xs text-muted-foreground mt-2">
-                AI can use up to ${(125847 * riskSettings.maxCapitalPercent / 100).toLocaleString()} of your balance
+                AI can use up to ${(currentBalance * aiSettings.maxCapitalUsage / 100).toLocaleString()} of your balance
               </p>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-muted-foreground">Max Position Size</span>
-                <span className="font-mono font-medium text-foreground">{riskSettings.maxPositionSize}%</span>
+                <span className="font-mono font-medium text-foreground">{aiSettings.maxPositionSize}%</span>
               </div>
               <Slider
-                value={[riskSettings.maxPositionSize]}
-                onValueChange={([value]) => setRiskSettings(prev => ({ ...prev, maxPositionSize: value }))}
+                value={[aiSettings.maxPositionSize]}
+                onValueChange={([value]) => updateSettings({ maxPositionSize: value })}
                 max={25}
                 step={1}
                 className="w-full"
+                disabled={isSaving}
               />
             </div>
           </div>
@@ -191,31 +436,33 @@ export default function AITrader() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-muted-foreground">Max Daily Loss</span>
-                <span className="font-mono font-medium text-destructive">-{riskSettings.maxDailyLoss}%</span>
+                <span className="font-mono font-medium text-destructive">-{aiSettings.maxDailyLoss}%</span>
               </div>
               <Slider
-                value={[riskSettings.maxDailyLoss]}
-                onValueChange={([value]) => setRiskSettings(prev => ({ ...prev, maxDailyLoss: value }))}
+                value={[aiSettings.maxDailyLoss]}
+                onValueChange={([value]) => updateSettings({ maxDailyLoss: value })}
                 max={10}
                 step={0.5}
                 className="w-full"
+                disabled={isSaving}
               />
               <p className="text-xs text-muted-foreground mt-2">
-                Trading stops if losses reach ${(125847 * riskSettings.maxDailyLoss / 100).toLocaleString()}
+                Trading stops if losses reach ${(currentBalance * aiSettings.maxDailyLoss / 100).toLocaleString()}
               </p>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-muted-foreground">Max Open Trades</span>
-                <span className="font-mono font-medium text-foreground">{riskSettings.maxOpenTrades}</span>
+                <span className="font-mono font-medium text-foreground">{aiSettings.maxConcurrentTrades}</span>
               </div>
               <Slider
-                value={[riskSettings.maxOpenTrades]}
-                onValueChange={([value]) => setRiskSettings(prev => ({ ...prev, maxOpenTrades: value }))}
+                value={[aiSettings.maxConcurrentTrades]}
+                onValueChange={([value]) => updateSettings({ maxConcurrentTrades: value })}
                 max={20}
                 step={1}
                 className="w-full"
+                disabled={isSaving}
               />
             </div>
           </div>
@@ -236,12 +483,18 @@ export default function AITrader() {
                 </div>
                 <div>
                   <p className="font-medium text-foreground">Stocks</p>
-                  <p className="text-xs text-muted-foreground">US equities via Alpaca</p>
+                  <p className="text-xs text-muted-foreground">
+                    US equities via Alpaca
+                    {connectedBrokers.includes('alpaca') && (
+                      <span className="ml-2 text-success">• Connected</span>
+                    )}
+                  </p>
                 </div>
               </div>
               <Switch 
-                checked={allowedMarkets.includes('stocks')}
+                checked={aiSettings.allowedMarkets.includes('stocks')}
                 onCheckedChange={() => toggleMarket('stocks')}
+                disabled={isSaving}
               />
             </div>
 
@@ -252,12 +505,18 @@ export default function AITrader() {
                 </div>
                 <div>
                   <p className="font-medium text-foreground">Crypto</p>
-                  <p className="text-xs text-muted-foreground">Cryptocurrencies via Coinbase</p>
+                  <p className="text-xs text-muted-foreground">
+                    Cryptocurrencies via Coinbase
+                    {connectedBrokers.includes('coinbase') && (
+                      <span className="ml-2 text-success">• Connected</span>
+                    )}
+                  </p>
                 </div>
               </div>
               <Switch 
-                checked={allowedMarkets.includes('crypto')}
+                checked={aiSettings.allowedMarkets.includes('crypto')}
                 onCheckedChange={() => toggleMarket('crypto')}
+                disabled={isSaving}
               />
             </div>
           </div>
@@ -291,17 +550,19 @@ export default function AITrader() {
               </p>
             </div>
 
-            <div className="p-4 rounded-lg bg-warning/10 border border-warning/20">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-warning mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Paper Trading Only</p>
-                  <p className="text-xs text-muted-foreground">
-                    V1 operates in simulation mode. No real money is at risk.
-                  </p>
+            {!isLiveMode && (
+              <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-primary mt-0.5" />
+                  <div>
+                    <p className="font-medium text-foreground">Paper Trading Mode</p>
+                    <p className="text-xs text-muted-foreground">
+                      All trades are simulated. Switch to Live Trading to use real funds.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
