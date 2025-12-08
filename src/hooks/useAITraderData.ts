@@ -56,6 +56,7 @@ export function useAITraderData() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRealtimeUpdate, setIsRealtimeUpdate] = useState(false);
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -137,6 +138,12 @@ export function useAITraderData() {
     }
   }, [user]);
 
+  // Trigger pulse animation
+  const triggerRealtimeUpdate = useCallback(() => {
+    setIsRealtimeUpdate(true);
+    setTimeout(() => setIsRealtimeUpdate(false), 1500);
+  }, []);
+
   useEffect(() => {
     fetchData();
     
@@ -152,6 +159,7 @@ export function useAITraderData() {
         },
         (payload) => {
           console.log('Paper account update:', payload);
+          triggerRealtimeUpdate();
           fetchData();
         }
       )
@@ -169,6 +177,7 @@ export function useAITraderData() {
         },
         (payload) => {
           console.log('Live account update:', payload);
+          triggerRealtimeUpdate();
           fetchData();
         }
       )
@@ -184,7 +193,7 @@ export function useAITraderData() {
       supabase.removeChannel(paperChannel);
       supabase.removeChannel(liveChannel);
     };
-  }, [fetchData]);
+  }, [fetchData, triggerRealtimeUpdate]);
 
   // Update AI settings in database
   const updateSettings = useCallback(async (updates: Partial<AISettings>) => {
@@ -262,7 +271,6 @@ export function useAITraderData() {
     // Sum up all live account equities
     return liveAccounts.reduce((sum, acc) => sum + acc.equity, 0);
   }, [aiSettings.tradingMode, paperAccount.balance, liveAccounts]);
-
   return {
     aiSettings,
     paperAccount,
@@ -271,6 +279,7 @@ export function useAITraderData() {
     isLoading,
     isSaving,
     lastUpdated,
+    isRealtimeUpdate,
     tradingMode: aiSettings.tradingMode,
     isEnabled: aiSettings.enabled,
     currentBalance: getCurrentBalance(),

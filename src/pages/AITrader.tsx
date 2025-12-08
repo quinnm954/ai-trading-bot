@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
+import { RealtimeIndicator } from '@/components/ui/realtime-indicator';
 import { cn } from '@/lib/utils';
 import { useAITraderData } from '@/hooks/useAITraderData';
 import { useNavigate } from 'react-router-dom';
@@ -33,6 +34,7 @@ export default function AITrader() {
     isLoading,
     isSaving,
     lastUpdated,
+    isRealtimeUpdate,
     tradingMode,
     isEnabled,
     currentBalance,
@@ -83,11 +85,12 @@ export default function AITrader() {
             Set your risk limits and let AI make all trading decisions automatically
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <RealtimeIndicator isActive={isRealtimeUpdate} />
           {lastUpdated && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <RefreshCw className="w-3 h-3" />
-              Updated {lastUpdated.toLocaleTimeString()}
+              {lastUpdated.toLocaleTimeString()}
             </span>
           )}
           <Button
@@ -179,12 +182,16 @@ export default function AITrader() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Paper Account */}
         <div className={cn(
-          'glass-panel p-6 transition-all',
-          !isLiveMode && 'ring-2 ring-primary/50'
+          'glass-panel p-6 transition-all duration-300',
+          !isLiveMode && 'ring-2 ring-primary/50',
+          isRealtimeUpdate && 'ring-2 ring-success/50 shadow-[0_0_20px_rgba(34,197,94,0.3)]'
         )}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Wallet className="w-5 h-5 text-primary" />
+              <Wallet className={cn(
+                'w-5 h-5 text-primary transition-all',
+                isRealtimeUpdate && 'animate-pulse text-success'
+              )} />
               <h3 className="text-lg font-semibold text-foreground">Paper Account</h3>
             </div>
             {!isLiveMode && (
@@ -195,9 +202,15 @@ export default function AITrader() {
           </div>
           
           <div className="space-y-3">
-            <div className="p-4 rounded-lg bg-secondary/30">
+            <div className={cn(
+              'p-4 rounded-lg bg-secondary/30 transition-all duration-300',
+              isRealtimeUpdate && 'bg-success/10'
+            )}>
               <p className="text-sm text-muted-foreground mb-1">Balance</p>
-              <p className="text-2xl font-bold text-foreground">
+              <p className={cn(
+                'text-2xl font-bold text-foreground transition-all',
+                isRealtimeUpdate && 'text-success'
+              )}>
                 ${paperAccount.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </p>
               <p className={cn(

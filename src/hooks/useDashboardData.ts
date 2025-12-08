@@ -42,6 +42,7 @@ export function useDashboardData() {
   const [liveAccounts, setLiveAccounts] = useState<LiveAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRealtimeUpdate, setIsRealtimeUpdate] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -160,6 +161,12 @@ export function useDashboardData() {
     }
   }, [user]);
 
+  // Trigger pulse animation
+  const triggerRealtimeUpdate = useCallback(() => {
+    setIsRealtimeUpdate(true);
+    setTimeout(() => setIsRealtimeUpdate(false), 1500);
+  }, []);
+
   useEffect(() => {
     fetchData();
     
@@ -173,7 +180,10 @@ export function useDashboardData() {
           schema: 'public',
           table: 'trades',
         },
-        () => fetchData()
+        () => {
+          triggerRealtimeUpdate();
+          fetchData();
+        }
       )
       .subscribe();
 
@@ -187,7 +197,10 @@ export function useDashboardData() {
           schema: 'public',
           table: 'positions',
         },
-        () => fetchData()
+        () => {
+          triggerRealtimeUpdate();
+          fetchData();
+        }
       )
       .subscribe();
 
@@ -201,7 +214,10 @@ export function useDashboardData() {
           schema: 'public',
           table: 'paper_account',
         },
-        () => fetchData()
+        () => {
+          triggerRealtimeUpdate();
+          fetchData();
+        }
       )
       .subscribe();
 
@@ -216,13 +232,14 @@ export function useDashboardData() {
       supabase.removeChannel(positionsChannel);
       supabase.removeChannel(paperChannel);
     };
-  }, [fetchData]);
+  }, [fetchData, triggerRealtimeUpdate]);
 
   return {
     stats,
     liveAccounts,
     isLoading,
     lastUpdated,
+    isRealtimeUpdate,
     refetch: fetchData,
   };
 }
