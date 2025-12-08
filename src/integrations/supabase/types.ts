@@ -62,6 +62,7 @@ export type Database = {
           max_concurrent_trades: number | null
           max_daily_loss: number | null
           max_position_size: number | null
+          trading_mode: string
           updated_at: string | null
           user_id: string | null
         }
@@ -76,6 +77,7 @@ export type Database = {
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
           max_position_size?: number | null
+          trading_mode?: string
           updated_at?: string | null
           user_id?: string | null
         }
@@ -90,6 +92,7 @@ export type Database = {
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
           max_position_size?: number | null
+          trading_mode?: string
           updated_at?: string | null
           user_id?: string | null
         }
@@ -146,6 +149,42 @@ export type Database = {
         }
         Relationships: []
       }
+      live_account: {
+        Row: {
+          balance: number
+          buying_power: number
+          created_at: string | null
+          equity: number
+          id: string
+          last_synced_at: string | null
+          provider: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          balance?: number
+          buying_power?: number
+          created_at?: string | null
+          equity?: number
+          id?: string
+          last_synced_at?: string | null
+          provider: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          balance?: number
+          buying_power?: number
+          created_at?: string | null
+          equity?: number
+          id?: string
+          last_synced_at?: string | null
+          provider?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       paper_account: {
         Row: {
           balance: number
@@ -179,6 +218,7 @@ export type Database = {
           created_at: string | null
           current_price: number | null
           id: string
+          is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           quantity: number
           side: Database["public"]["Enums"]["trade_side"]
@@ -193,6 +233,7 @@ export type Database = {
           created_at?: string | null
           current_price?: number | null
           id?: string
+          is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           quantity: number
           side: Database["public"]["Enums"]["trade_side"]
@@ -207,6 +248,7 @@ export type Database = {
           created_at?: string | null
           current_price?: number | null
           id?: string
+          is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
           quantity?: number
           side?: Database["public"]["Enums"]["trade_side"]
@@ -262,6 +304,7 @@ export type Database = {
           entry_price: number
           exit_price: number | null
           id: string
+          is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           pnl: number | null
           quantity: number
@@ -278,6 +321,7 @@ export type Database = {
           entry_price: number
           exit_price?: number | null
           id?: string
+          is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           pnl?: number | null
           quantity: number
@@ -294,6 +338,7 @@ export type Database = {
           entry_price?: number
           exit_price?: number | null
           id?: string
+          is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
           pnl?: number | null
           quantity?: number
