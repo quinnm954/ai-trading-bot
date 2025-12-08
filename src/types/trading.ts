@@ -33,10 +33,16 @@ export interface EquityPoint {
   pnl: number;
 }
 
+export type MarketRegime = 'trending' | 'ranging' | 'high_volatility' | 'low_volatility' | 'news_driven';
+
+export type BotStatus = 'idle' | 'learning' | 'trading' | 'paused' | 'error';
+
+export type SafetyStatus = 'green' | 'yellow' | 'red';
+
 export interface Strategy {
   id: string;
   name: string;
-  type: 'rsi' | 'ema_crossover' | 'grid' | 'dca' | 'custom';
+  type: 'rsi' | 'ema_crossover' | 'macd' | 'trend_breakout' | 'volatility_breakout' | 'grid' | 'dca' | 'custom';
   description: string;
   isActive: boolean;
   params: Record<string, number | string | boolean>;
@@ -44,7 +50,10 @@ export interface Strategy {
     winRate: number;
     totalTrades: number;
     profit: number;
+    drawdown?: number;
+    sharpeRatio?: number;
   };
+  regimeScores?: Record<MarketRegime, number>;
 }
 
 export interface RiskSettings {
@@ -57,10 +66,36 @@ export interface RiskSettings {
 
 export interface AITraderState {
   isEnabled: boolean;
-  status: 'idle' | 'analyzing' | 'trading' | 'paused';
+  status: BotStatus;
   lastAnalysis?: Date;
   currentStrategy?: string;
   reason?: string;
+  marketRegime: MarketRegime;
+  safetyStatus: SafetyStatus;
+  capitalAllocation: Record<string, number>;
+}
+
+export interface LearningState {
+  isLearning: boolean;
+  currentPhase: 'idle' | 'backtesting' | 'analyzing' | 'optimizing' | 'complete';
+  progress: number;
+  lastUpdate: Date;
+  bestStrategy: string;
+  bestParams: Record<string, number | string>;
+  regimePerformance: Record<MarketRegime, { strategy: string; score: number }>;
+  totalBacktests: number;
+  improvementPercent: number;
+}
+
+export interface SafetyGovernor {
+  dailyLossUsed: number;
+  dailyLossLimit: number;
+  currentDrawdown: number;
+  maxDrawdownLimit: number;
+  isApiConnected: boolean;
+  volatilityLevel: 'normal' | 'elevated' | 'extreme';
+  tradingAllowed: boolean;
+  pauseReasons: string[];
 }
 
 export interface ApiKey {

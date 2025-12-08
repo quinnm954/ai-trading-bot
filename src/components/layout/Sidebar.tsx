@@ -8,7 +8,8 @@ import {
   Key, 
   Settings,
   TrendingUp,
-  Zap
+  Zap,
+  GraduationCap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +18,7 @@ const navItems = [
   { path: '/strategies', icon: Layers, label: 'Strategies' },
   { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
   { path: '/ai-trader', icon: Bot, label: 'Autonomous AI', badge: 'AUTO' },
+  { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning', badge: 'NEW' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
   { path: '/settings', icon: Settings, label: 'Settings' },

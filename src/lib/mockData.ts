@@ -6,7 +6,10 @@ import type {
   PortfolioStats, 
   MarketData,
   RiskSettings,
-  AITraderState 
+  AITraderState,
+  LearningState,
+  SafetyGovernor,
+  MarketRegime
 } from '@/types/trading';
 
 export const mockPortfolioStats: PortfolioStats = {
@@ -257,8 +260,58 @@ export const mockRiskSettings: RiskSettings = {
 
 export const mockAITraderState: AITraderState = {
   isEnabled: true,
-  status: 'analyzing',
+  status: 'trading',
   lastAnalysis: new Date(),
   currentStrategy: 'EMA Crossover',
   reason: 'Market showing strong bullish momentum. Allocating to trend-following strategies.',
+  marketRegime: 'trending',
+  safetyStatus: 'green',
+  capitalAllocation: {
+    'Trend Strategy': 50,
+    'Momentum Strategy': 30,
+    'RSI Mean Reversion': 20,
+  },
+};
+
+export const mockSafetyGovernor: SafetyGovernor = {
+  dailyLossUsed: 423.50,
+  dailyLossLimit: 2500,
+  currentDrawdown: 2.3,
+  maxDrawdownLimit: 10,
+  isApiConnected: true,
+  volatilityLevel: 'normal',
+  tradingAllowed: true,
+  pauseReasons: [],
+};
+
+export const mockLearningState: LearningState = {
+  isLearning: true,
+  currentPhase: 'optimizing',
+  progress: 73,
+  lastUpdate: new Date(),
+  bestStrategy: 'EMA Crossover',
+  bestParams: {
+    fastPeriod: 9,
+    slowPeriod: 21,
+    stopLoss: 2.5,
+    takeProfit: 5.0,
+    positionSize: 6,
+  },
+  regimePerformance: {
+    trending: { strategy: 'EMA Crossover', score: 89 },
+    ranging: { strategy: 'RSI Strategy', score: 76 },
+    high_volatility: { strategy: 'Grid Bot', score: 68 },
+    low_volatility: { strategy: 'DCA Bot', score: 72 },
+    news_driven: { strategy: 'Cash', score: 45 },
+  },
+  totalBacktests: 1247,
+  improvementPercent: 18.5,
+};
+
+export const mockRegimePerformance: Record<MarketRegime, { strategy: string; score: number }> = {
+  trending: { strategy: 'EMA Crossover', score: 89 },
+  ranging: { strategy: 'RSI Mean Reversion', score: 76 },
+  high_volatility: { strategy: 'Grid Bot', score: 68 },
+  low_volatility: { strategy: 'DCA Bot', score: 72 },
+  news_driven: { strategy: 'Hold Cash', score: 45 },
 };

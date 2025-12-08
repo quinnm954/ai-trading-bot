@@ -2,9 +2,7 @@ import {
   Wallet, 
   TrendingUp, 
   Target, 
-  Activity,
-  BarChart3,
-  Layers
+  Activity
 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { EquityChart } from '@/components/dashboard/EquityChart';
@@ -12,7 +10,9 @@ import { PositionsTable } from '@/components/dashboard/PositionsTable';
 import { AIStatusCard } from '@/components/dashboard/AIStatusCard';
 import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
-import { mockPortfolioStats } from '@/lib/mockData';
+import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
+import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
+import { mockPortfolioStats, mockAITraderState, mockSafetyGovernor } from '@/lib/mockData';
 
 export default function Dashboard() {
   const stats = mockPortfolioStats;
@@ -52,6 +52,12 @@ export default function Dashboard() {
           trend="up"
           icon={Activity}
         />
+      </div>
+
+      {/* Market Regime & Safety Status */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <MarketRegimeCard regime={mockAITraderState.marketRegime} />
+        <SafetyStatusCard safety={mockSafetyGovernor} />
       </div>
 
       {/* Main Content */}
