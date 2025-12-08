@@ -21,6 +21,7 @@ import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
 import { useAITraderData } from '@/hooks/useAITraderData';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function AITrader() {
   const navigate = useNavigate();
@@ -203,11 +204,31 @@ export default function AITrader() {
               <Banknote className="w-5 h-5 text-loss" />
               <h3 className="text-lg font-semibold text-foreground">Live Accounts</h3>
             </div>
-            {isLiveMode && (
-              <span className="px-2 py-0.5 text-xs rounded-full bg-loss/20 text-loss">
-                Active
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {liveAccounts.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await supabase.functions.invoke('sync-broker-balances');
+                      window.location.reload();
+                    } catch (e) {
+                      console.error('Sync failed:', e);
+                    }
+                  }}
+                  className="gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Sync
+                </Button>
+              )}
+              {isLiveMode && (
+                <span className="px-2 py-0.5 text-xs rounded-full bg-loss/20 text-loss">
+                  Active
+                </span>
+              )}
+            </div>
           </div>
 
           {liveAccounts.length > 0 ? (
