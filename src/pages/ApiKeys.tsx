@@ -1,94 +1,106 @@
 import { useState } from 'react';
 import { 
   Key, 
-  Plus, 
   Eye, 
   EyeOff, 
   CheckCircle, 
   XCircle,
   Loader2,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+import { useApiConnections, ApiCredentials } from '@/hooks/useApiConnections';
 
-interface ApiKeyConfig {
-  id: string;
+interface BrokerConfig {
   provider: 'alpaca' | 'coinbase';
   name: string;
-  isConnected: boolean;
-  lastTested?: Date;
-  apiKey: string;
-  secretKey: string;
-  passphrase?: string;
+  logo: string;
+  description: string;
+  docsUrl: string;
+  requiresPassphrase: boolean;
 }
 
-const initialKeys: ApiKeyConfig[] = [
+const brokers: BrokerConfig[] = [
   {
-    id: '1',
     provider: 'alpaca',
     name: 'Alpaca Trading',
-    isConnected: false,
-    apiKey: '',
-    secretKey: '',
+    logo: '🦙',
+    description: 'Commission-free stock trading API',
+    docsUrl: 'https://alpaca.markets/docs/api-references/trading-api/',
+    requiresPassphrase: false,
   },
   {
-    id: '2',
     provider: 'coinbase',
     name: 'Coinbase Advanced',
-    isConnected: false,
-    apiKey: '',
-    secretKey: '',
-    passphrase: '',
+    logo: '💰',
+    description: 'Cryptocurrency trading platform',
+    docsUrl: 'https://docs.cdp.coinbase.com/advanced-trade/docs/welcome',
+    requiresPassphrase: true,
   },
 ];
 
-const providerLogos: Record<string, string> = {
-  alpaca: '🦙',
-  coinbase: '💰',
-};
-
 export default function ApiKeys() {
-  const [keys, setKeys] = useState<ApiKeyConfig[]>(initialKeys);
+  const { connections, loading, getConnection, connectBroker, disconnectBroker } = useApiConnections();
+  const [credentials, setCredentials] = useState<Record<string, Partial<ApiCredentials>>>({});
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [testing, setTesting] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
-  const toggleSecret = (id: string) => {
-    setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleSecret = (key: string) => {
+    setShowSecrets(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const updateKey = (id: string, field: keyof ApiKeyConfig, value: string) => {
-    setKeys(prev => prev.map(key => 
-      key.id === id ? { ...key, [field]: value } : key
-    ));
+  const updateCredential = (provider: string, field: keyof ApiCredentials, value: string) => {
+    setCredentials(prev => ({
+      ...prev,
+      [provider]: { ...prev[provider], [field]: value },
+    }));
   };
 
-  const testConnection = async (id: string) => {
-    setTesting(id);
-    // Simulate API test
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const key = keys.find(k => k.id === id);
-    if (key?.apiKey && key?.secretKey) {
-      setKeys(prev => prev.map(k => 
-        k.id === id ? { ...k, isConnected: true, lastTested: new Date() } : k
-      ));
-      toast.success(`${key.name} connected successfully!`);
-    } else {
-      toast.error('Please fill in all required fields');
+  const getCredential = (provider: string, field: keyof ApiCredentials): string => {
+    return (credentials[provider]?.[field] as string) || '';
+  };
+
+  const handleConnect = async (broker: BrokerConfig) => {
+    const creds = credentials[broker.provider];
+    if (!creds?.apiKey || !creds?.secretKey) {
+      return;
     }
+
+    setTesting(broker.provider);
+    
+    const success = await connectBroker({
+      provider: broker.provider,
+      apiKey: creds.apiKey,
+      secretKey: creds.secretKey,
+      passphrase: creds.passphrase,
+    });
+
+    if (success) {
+      // Clear credentials from local state after successful connection
+      setCredentials(prev => ({ ...prev, [broker.provider]: {} }));
+    }
+
     setTesting(null);
   };
 
-  const disconnectKey = (id: string) => {
-    setKeys(prev => prev.map(key => 
-      key.id === id ? { ...key, isConnected: false, apiKey: '', secretKey: '', passphrase: '' } : key
-    ));
-    toast.success('API key disconnected');
+  const handleDisconnect = async (provider: 'alpaca' | 'coinbase') => {
+    setDisconnecting(provider);
+    await disconnectBroker(provider);
+    setDisconnecting(null);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -111,9 +123,9 @@ export default function ApiKeys() {
           <div>
             <h3 className="font-medium text-foreground">Security Notice</h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Your API keys are encrypted and stored securely. We never have access to your funds - 
-              keys are only used for trading operations you authorize. Enable IP whitelisting on 
-              your exchange for additional security.
+              Your API credentials are validated server-side and never stored in plain text. 
+              We never have access to your funds - keys are only used for trading operations 
+              you authorize. Enable IP whitelisting on your exchange for additional security.
             </p>
           </div>
         </div>
@@ -121,110 +133,90 @@ export default function ApiKeys() {
 
       {/* API Key Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {keys.map((keyConfig) => (
-          <div 
-            key={keyConfig.id}
-            className={cn(
-              'glass-panel p-6 transition-all duration-300',
-              keyConfig.isConnected && 'border-success/30'
-            )}
-          >
-            <div className="flex items-start justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center text-2xl">
-                  {providerLogos[keyConfig.provider]}
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">{keyConfig.name}</h3>
-                  <div className="flex items-center gap-2 mt-1">
-                    {keyConfig.isConnected ? (
-                      <>
-                        <CheckCircle className="w-4 h-4 text-success" />
-                        <span className="text-sm text-success">Connected</span>
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">Not connected</span>
-                      </>
-                    )}
+        {brokers.map((broker) => {
+          const connection = getConnection(broker.provider);
+          const isConnected = connection?.is_connected || false;
+
+          return (
+            <div 
+              key={broker.provider}
+              className={cn(
+                'glass-panel p-6 transition-all duration-300',
+                isConnected && 'border-success/30'
+              )}
+            >
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center text-2xl">
+                    {broker.logo}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">{broker.name}</h3>
+                    <p className="text-xs text-muted-foreground">{broker.description}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {isConnected ? (
+                        <>
+                          <CheckCircle className="w-4 h-4 text-success" />
+                          <span className="text-sm text-success">Connected</span>
+                          {connection?.api_key_hint && (
+                            <span className="text-xs text-muted-foreground">
+                              ({connection.api_key_hint})
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Not connected</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-              {keyConfig.isConnected && (
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  onClick={() => disconnectKey(keyConfig.id)}
-                >
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-muted-foreground mb-2 block">API Key</label>
-                <div className="relative">
-                  <Input
-                    type={showSecrets[`${keyConfig.id}-api`] ? 'text' : 'password'}
-                    value={keyConfig.apiKey}
-                    onChange={(e) => updateKey(keyConfig.id, 'apiKey', e.target.value)}
-                    placeholder="Enter your API key"
-                    className="pr-10 bg-secondary border-border"
-                  />
-                  <button
-                    onClick={() => toggleSecret(`${keyConfig.id}-api`)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                <div className="flex items-center gap-2">
+                  <a 
+                    href={broker.docsUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    {showSecrets[`${keyConfig.id}-api`] ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  {isConnected && (
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => handleDisconnect(broker.provider)}
+                      disabled={disconnecting === broker.provider}
+                    >
+                      {disconnecting === broker.provider ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm text-muted-foreground mb-2 block">Secret Key</label>
-                <div className="relative">
-                  <Input
-                    type={showSecrets[`${keyConfig.id}-secret`] ? 'text' : 'password'}
-                    value={keyConfig.secretKey}
-                    onChange={(e) => updateKey(keyConfig.id, 'secretKey', e.target.value)}
-                    placeholder="Enter your secret key"
-                    className="pr-10 bg-secondary border-border"
-                  />
-                  <button
-                    onClick={() => toggleSecret(`${keyConfig.id}-secret`)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showSecrets[`${keyConfig.id}-secret`] ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {keyConfig.provider === 'coinbase' && (
+              <div className="space-y-4">
                 <div>
-                  <label className="text-sm text-muted-foreground mb-2 block">Passphrase</label>
+                  <label className="text-sm text-muted-foreground mb-2 block">API Key</label>
                   <div className="relative">
                     <Input
-                      type={showSecrets[`${keyConfig.id}-pass`] ? 'text' : 'password'}
-                      value={keyConfig.passphrase || ''}
-                      onChange={(e) => updateKey(keyConfig.id, 'passphrase', e.target.value)}
-                      placeholder="Enter your passphrase"
+                      type={showSecrets[`${broker.provider}-api`] ? 'text' : 'password'}
+                      value={getCredential(broker.provider, 'apiKey')}
+                      onChange={(e) => updateCredential(broker.provider, 'apiKey', e.target.value)}
+                      placeholder={isConnected ? '••••••••' : 'Enter your API key'}
                       className="pr-10 bg-secondary border-border"
+                      disabled={isConnected}
                     />
                     <button
-                      onClick={() => toggleSecret(`${keyConfig.id}-pass`)}
+                      type="button"
+                      onClick={() => toggleSecret(`${broker.provider}-api`)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
-                      {showSecrets[`${keyConfig.id}-pass`] ? (
+                      {showSecrets[`${broker.provider}-api`] ? (
                         <EyeOff className="w-4 h-4" />
                       ) : (
                         <Eye className="w-4 h-4" />
@@ -232,40 +224,112 @@ export default function ApiKeys() {
                     </button>
                   </div>
                 </div>
-              )}
 
-              <Button 
-                onClick={() => testConnection(keyConfig.id)}
-                disabled={testing === keyConfig.id}
-                variant={keyConfig.isConnected ? 'outline' : 'glow'}
-                className="w-full gap-2"
-              >
-                {testing === keyConfig.id ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Testing Connection...
-                  </>
-                ) : keyConfig.isConnected ? (
-                  <>
-                    <RefreshCw className="w-4 h-4" />
-                    Retest Connection
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-4 h-4" />
-                    Test Connection
-                  </>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-2 block">Secret Key</label>
+                  <div className="relative">
+                    <Input
+                      type={showSecrets[`${broker.provider}-secret`] ? 'text' : 'password'}
+                      value={getCredential(broker.provider, 'secretKey')}
+                      onChange={(e) => updateCredential(broker.provider, 'secretKey', e.target.value)}
+                      placeholder={isConnected ? '••••••••' : 'Enter your secret key'}
+                      className="pr-10 bg-secondary border-border"
+                      disabled={isConnected}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleSecret(`${broker.provider}-secret`)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showSecrets[`${broker.provider}-secret`] ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {broker.requiresPassphrase && (
+                  <div>
+                    <label className="text-sm text-muted-foreground mb-2 block">
+                      Passphrase <span className="text-xs">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type={showSecrets[`${broker.provider}-pass`] ? 'text' : 'password'}
+                        value={getCredential(broker.provider, 'passphrase')}
+                        onChange={(e) => updateCredential(broker.provider, 'passphrase', e.target.value)}
+                        placeholder={isConnected ? '••••••••' : 'Enter your passphrase'}
+                        className="pr-10 bg-secondary border-border"
+                        disabled={isConnected}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleSecret(`${broker.provider}-pass`)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showSecrets[`${broker.provider}-pass`] ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 )}
-              </Button>
 
-              {keyConfig.lastTested && (
-                <p className="text-xs text-muted-foreground text-center">
-                  Last tested: {keyConfig.lastTested.toLocaleString()}
-                </p>
-              )}
+                {!isConnected && (
+                  <Button 
+                    onClick={() => handleConnect(broker)}
+                    disabled={testing === broker.provider || !getCredential(broker.provider, 'apiKey') || !getCredential(broker.provider, 'secretKey')}
+                    variant="glow"
+                    className="w-full gap-2"
+                  >
+                    {testing === broker.provider ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Testing Connection...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Connect {broker.name}
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {isConnected && (
+                  <Button 
+                    onClick={() => handleConnect(broker)}
+                    disabled={testing === broker.provider}
+                    variant="outline"
+                    className="w-full gap-2"
+                  >
+                    {testing === broker.provider ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        Sync Account Balance
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {connection?.updated_at && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Last updated: {new Date(connection.updated_at).toLocaleString()}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
