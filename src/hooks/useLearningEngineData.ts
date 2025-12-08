@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import type { LearningState, MarketRegime } from '@/types/trading';
 import { mockLearningState } from '@/lib/mockData';
 
@@ -9,6 +10,7 @@ interface RegimePerformance {
 }
 
 export function useLearningEngineData() {
+  const { user } = useAuth();
   const [learningState, setLearningState] = useState<LearningState>(mockLearningState);
   const [regimePerformance, setRegimePerformance] = useState<Record<MarketRegime, RegimePerformance>>(
     mockLearningState.regimePerformance
@@ -29,7 +31,13 @@ export function useLearningEngineData() {
   };
 
   const fetchStrategyPerformance = useCallback(async () => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+    
     try {
+      // RLS policies automatically filter by user_id = auth.uid()
       const { data, error } = await supabase
         .from('strategy_performance')
         .select('*')
@@ -37,6 +45,7 @@ export function useLearningEngineData() {
 
       if (error) {
         console.error('Error fetching strategy performance:', error);
+        setIsLoading(false);
         return;
       }
 
@@ -74,7 +83,7 @@ export function useLearningEngineData() {
           ...prev,
           bestStrategy: strategyDisplayName[bestPerformance.strategy] || bestPerformance.strategy,
           totalBacktests,
-          improvementPercent: Math.round(avgScore / 5), // Approximate improvement
+          improvementPercent: Math.round(avgScore / 5),
           lastUpdate: new Date(),
         }));
       }
@@ -83,7 +92,7 @@ export function useLearningEngineData() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const toggleLearning = useCallback(() => {
     setIsRunning((prev) => !prev);
