@@ -1,0 +1,234 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
+import type { RiskSettings } from '@/types/trading';
+
+type TradingMode = 'paper' | 'live';
+type BotStatus = 'idle' | 'learning' | 'trading' | 'paused' | 'error';
+
+interface AISettings {
+  enabled: boolean;
+  botStatus: BotStatus;
+  tradingMode: TradingMode;
+  maxCapitalUsage: number;
+  maxPositionSize: number;
+  maxDailyLoss: number;
+  maxConcurrentTrades: number;
+  allowedMarkets: string[];
+}
+
+interface AccountBalance {
+  provider: string;
+  balance: number;
+  buyingPower: number;
+  equity: number;
+  lastSynced: Date | null;
+}
+
+interface PaperAccount {
+  balance: number;
+  initialBalance: number;
+}
+
+export function useAITraderData() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  const [aiSettings, setAISettings] = useState<AISettings>({
+    enabled: false,
+    botStatus: 'idle',
+    tradingMode: 'paper',
+    maxCapitalUsage: 80,
+    maxPositionSize: 10,
+    maxDailyLoss: 5,
+    maxConcurrentTrades: 5,
+    allowedMarkets: ['stocks', 'crypto'],
+  });
+  
+  const [paperAccount, setPaperAccount] = useState<PaperAccount>({
+    balance: 100000,
+    initialBalance: 100000,
+  });
+  
+  const [liveAccounts, setLiveAccounts] = useState<AccountBalance[]>([]);
+  const [connectedBrokers, setConnectedBrokers] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Fetch all data
+  const fetchData = useCallback(async () => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // Fetch AI settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('ai_settings')
+        .select('*')
+        .maybeSingle();
+
+      if (settingsError) {
+        console.error('Error fetching AI settings:', settingsError);
+      } else if (settingsData) {
+        setAISettings({
+          enabled: settingsData.enabled ?? false,
+          botStatus: (settingsData.bot_status as BotStatus) ?? 'idle',
+          tradingMode: (settingsData.trading_mode as TradingMode) ?? 'paper',
+          maxCapitalUsage: Number(settingsData.max_capital_usage) ?? 80,
+          maxPositionSize: Number(settingsData.max_position_size) ?? 10,
+          maxDailyLoss: Number(settingsData.max_daily_loss) ?? 5,
+          maxConcurrentTrades: settingsData.max_concurrent_trades ?? 5,
+          allowedMarkets: settingsData.allowed_markets ?? ['stocks', 'crypto'],
+        });
+      }
+
+      // Fetch paper account
+      const { data: paperData, error: paperError } = await supabase
+        .from('paper_account')
+        .select('*')
+        .maybeSingle();
+
+      if (paperError) {
+        console.error('Error fetching paper account:', paperError);
+      } else if (paperData) {
+        setPaperAccount({
+          balance: Number(paperData.balance) ?? 100000,
+          initialBalance: Number(paperData.initial_balance) ?? 100000,
+        });
+      }
+
+      // Fetch connected brokers
+      const { data: connectionsData, error: connectionsError } = await supabase
+        .from('api_connections')
+        .select('provider, is_connected')
+        .eq('is_connected', true);
+
+      if (connectionsError) {
+        console.error('Error fetching connections:', connectionsError);
+      } else if (connectionsData) {
+        setConnectedBrokers(connectionsData.map(c => c.provider));
+      }
+
+      // Fetch live account balances
+      const { data: liveData, error: liveError } = await supabase
+        .from('live_account')
+        .select('*');
+
+      if (liveError) {
+        console.error('Error fetching live accounts:', liveError);
+      } else if (liveData) {
+        setLiveAccounts(liveData.map(acc => ({
+          provider: acc.provider,
+          balance: Number(acc.balance) ?? 0,
+          buyingPower: Number(acc.buying_power) ?? 0,
+          equity: Number(acc.equity) ?? 0,
+          lastSynced: acc.last_synced_at ? new Date(acc.last_synced_at) : null,
+        })));
+      }
+    } catch (error) {
+      console.error('Error in fetchData:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Update AI settings in database
+  const updateSettings = useCallback(async (updates: Partial<AISettings>) => {
+    if (!user) return;
+
+    setIsSaving(true);
+    
+    const dbUpdates: Record<string, unknown> = {};
+    if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
+    if (updates.botStatus !== undefined) dbUpdates.bot_status = updates.botStatus;
+    if (updates.tradingMode !== undefined) dbUpdates.trading_mode = updates.tradingMode;
+    if (updates.maxCapitalUsage !== undefined) dbUpdates.max_capital_usage = updates.maxCapitalUsage;
+    if (updates.maxPositionSize !== undefined) dbUpdates.max_position_size = updates.maxPositionSize;
+    if (updates.maxDailyLoss !== undefined) dbUpdates.max_daily_loss = updates.maxDailyLoss;
+    if (updates.maxConcurrentTrades !== undefined) dbUpdates.max_concurrent_trades = updates.maxConcurrentTrades;
+    if (updates.allowedMarkets !== undefined) dbUpdates.allowed_markets = updates.allowedMarkets;
+
+    try {
+      const { error } = await supabase
+        .from('ai_settings')
+        .update(dbUpdates)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setAISettings(prev => ({ ...prev, ...updates }));
+    } catch (error) {
+      console.error('Error updating settings:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save settings. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [user, toast]);
+
+  // Toggle trading mode
+  const setTradingMode = useCallback(async (mode: TradingMode) => {
+    if (mode === 'live' && connectedBrokers.length === 0) {
+      toast({
+        title: 'No Broker Connected',
+        description: 'Please connect Alpaca or Coinbase in API Keys to enable live trading.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    await updateSettings({ tradingMode: mode });
+    
+    toast({
+      title: mode === 'live' ? 'Live Trading Mode' : 'Paper Trading Mode',
+      description: mode === 'live' 
+        ? 'AI Trader will now execute real trades on your connected broker accounts.'
+        : 'AI Trader is now in simulation mode. No real money will be used.',
+    });
+  }, [connectedBrokers.length, updateSettings, toast]);
+
+  // Toggle AI enabled
+  const toggleEnabled = useCallback(async () => {
+    const newEnabled = !aiSettings.enabled;
+    await updateSettings({ 
+      enabled: newEnabled,
+      botStatus: newEnabled ? 'trading' : 'idle',
+    });
+  }, [aiSettings.enabled, updateSettings]);
+
+  // Get current balance based on mode
+  const getCurrentBalance = useCallback(() => {
+    if (aiSettings.tradingMode === 'paper') {
+      return paperAccount.balance;
+    }
+    
+    // Sum up all live account equities
+    return liveAccounts.reduce((sum, acc) => sum + acc.equity, 0);
+  }, [aiSettings.tradingMode, paperAccount.balance, liveAccounts]);
+
+  return {
+    aiSettings,
+    paperAccount,
+    liveAccounts,
+    connectedBrokers,
+    isLoading,
+    isSaving,
+    tradingMode: aiSettings.tradingMode,
+    isEnabled: aiSettings.enabled,
+    currentBalance: getCurrentBalance(),
+    setTradingMode,
+    toggleEnabled,
+    updateSettings,
+    refetch: fetchData,
+  };
+}
