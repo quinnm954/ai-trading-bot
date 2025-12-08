@@ -1,20 +1,19 @@
-import { useState } from 'react';
 import { 
   Brain, 
   Play, 
   Pause, 
   RefreshCw, 
   TrendingUp,
-  BarChart3,
   Target,
   Zap,
   CheckCircle,
   Clock,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { mockLearningState, mockRegimePerformance } from '@/lib/mockData';
+import { useLearningEngineData } from '@/hooks/useLearningEngineData';
 import type { MarketRegime } from '@/types/trading';
 
 const regimeLabels: Record<MarketRegime, string> = {
@@ -34,13 +33,13 @@ const regimeColors: Record<MarketRegime, string> = {
 };
 
 export default function AILearningEngine() {
-  const [learningState, setLearningState] = useState(mockLearningState);
-  const [isRunning, setIsRunning] = useState(learningState.isLearning);
-
-  const toggleLearning = () => {
-    setIsRunning(!isRunning);
-    setLearningState(prev => ({ ...prev, isLearning: !prev.isLearning }));
-  };
+  const { 
+    learningState, 
+    regimePerformance, 
+    isLoading, 
+    isRunning, 
+    toggleLearning 
+  } = useLearningEngineData();
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -153,31 +152,37 @@ export default function AILearningEngine() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(Object.keys(regimeLabels) as MarketRegime[]).map((regime) => {
-            const performance = mockRegimePerformance[regime];
-            return (
-              <div 
-                key={regime}
-                className="p-4 rounded-lg bg-secondary/30 border border-border/50"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <span className={cn('text-sm font-medium', regimeColors[regime])}>
-                    {regimeLabels[regime]}
-                  </span>
-                  <span className="px-2 py-0.5 text-xs rounded bg-primary/20 text-primary">
-                    Score: {performance.score}
-                  </span>
+          {isLoading ? (
+            <div className="col-span-full flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            </div>
+          ) : (
+            (Object.keys(regimeLabels) as MarketRegime[]).map((regime) => {
+              const performance = regimePerformance[regime];
+              return (
+                <div 
+                  key={regime}
+                  className="p-4 rounded-lg bg-secondary/30 border border-border/50 transition-all duration-300"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <span className={cn('text-sm font-medium', regimeColors[regime])}>
+                      {regimeLabels[regime]}
+                    </span>
+                    <span className="px-2 py-0.5 text-xs rounded bg-primary/20 text-primary">
+                      Score: {performance.score}
+                    </span>
+                  </div>
+                  <p className="text-lg font-bold text-foreground">{performance.strategy}</p>
+                  <div className="mt-2 h-2 rounded-full bg-secondary overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-primary to-profit transition-all duration-500"
+                      style={{ width: `${performance.score}%` }}
+                    />
+                  </div>
                 </div>
-                <p className="text-lg font-bold text-foreground">{performance.strategy}</p>
-                <div className="mt-2 h-2 rounded-full bg-secondary overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-primary to-profit"
-                    style={{ width: `${performance.score}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
