@@ -20,13 +20,18 @@ export function AIStatusCard() {
             )} />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-foreground">AI Auto-Trader</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-foreground">Fully Autonomous AI</h3>
+              <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-primary/20 text-primary animate-pulse">
+                AUTO
+              </span>
+            </div>
             <div className="flex items-center gap-2 mt-1">
               {state.isEnabled ? (
                 <>
                   <span className="flex items-center gap-1 text-success text-sm">
                     <Zap className="w-3 h-3" />
-                    Active
+                    Running Autonomously
                   </span>
                   <span className="text-muted-foreground text-sm">•</span>
                   <span className="text-muted-foreground text-sm capitalize">{state.status}</span>

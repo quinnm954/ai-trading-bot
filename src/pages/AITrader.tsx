@@ -33,11 +33,18 @@ export default function AITrader() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Bot className="w-7 h-7 text-primary" />
-            AI Auto-Trader
-          </h1>
-          <p className="text-muted-foreground">Autonomous AI trading with configurable risk controls</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Bot className="w-7 h-7 text-primary" />
+              Fully Autonomous AI Trader
+            </h1>
+            <span className="px-2 py-1 text-xs font-bold rounded-full bg-primary/20 text-primary border border-primary/30 animate-pulse">
+              AUTONOMOUS
+            </span>
+          </div>
+          <p className="text-muted-foreground mt-1">
+            Set your risk limits and let AI make all trading decisions automatically — no manual intervention required
+          </p>
         </div>
       </div>
 
@@ -58,13 +65,21 @@ export default function AITrader() {
               )} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-foreground">
-                AI Auto-Trading {isEnabled ? 'Active' : 'Disabled'}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-foreground">
+                  {isEnabled ? 'Autonomous Trading Active' : 'Autonomous Trading Disabled'}
+                </h2>
+                {isEnabled && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-success/20 text-success">
+                    <Zap className="w-3 h-3" />
+                    FULLY AUTONOMOUS
+                  </span>
+                )}
+              </div>
               <p className="text-muted-foreground">
                 {isEnabled 
-                  ? 'AI is actively analyzing markets and executing trades'
-                  : 'Enable to let AI manage your trading automatically'
+                  ? 'AI is autonomously analyzing markets, selecting strategies, and executing trades'
+                  : 'Enable to let AI fully manage your trading — it will decide when, what, and how to trade'
                 }
               </p>
             </div>
@@ -78,12 +93,12 @@ export default function AITrader() {
             {isEnabled ? (
               <>
                 <Pause className="w-5 h-5" />
-                Stop Trading
+                Stop Autonomous Mode
               </>
             ) : (
               <>
                 <Play className="w-5 h-5" />
-                Start Trading
+                Enable Autonomous Mode
               </>
             )}
           </Button>
