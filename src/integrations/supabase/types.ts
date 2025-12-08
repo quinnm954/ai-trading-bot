@@ -14,7 +14,297 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      ai_decisions: {
+        Row: {
+          action: string | null
+          created_at: string | null
+          decision_type: string
+          id: string
+          market_regime: Database["public"]["Enums"]["market_regime"] | null
+          reasoning: string
+          strategy: Database["public"]["Enums"]["strategy_type"] | null
+          symbol: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action?: string | null
+          created_at?: string | null
+          decision_type: string
+          id?: string
+          market_regime?: Database["public"]["Enums"]["market_regime"] | null
+          reasoning: string
+          strategy?: Database["public"]["Enums"]["strategy_type"] | null
+          symbol?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string | null
+          created_at?: string | null
+          decision_type?: string
+          id?: string
+          market_regime?: Database["public"]["Enums"]["market_regime"] | null
+          reasoning?: string
+          strategy?: Database["public"]["Enums"]["strategy_type"] | null
+          symbol?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      ai_settings: {
+        Row: {
+          allowed_markets: string[] | null
+          bot_status: Database["public"]["Enums"]["bot_status"] | null
+          created_at: string | null
+          current_regime: Database["public"]["Enums"]["market_regime"] | null
+          enabled: boolean | null
+          id: string
+          max_capital_usage: number | null
+          max_concurrent_trades: number | null
+          max_daily_loss: number | null
+          max_position_size: number | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          allowed_markets?: string[] | null
+          bot_status?: Database["public"]["Enums"]["bot_status"] | null
+          created_at?: string | null
+          current_regime?: Database["public"]["Enums"]["market_regime"] | null
+          enabled?: boolean | null
+          id?: string
+          max_capital_usage?: number | null
+          max_concurrent_trades?: number | null
+          max_daily_loss?: number | null
+          max_position_size?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          allowed_markets?: string[] | null
+          bot_status?: Database["public"]["Enums"]["bot_status"] | null
+          created_at?: string | null
+          current_regime?: Database["public"]["Enums"]["market_regime"] | null
+          enabled?: boolean | null
+          id?: string
+          max_capital_usage?: number | null
+          max_concurrent_trades?: number | null
+          max_daily_loss?: number | null
+          max_position_size?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      api_connections: {
+        Row: {
+          api_key_hint: string | null
+          created_at: string | null
+          id: string
+          is_connected: boolean | null
+          provider: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          api_key_hint?: string | null
+          created_at?: string | null
+          id?: string
+          is_connected?: boolean | null
+          provider: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          api_key_hint?: string | null
+          created_at?: string | null
+          id?: string
+          is_connected?: boolean | null
+          provider?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      equity_history: {
+        Row: {
+          equity: number
+          id: string
+          recorded_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          equity: number
+          id?: string
+          recorded_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          equity?: number
+          id?: string
+          recorded_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      paper_account: {
+        Row: {
+          balance: number
+          created_at: string | null
+          id: string
+          initial_balance: number
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          balance?: number
+          created_at?: string | null
+          id?: string
+          initial_balance?: number
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          balance?: number
+          created_at?: string | null
+          id?: string
+          initial_balance?: number
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      positions: {
+        Row: {
+          avg_entry_price: number
+          created_at: string | null
+          current_price: number | null
+          id: string
+          market_type: Database["public"]["Enums"]["market_type"]
+          quantity: number
+          side: Database["public"]["Enums"]["trade_side"]
+          strategy: Database["public"]["Enums"]["strategy_type"] | null
+          symbol: string
+          unrealized_pnl: number | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          avg_entry_price: number
+          created_at?: string | null
+          current_price?: number | null
+          id?: string
+          market_type: Database["public"]["Enums"]["market_type"]
+          quantity: number
+          side: Database["public"]["Enums"]["trade_side"]
+          strategy?: Database["public"]["Enums"]["strategy_type"] | null
+          symbol: string
+          unrealized_pnl?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          avg_entry_price?: number
+          created_at?: string | null
+          current_price?: number | null
+          id?: string
+          market_type?: Database["public"]["Enums"]["market_type"]
+          quantity?: number
+          side?: Database["public"]["Enums"]["trade_side"]
+          strategy?: Database["public"]["Enums"]["strategy_type"] | null
+          symbol?: string
+          unrealized_pnl?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      strategy_performance: {
+        Row: {
+          avg_profit: number | null
+          id: string
+          market_regime: Database["public"]["Enums"]["market_regime"]
+          score: number | null
+          strategy: Database["public"]["Enums"]["strategy_type"]
+          total_trades: number | null
+          updated_at: string | null
+          user_id: string | null
+          win_rate: number | null
+        }
+        Insert: {
+          avg_profit?: number | null
+          id?: string
+          market_regime: Database["public"]["Enums"]["market_regime"]
+          score?: number | null
+          strategy: Database["public"]["Enums"]["strategy_type"]
+          total_trades?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+          win_rate?: number | null
+        }
+        Update: {
+          avg_profit?: number | null
+          id?: string
+          market_regime?: Database["public"]["Enums"]["market_regime"]
+          score?: number | null
+          strategy?: Database["public"]["Enums"]["strategy_type"]
+          total_trades?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
+      trades: {
+        Row: {
+          ai_reasoning: string | null
+          closed_at: string | null
+          created_at: string | null
+          entry_price: number
+          exit_price: number | null
+          id: string
+          market_type: Database["public"]["Enums"]["market_type"]
+          pnl: number | null
+          quantity: number
+          side: Database["public"]["Enums"]["trade_side"]
+          status: Database["public"]["Enums"]["trade_status"]
+          strategy: Database["public"]["Enums"]["strategy_type"] | null
+          symbol: string
+          user_id: string | null
+        }
+        Insert: {
+          ai_reasoning?: string | null
+          closed_at?: string | null
+          created_at?: string | null
+          entry_price: number
+          exit_price?: number | null
+          id?: string
+          market_type: Database["public"]["Enums"]["market_type"]
+          pnl?: number | null
+          quantity: number
+          side: Database["public"]["Enums"]["trade_side"]
+          status?: Database["public"]["Enums"]["trade_status"]
+          strategy?: Database["public"]["Enums"]["strategy_type"] | null
+          symbol: string
+          user_id?: string | null
+        }
+        Update: {
+          ai_reasoning?: string | null
+          closed_at?: string | null
+          created_at?: string | null
+          entry_price?: number
+          exit_price?: number | null
+          id?: string
+          market_type?: Database["public"]["Enums"]["market_type"]
+          pnl?: number | null
+          quantity?: number
+          side?: Database["public"]["Enums"]["trade_side"]
+          status?: Database["public"]["Enums"]["trade_status"]
+          strategy?: Database["public"]["Enums"]["strategy_type"] | null
+          symbol?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +313,25 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      bot_status: "idle" | "learning" | "trading"
+      market_regime:
+        | "trending"
+        | "ranging"
+        | "high_volatility"
+        | "low_volatility"
+        | "news_driven"
+      market_type: "stocks" | "crypto"
+      strategy_type:
+        | "rsi"
+        | "ema_crossover"
+        | "macd"
+        | "trend_breakout"
+        | "volatility_breakout"
+        | "grid"
+        | "dca"
+        | "custom"
+      trade_side: "buy" | "sell"
+      trade_status: "open" | "closed" | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +458,28 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      bot_status: ["idle", "learning", "trading"],
+      market_regime: [
+        "trending",
+        "ranging",
+        "high_volatility",
+        "low_volatility",
+        "news_driven",
+      ],
+      market_type: ["stocks", "crypto"],
+      strategy_type: [
+        "rsi",
+        "ema_crossover",
+        "macd",
+        "trend_breakout",
+        "volatility_breakout",
+        "grid",
+        "dca",
+        "custom",
+      ],
+      trade_side: ["buy", "sell"],
+      trade_status: ["open", "closed", "cancelled"],
+    },
   },
 } as const
