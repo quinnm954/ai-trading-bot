@@ -41,16 +41,39 @@ async function testAlpacaConnection(apiKey: string, secretKey: string) {
 }
 
 async function testCoinbaseConnection(apiKey: string, secretKey: string, passphrase?: string) {
-  // Coinbase Advanced Trade API authentication
+  // Coinbase has two API types:
+  // 1. Legacy Exchange API - uses HMAC + passphrase (secret is base64 encoded)
+  // 2. CDP Advanced Trade API - uses JWT with EC private key
+  
+  // Detect if this is a CDP API key (starts with "organizations/")
+  const isCdpKey = apiKey.startsWith("organizations/");
+  
+  if (isCdpKey) {
+    // CDP API uses JWT authentication - not yet supported
+    throw new Error("CDP API keys (starting with 'organizations/') require JWT authentication. Please use Legacy API keys from the Coinbase Exchange API settings, or create API keys in the Coinbase Developer Platform with REST API access.");
+  }
+  
+  // Legacy Exchange API authentication
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const method = "GET";
   const requestPath = "/api/v3/brokerage/accounts";
+  const body = "";
   
   // Create signature - secret key is base64 encoded, must decode first
-  const message = timestamp + method + requestPath;
+  const message = timestamp + method + requestPath + body;
   
-  // Decode the base64 secret key
-  const decodedSecret = Uint8Array.from(atob(secretKey), c => c.charCodeAt(0));
+  let decodedSecret: ArrayBuffer;
+  try {
+    const binaryString = atob(secretKey);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    decodedSecret = bytes.buffer;
+  } catch (e) {
+    throw new Error("Invalid secret key format. The secret key should be base64 encoded. Please check your Coinbase API credentials.");
+  }
+  
   const messageData = new TextEncoder().encode(message);
   
   const cryptoKey = await crypto.subtle.importKey(
@@ -71,18 +94,28 @@ async function testCoinbaseConnection(apiKey: string, secretKey: string, passphr
     "Content-Type": "application/json",
   };
 
+  // Passphrase is required for legacy Exchange API
   if (passphrase) {
     headers["CB-ACCESS-PASSPHRASE"] = passphrase;
+  } else {
+    throw new Error("Passphrase is required for Coinbase Exchange API authentication. Please provide your API passphrase.");
   }
 
+  console.log("Attempting Coinbase connection with timestamp:", timestamp);
+  
   const response = await fetch("https://api.coinbase.com" + requestPath, {
     method: "GET",
     headers,
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Coinbase API error: ${error}`);
+    const errorText = await response.text();
+    console.error("Coinbase API error response:", response.status, errorText);
+    
+    if (response.status === 401) {
+      throw new Error("Invalid API credentials. Please verify your API Key, Secret, and Passphrase are correct. Make sure you're using Coinbase Exchange API keys (not CDP keys).");
+    }
+    throw new Error(`Coinbase API error (${response.status}): ${errorText}`);
   }
 
   const data = await response.json();
