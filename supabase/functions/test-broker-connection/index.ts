@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { encode as base64UrlEncode } from "https://deno.land/std@0.168.0/encoding/base64url.ts";
+import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,26 +41,8 @@ async function testAlpacaConnection(apiKey: string, secretKey: string) {
   };
 }
 
-// Generate JWT for CDP API authentication
+// Generate JWT for CDP API authentication using jose library
 async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<string> {
-  const currentTime = Math.floor(Date.now() / 1000);
-  
-  // JWT header
-  const header = {
-    alg: "ES256",
-    kid: apiKey,
-    nonce: crypto.randomUUID(),
-    typ: "JWT"
-  };
-  
-  // JWT payload
-  const payload = {
-    iss: "cdp",
-    nbf: currentTime,
-    exp: currentTime + 120, // Valid for 2 minutes
-    sub: apiKey,
-  };
-  
   // Clean up the private key - handle various formats and escape sequences
   let cleanKey = privateKeyPem.trim();
   
@@ -73,236 +55,160 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
   console.log("Processing private key, original length:", privateKeyPem.length, "cleaned length:", cleanKey.length);
   console.log("Key starts with:", cleanKey.substring(0, 50));
   
-  // Extract just the base64 content from the PEM
-  let pemContents: string;
-  
-  if (cleanKey.includes("-----BEGIN")) {
-    // It's a PEM formatted key - extract content between headers
-    const beginMatch = cleanKey.match(/-----BEGIN[^-]+-----/);
-    const endMatch = cleanKey.match(/-----END[^-]+-----/);
-    
-    if (beginMatch && endMatch) {
-      const startIdx = cleanKey.indexOf(beginMatch[0]) + beginMatch[0].length;
-      const endIdx = cleanKey.indexOf(endMatch[0]);
-      pemContents = cleanKey.substring(startIdx, endIdx);
-    } else {
-      // Fallback: just remove known headers
-      pemContents = cleanKey
-        .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
-        .replace(/-----END EC PRIVATE KEY-----/g, "")
-        .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-        .replace(/-----END PRIVATE KEY-----/g, "");
-    }
-    
-    // Remove ALL whitespace including newlines
-    pemContents = pemContents.replace(/\s+/g, "");
-  } else {
-    // Assume it's raw base64, just clean whitespace
-    pemContents = cleanKey.replace(/\s+/g, "");
+  // Ensure the key has proper PEM headers
+  if (!cleanKey.includes("-----BEGIN")) {
+    // Try to wrap it as EC private key
+    cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
   }
   
-  console.log("PEM contents length after cleanup:", pemContents.length);
-  console.log("First 20 chars of base64:", pemContents.substring(0, 20));
+  let privateKey: jose.KeyLike;
   
-  // Validate base64 characters - be more lenient and filter out invalid chars
-  const validBase64 = pemContents.replace(/[^A-Za-z0-9+/=]/g, "");
-  
-  if (validBase64.length === 0) {
-    throw new Error("Private key appears to be empty or contains no valid base64 content. Please paste the complete EC private key including the -----BEGIN and -----END lines.");
-  }
-  
-  if (validBase64.length !== pemContents.length) {
-    console.log("Removed", pemContents.length - validBase64.length, "invalid characters from base64");
-    pemContents = validBase64;
-  }
-  
-  // Decode base64 to get the key bytes
-  let keyBytes: Uint8Array;
   try {
-    const binaryString = atob(pemContents);
-    keyBytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      keyBytes[i] = binaryString.charCodeAt(i);
-    }
-  } catch (e: any) {
-    throw new Error(`Failed to decode private key: ${e.message}`);
-  }
-  
-  console.log("Key bytes length:", keyBytes.length);
-  
-  // Parse SEC1 EC key and convert to PKCS8 format for Web Crypto API
-  // SEC1 structure: SEQUENCE { version INTEGER, privateKey OCTET STRING, [0] parameters, [1] publicKey }
-  const convertSec1ToPkcs8 = (sec1Key: Uint8Array): Uint8Array => {
-    console.log("SEC1 key first bytes:", Array.from(sec1Key.slice(0, 10)).map(b => b.toString(16).padStart(2, '0')).join(' '));
-    
-    // Parse the SEC1 ASN.1 structure to extract the 32-byte private key
-    let offset = 0;
-    
-    // Check for SEQUENCE tag (0x30)
-    if (sec1Key[offset] !== 0x30) {
-      throw new Error("Invalid SEC1 key: expected SEQUENCE tag");
-    }
-    offset++;
-    
-    // Read length
-    let seqLength = sec1Key[offset++];
-    if (seqLength & 0x80) {
-      const lenBytes = seqLength & 0x7f;
-      seqLength = 0;
-      for (let i = 0; i < lenBytes; i++) {
-        seqLength = (seqLength << 8) | sec1Key[offset++];
+    // First try importing as PKCS8 (-----BEGIN PRIVATE KEY-----)
+    if (cleanKey.includes("-----BEGIN PRIVATE KEY-----")) {
+      privateKey = await jose.importPKCS8(cleanKey, "ES256");
+      console.log("Successfully imported as PKCS8");
+    } else {
+      // For SEC1 EC keys, we need to convert them first
+      // jose doesn't directly support SEC1, so we'll use a workaround
+      // Try importing directly - some runtimes support it
+      try {
+        privateKey = await jose.importPKCS8(cleanKey, "ES256");
+        console.log("Successfully imported EC key");
+      } catch {
+        // Extract the base64 content and try to import as JWK
+        console.log("Direct import failed, attempting manual conversion...");
+        
+        // Parse the PEM to extract the key data
+        const pemContents = cleanKey
+          .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
+          .replace(/-----END EC PRIVATE KEY-----/g, "")
+          .replace(/\s+/g, "");
+        
+        // Decode the base64 SEC1 structure
+        const binaryString = atob(pemContents);
+        const keyBytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          keyBytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        console.log("Key bytes length:", keyBytes.length);
+        
+        // Parse SEC1 ASN.1 to extract private key 'd' value and optional public key
+        let offset = 0;
+        
+        // SEQUENCE
+        if (keyBytes[offset++] !== 0x30) throw new Error("Invalid SEC1: expected SEQUENCE");
+        let seqLen = keyBytes[offset++];
+        if (seqLen & 0x80) {
+          const lenBytes = seqLen & 0x7f;
+          seqLen = 0;
+          for (let i = 0; i < lenBytes; i++) {
+            seqLen = (seqLen << 8) | keyBytes[offset++];
+          }
+        }
+        
+        // Version (INTEGER, should be 1)
+        if (keyBytes[offset++] !== 0x02) throw new Error("Invalid SEC1: expected INTEGER");
+        const versionLen = keyBytes[offset++];
+        offset += versionLen;
+        
+        // Private key (OCTET STRING)
+        if (keyBytes[offset++] !== 0x04) throw new Error("Invalid SEC1: expected OCTET STRING");
+        const privKeyLen = keyBytes[offset++];
+        const dBytes = keyBytes.slice(offset, offset + privKeyLen);
+        offset += privKeyLen;
+        
+        console.log("Extracted d value, length:", dBytes.length);
+        
+        // Look for public key [1] BIT STRING
+        let xBytes: Uint8Array | null = null;
+        let yBytes: Uint8Array | null = null;
+        
+        while (offset < keyBytes.length) {
+          const tag = keyBytes[offset++];
+          let len = keyBytes[offset++];
+          if (len & 0x80) {
+            const lenBytes = len & 0x7f;
+            len = 0;
+            for (let i = 0; i < lenBytes; i++) {
+              len = (len << 8) | keyBytes[offset++];
+            }
+          }
+          
+          if (tag === 0xa1) { // [1] public key
+            // Skip BIT STRING wrapper
+            if (keyBytes[offset] === 0x03) {
+              offset++;
+              let bitStringLen = keyBytes[offset++];
+              if (bitStringLen & 0x80) {
+                const lenBytes = bitStringLen & 0x7f;
+                bitStringLen = 0;
+                for (let i = 0; i < lenBytes; i++) {
+                  bitStringLen = (bitStringLen << 8) | keyBytes[offset++];
+                }
+              }
+              offset++; // Skip unused bits byte
+              
+              // Public key should start with 0x04 (uncompressed point)
+              if (keyBytes[offset] === 0x04) {
+                offset++;
+                xBytes = keyBytes.slice(offset, offset + 32);
+                yBytes = keyBytes.slice(offset + 32, offset + 64);
+              }
+            }
+            break;
+          }
+          offset += len;
+        }
+        
+        // Convert to base64url
+        const base64url = (bytes: Uint8Array) => {
+          const base64 = btoa(String.fromCharCode(...bytes));
+          return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        };
+        
+        // Create JWK
+        const jwk: jose.JWK = {
+          kty: "EC",
+          crv: "P-256",
+          d: base64url(dBytes),
+        };
+        
+        if (xBytes && yBytes) {
+          jwk.x = base64url(xBytes);
+          jwk.y = base64url(yBytes);
+        }
+        
+        console.log("Created JWK with d length:", dBytes.length);
+        
+        privateKey = await jose.importJWK(jwk, "ES256") as jose.KeyLike;
+        console.log("Successfully imported as JWK");
       }
     }
-    
-    // Version INTEGER (should be 1)
-    if (sec1Key[offset] !== 0x02) {
-      throw new Error("Invalid SEC1 key: expected INTEGER tag for version");
-    }
-    offset++;
-    const versionLen = sec1Key[offset++];
-    offset += versionLen; // Skip version value
-    
-    // Private key OCTET STRING
-    if (sec1Key[offset] !== 0x04) {
-      throw new Error("Invalid SEC1 key: expected OCTET STRING tag for private key");
-    }
-    offset++;
-    const privKeyLen = sec1Key[offset++];
-    const privateKeyBytes = sec1Key.slice(offset, offset + privKeyLen);
-    
-    console.log("Extracted private key length:", privateKeyBytes.length);
-    
-    // Build PKCS8 wrapper around the raw private key
-    // PKCS8 structure for EC P-256:
-    // SEQUENCE {
-    //   INTEGER 0 (version)
-    //   SEQUENCE { OID ecPublicKey, OID prime256v1 }
-    //   OCTET STRING { SEC1 private key }
-    // }
-    
-    // Rebuild a minimal SEC1 structure to embed in PKCS8
-    const sec1Inner = new Uint8Array([
-      0x30, 0x41,  // SEQUENCE, length 65
-      0x02, 0x01, 0x01,  // INTEGER version = 1
-      0x04, 0x20,  // OCTET STRING, 32 bytes
-      ...privateKeyBytes,
-      0xa0, 0x0a,  // [0] EXPLICIT, length 10
-      0x06, 0x08,  // OID, 8 bytes
-      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07  // prime256v1 OID
-    ]);
-    
-    // Update the outer SEQUENCE length
-    const sec1InnerLength = 3 + 2 + privateKeyBytes.length + 12;  // version + privkey header + privkey + params
-    const sec1Rebuilt = new Uint8Array(2 + sec1InnerLength);
-    sec1Rebuilt[0] = 0x30;
-    sec1Rebuilt[1] = sec1InnerLength;
-    sec1Rebuilt.set([0x02, 0x01, 0x01], 2);  // version
-    sec1Rebuilt.set([0x04, privateKeyBytes.length], 5);  // privkey header
-    sec1Rebuilt.set(privateKeyBytes, 7);  // privkey
-    sec1Rebuilt.set([0xa0, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07], 7 + privateKeyBytes.length);  // params
-    
-    // Now build PKCS8 wrapper
-    const algorithmId = new Uint8Array([
-      0x30, 0x13,  // SEQUENCE, 19 bytes
-      0x06, 0x07,  // OID, 7 bytes
-      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,  // ecPublicKey OID
-      0x06, 0x08,  // OID, 8 bytes
-      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07  // prime256v1 OID
-    ]);
-    
-    // PKCS8 = SEQUENCE { version, algorithmId, OCTET STRING { sec1 } }
-    const innerContentLen = 3 + algorithmId.length + 2 + sec1Rebuilt.length;  // version + algo + octet header + sec1
-    
-    const pkcs8 = new Uint8Array(4 + innerContentLen);  // tag + length (2 bytes) + content
-    let idx = 0;
-    
-    pkcs8[idx++] = 0x30;  // SEQUENCE
-    if (innerContentLen > 127) {
-      pkcs8[idx++] = 0x81;
-      pkcs8[idx++] = innerContentLen;
-    } else {
-      pkcs8[idx++] = innerContentLen;
-    }
-    
-    // Version
-    pkcs8[idx++] = 0x02;
-    pkcs8[idx++] = 0x01;
-    pkcs8[idx++] = 0x00;
-    
-    // Algorithm identifier
-    pkcs8.set(algorithmId, idx);
-    idx += algorithmId.length;
-    
-    // OCTET STRING wrapping SEC1
-    pkcs8[idx++] = 0x04;
-    if (sec1Rebuilt.length > 127) {
-      pkcs8[idx++] = 0x81;
-      pkcs8[idx++] = sec1Rebuilt.length;
-    } else {
-      pkcs8[idx++] = sec1Rebuilt.length;
-    }
-    pkcs8.set(sec1Rebuilt, idx);
-    idx += sec1Rebuilt.length;
-    
-    console.log("Built PKCS8 key, total length:", idx);
-    return pkcs8.slice(0, idx);
-  };
-  
-  // Import the EC private key - try PKCS8 format first, then convert SEC1
-  let cryptoKey: CryptoKey;
-  const keyBuffer = new ArrayBuffer(keyBytes.length);
-  new Uint8Array(keyBuffer).set(keyBytes);
-  
-  try {
-    // Try PKCS8 format first (-----BEGIN PRIVATE KEY-----)
-    cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      keyBuffer,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-    console.log("Successfully imported as PKCS8");
-  } catch (pkcs8Error) {
-    console.log("PKCS8 import failed, converting SEC1 to PKCS8...");
-    try {
-      // Convert SEC1 to PKCS8 and try again
-      const pkcs8Key = convertSec1ToPkcs8(keyBytes);
-      console.log("Converted key length:", pkcs8Key.length);
-      
-      const pkcs8Buffer = new ArrayBuffer(pkcs8Key.length);
-      new Uint8Array(pkcs8Buffer).set(pkcs8Key);
-      
-      cryptoKey = await crypto.subtle.importKey(
-        "pkcs8",
-        pkcs8Buffer,
-        { name: "ECDSA", namedCurve: "P-256" },
-        false,
-        ["sign"]
-      );
-      console.log("Successfully imported converted SEC1 key");
-    } catch (ecError: any) {
-      console.error("SEC1 conversion failed:", ecError);
-      throw new Error(`Unable to import private key. The key format may not be compatible. Error: ${ecError.message}`);
-    }
+  } catch (e: any) {
+    console.error("Key import error:", e);
+    throw new Error(`Failed to import private key: ${e.message}`);
   }
   
-  // Encode header and payload
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  // Build and sign the JWT
+  const jwt = await new jose.SignJWT({
+    iss: "cdp",
+    sub: apiKey,
+  })
+    .setProtectedHeader({ 
+      alg: "ES256", 
+      kid: apiKey,
+      nonce: crypto.randomUUID(),
+      typ: "JWT"
+    })
+    .setIssuedAt()
+    .setNotBefore(Math.floor(Date.now() / 1000))
+    .setExpirationTime("2m")
+    .sign(privateKey);
   
-  // Sign the JWT
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    cryptoKey,
-    new TextEncoder().encode(signingInput)
-  );
-  
-  // Convert signature to base64url
-  const encodedSignature = base64UrlEncode(new Uint8Array(signature).buffer);
-  
-  return `${signingInput}.${encodedSignature}`;
+  console.log("JWT generated successfully, length:", jwt.length);
+  return jwt;
 }
 
 async function testCoinbaseConnection(apiKey: string, secretKey: string, passphrase?: string) {
