@@ -383,8 +383,20 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   return { tradeable, trendAnalysis };
 }
 
+// Strategy-specific trading logic descriptions
+const strategyDescriptions: Record<string, string> = {
+  rsi: 'RSI Mean Reversion: Buy when RSI < 30 (oversold), sell when RSI > 70 (overbought). Best in ranging markets.',
+  ema_crossover: 'EMA Crossover: Buy on golden cross (fast EMA crosses above slow), sell on death cross. Best in trending markets.',
+  macd: 'MACD Momentum: Trade based on MACD histogram crossovers and signal line divergences.',
+  trend_breakout: 'Trend Breakout: Enter when price breaks through key resistance/support with volume confirmation.',
+  volatility_breakout: 'Volatility Breakout: Capitalize on ATR-based entries during range breakouts in volatile markets.',
+  grid: 'Grid Bot: Place buy/sell orders at regular intervals to profit from volatility.',
+  dca: 'DCA Bot: Dollar-cost average into positions over time for long-term accumulation.',
+  custom: 'Custom Strategy: Adaptive trading based on current market conditions.',
+};
+
 // AI-powered market analysis using Lovable AI
-async function analyzeWithAI(marketData: MarketData[], balance: number, maxPositionSize: number, trendAnalysis: TrendAnalysis[]): Promise<AITradingDecision[]> {
+async function analyzeWithAI(marketData: MarketData[], balance: number, maxPositionSize: number, trendAnalysis: TrendAnalysis[], bestStrategy: string, regime: string): Promise<AITradingDecision[]> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   
   if (!LOVABLE_API_KEY) {
@@ -394,8 +406,19 @@ async function analyzeWithAI(marketData: MarketData[], balance: number, maxPosit
 
   // Build trend context for AI
   const trendContext = trendAnalysis.map(t => `${t.symbol}: ${t.trend} (${t.reason})`).join('\n');
+  
+  // Get strategy description
+  const strategyDesc = strategyDescriptions[bestStrategy] || strategyDescriptions.custom;
 
-  const prompt = `You are an expert crypto scalp trader. Analyze this real-time market data and identify the BEST trading opportunities for quick 1-2% profits.
+  const prompt = `You are an expert crypto scalp trader using the ${bestStrategy.toUpperCase()} strategy.
+
+CURRENT STRATEGY (use this approach):
+${strategyDesc}
+
+MARKET REGIME: ${regime.toUpperCase()}
+This affects how aggressively you should trade - in high volatility, be cautious; in trending, follow the trend.
+
+Analyze this real-time market data and identify the BEST trading opportunities that FIT the ${bestStrategy} strategy.
 
 CRITICAL: TREND ANALYSIS - Read carefully and DO NOT trade against trends!
 ${trendContext}
@@ -533,14 +556,17 @@ async function getBestStrategyForRegime(supabase: any, userId: string, regime: s
   return defaults[regime] || 'rsi';
 }
 
-// AGGRESSIVE rule-based analysis for maximum speed
+// Strategy-specific rule-based analysis
 function analyzeWithRules(
   marketData: MarketData[],
   regime: string,
   maxPositionSize: number,
-  balance: number
+  balance: number,
+  bestStrategy: string
 ): AITradingDecision[] {
   const decisions: AITradingDecision[] = [];
+  
+  console.log(`📊 Using ${bestStrategy} strategy rules for ${regime} market`);
   
   for (const coin of marketData) {
     let action: 'buy' | 'sell' | 'hold' = 'hold';
@@ -551,43 +577,107 @@ function analyzeWithRules(
     const priceRange = coin.high24h - coin.low24h;
     const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
     
-    // AGGRESSIVE: Lower thresholds to trade more often
-    if (coin.change24h > 0.1) {
-      action = 'buy';
-      confidence = Math.min(0.98, 0.7 + (coin.change24h / 5));
-      reason = `🚀 Momentum (+${coin.change24h.toFixed(2)}%)`;
-      pattern = 'momentum_breakout';
-    } else if (coin.change24h < -0.2 && pricePosition < 0.5) {
-      action = 'buy';
-      confidence = 0.85;
-      reason = `💰 Dip buy at ${(pricePosition * 100).toFixed(0)}%`;
-      pattern = 'oversold_bounce';
-    } else if (pricePosition < 0.35) {
-      action = 'buy';
-      confidence = 0.9;
-      reason = `📍 Support bounce (${(pricePosition * 100).toFixed(0)}%)`;
-      pattern = 'support_bounce';
-    } else if (pricePosition > 0.65 && coin.change24h > 0) {
-      action = 'buy';
-      confidence = 0.75;
-      reason = `📈 Breakout continuation (${(pricePosition * 100).toFixed(0)}%)`;
-      pattern = 'breakout_continuation';
+    // STRATEGY-SPECIFIC LOGIC
+    switch (bestStrategy) {
+      case 'rsi':
+        // RSI Mean Reversion - buy at lows, avoid buying at highs
+        if (pricePosition < 0.3) {
+          action = 'buy';
+          confidence = 0.9;
+          reason = `📉 RSI: Oversold zone (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'rsi_oversold';
+        } else if (pricePosition < 0.5 && coin.change24h < 0) {
+          action = 'buy';
+          confidence = 0.75;
+          reason = `📉 RSI: Dip entry (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'rsi_dip';
+        }
+        break;
+        
+      case 'ema_crossover':
+      case 'macd':
+        // Momentum strategies - follow the trend
+        if (coin.change24h > 0.5 && pricePosition > 0.5) {
+          action = 'buy';
+          confidence = 0.85;
+          reason = `📈 EMA: Upward momentum (+${coin.change24h.toFixed(2)}%)`;
+          pattern = 'ema_bullish';
+        } else if (coin.change24h > 1) {
+          action = 'buy';
+          confidence = 0.8;
+          reason = `📈 MACD: Strong momentum (+${coin.change24h.toFixed(2)}%)`;
+          pattern = 'macd_bullish';
+        }
+        break;
+        
+      case 'trend_breakout':
+        // Breakout - price near highs with momentum
+        if (pricePosition > 0.8 && coin.change24h > 0) {
+          action = 'buy';
+          confidence = 0.85;
+          reason = `🚀 Breakout: Near 24h high (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'breakout_high';
+        }
+        break;
+        
+      case 'volatility_breakout':
+        // High volatility plays - large range
+        if (priceRange / coin.price > 0.03 && pricePosition < 0.4) {
+          action = 'buy';
+          confidence = 0.8;
+          reason = `⚡ Volatility: Large range, low entry`;
+          pattern = 'volatility_low';
+        }
+        break;
+        
+      case 'grid':
+        // Grid - any position within range
+        if (pricePosition < 0.5) {
+          action = 'buy';
+          confidence = 0.7;
+          reason = `📊 Grid: Lower half of range (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'grid_low';
+        }
+        break;
+        
+      case 'dca':
+        // DCA - always accumulate at reasonable prices
+        if (pricePosition < 0.6) {
+          action = 'buy';
+          confidence = 0.65;
+          reason = `💰 DCA: Accumulate at ${(pricePosition * 100).toFixed(0)}%`;
+          pattern = 'dca_accumulate';
+        }
+        break;
+        
+      default:
+        // Fallback to aggressive momentum
+        if (coin.change24h > 0.1) {
+          action = 'buy';
+          confidence = 0.7 + (coin.change24h / 10);
+          reason = `🎯 Momentum (+${coin.change24h.toFixed(2)}%)`;
+          pattern = 'momentum';
+        } else if (pricePosition < 0.35) {
+          action = 'buy';
+          confidence = 0.75;
+          reason = `📍 Support (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'support';
+        }
     }
     
-    // Boost confidence in volatile markets
-    if (regime === 'high_volatility') confidence *= 1.3;
-    if (regime === 'trending') confidence *= 1.2;
+    // Regime adjustments
+    if (regime === 'high_volatility') confidence *= 0.9; // More cautious
+    if (regime === 'trending' && (bestStrategy === 'ema_crossover' || bestStrategy === 'macd')) confidence *= 1.15;
+    if (regime === 'ranging' && bestStrategy === 'rsi') confidence *= 1.1;
     
-    // AGGRESSIVE: Trade almost everything, larger positions
-    if (action !== 'hold' && confidence >= 0.05) {
-      // Use 5x position multiplier for speed
-      const positionValue = balance * (maxPositionSize / 100) * confidence * 5;
+    if (action !== 'hold' && confidence >= 0.5) {
+      const positionValue = balance * (maxPositionSize / 100) * confidence;
       const quantity = positionValue / coin.price;
       
       decisions.push({
         action,
         symbol: coin.symbol,
-        reason: `📊 ${reason}`,
+        reason: `${reason} [${bestStrategy}]`,
         confidence: Math.min(confidence, 0.98),
         suggestedSize: quantity,
         pattern,
@@ -595,8 +685,8 @@ function analyzeWithRules(
     }
   }
   
-  // Return top 10 trades instead of 5 for more action
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 10);
+  // Return top 5 decisions
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
 }
 
 serve(async (req) => {
@@ -781,14 +871,18 @@ serve(async (req) => {
       })
       .eq('user_id', user.id);
 
-    // 🧠 AI-POWERED ANALYSIS - Only on tradeable coins
-    console.log('🧠 Running AI pattern recognition on tradeable coins...');
-    let decisions = await analyzeWithAI(tradeable, balance, settings.max_position_size, trendAnalysis);
+    // 🎯 Get BEST STRATEGY for current regime BEFORE analysis
+    const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
+    console.log(`🎯 Selected strategy for ${regime}: ${bestStrategy}`);
+
+    // 🧠 AI-POWERED ANALYSIS - Pass strategy context
+    console.log('🧠 Running AI pattern recognition with strategy context...');
+    let decisions = await analyzeWithAI(tradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime);
     
-    // Fallback to rule-based if AI returns nothing
+    // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {
-      console.log('📊 AI returned no decisions, using rule-based fallback');
-      decisions = analyzeWithRules(tradeable, regime, settings.max_position_size, balance);
+      console.log('📊 AI returned no decisions, using strategy-specific rules');
+      decisions = analyzeWithRules(tradeable, regime, settings.max_position_size, balance, bestStrategy);
     }
 
     // Double-check: Filter out any decisions for coins in downtrend (safety net)
@@ -801,7 +895,7 @@ serve(async (req) => {
       return true;
     });
 
-    console.log(`✅ Generated ${decisions.length} trading decisions`);
+    console.log(`✅ Generated ${decisions.length} trading decisions using ${bestStrategy} strategy`);
 
     const executedTrades: any[] = [];
 
@@ -844,8 +938,7 @@ serve(async (req) => {
         }
       }
 
-      // Get best strategy from performance data for current regime
-      const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
+      // Strategy already determined above - use it for trade tagging
       const strategyType = bestStrategy;
 
       const tradeData = {
