@@ -9,8 +9,8 @@ const corsHeaders = {
 
 // ULTRA-AGGRESSIVE: 0.03% take-profit for maximum scalping speed
 const TAKE_PROFIT_PERCENT = 0.03;
-// Tight stop loss to cut losses quick
-const STOP_LOSS_PERCENT = -0.15;
+// Ultra-tight stop loss to cut losses immediately
+const STOP_LOSS_PERCENT = -0.05;
 
 // Milestone system - USER REQUESTED: Accumulate $200 USDC, then reinvest half
 // Phase 1: Keep converting profits to USDC until $200 is reached
