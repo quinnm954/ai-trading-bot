@@ -215,10 +215,6 @@ export default function Auth() {
           </div>
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          Paper trading only. No real money is used.
-        </p>
       </div>
     </div>
   );
