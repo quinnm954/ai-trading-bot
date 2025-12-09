@@ -11,6 +11,10 @@ const TAKE_PROFIT_PERCENT = 0.15;
 // Stop loss threshold (negative value) - tighter for risk management
 const STOP_LOSS_PERCENT = -0.25;
 
+// Equity target - close all positions and withdraw when reached
+const EQUITY_TARGET = 200000;
+const WITHDRAWAL_AMOUNT = 100000;
+
 // Symbol mapping for CoinGecko API
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'BTC': 'bitcoin',
@@ -121,6 +125,101 @@ serve(async (req) => {
     const livePrices = await fetchLivePrices(symbols);
     
     console.log('Live prices:', livePrices);
+
+    // Get paper account balance
+    const { data: paperAccount } = await supabase
+      .from('paper_account')
+      .select('balance, initial_balance')
+      .eq('user_id', user.id)
+      .single();
+
+    const cashBalance = paperAccount?.balance || 0;
+
+    // Calculate total equity (cash + position values)
+    let totalPositionValue = 0;
+    for (const position of positions) {
+      const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+      if (currentPrice) {
+        totalPositionValue += currentPrice * Number(position.quantity);
+      }
+    }
+    const totalEquity = cashBalance + totalPositionValue;
+    console.log(`💰 Total Equity: $${totalEquity.toFixed(2)} (Cash: $${cashBalance.toFixed(2)} + Positions: $${totalPositionValue.toFixed(2)})`);
+
+    // Check if equity target is reached
+    if (totalEquity >= EQUITY_TARGET && isPaperMode) {
+      console.log(`🎉 EQUITY TARGET REACHED! $${totalEquity.toFixed(2)} >= $${EQUITY_TARGET}`);
+      console.log(`💸 Closing all positions and withdrawing $${WITHDRAWAL_AMOUNT}...`);
+
+      // Close ALL positions
+      for (const position of positions) {
+        const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+        if (!currentPrice) continue;
+
+        const entryPrice = Number(position.avg_entry_price);
+        const quantity = Number(position.quantity);
+        const pnl = position.side === 'buy' 
+          ? (currentPrice - entryPrice) * quantity
+          : (entryPrice - currentPrice) * quantity;
+
+        // Close the trade
+        await supabase
+          .from('trades')
+          .update({
+            status: 'closed',
+            exit_price: currentPrice,
+            pnl: pnl,
+            closed_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id)
+          .eq('symbol', position.symbol)
+          .eq('is_paper', true)
+          .eq('status', 'open');
+
+        // Delete the position
+        await supabase
+          .from('positions')
+          .delete()
+          .eq('id', position.id);
+      }
+
+      // Set balance to total equity minus withdrawal (simulating $100k "locked")
+      const newBalance = totalEquity - WITHDRAWAL_AMOUNT;
+      await supabase
+        .from('paper_account')
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id);
+
+      // Log the milestone
+      await supabase
+        .from('ai_decisions')
+        .insert({
+          user_id: user.id,
+          decision_type: 'equity_target_reached',
+          action: 'withdraw',
+          reasoning: `🎉 EQUITY TARGET HIT! Total equity: $${totalEquity.toFixed(2)}. Closed all positions and withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()} to lock profits. Remaining trading capital: $${newBalance.toFixed(2)}`,
+        });
+
+      // Disable AI trading temporarily
+      await supabase
+        .from('ai_settings')
+        .update({ enabled: false, bot_status: 'idle' })
+        .eq('user_id', user.id);
+
+      return new Response(JSON.stringify({
+        status: 'equity_target_reached',
+        totalEquity: totalEquity.toFixed(2),
+        target: EQUITY_TARGET,
+        withdrawn: WITHDRAWAL_AMOUNT,
+        remainingBalance: newBalance.toFixed(2),
+        message: `🎉 Congratulations! Equity target of $${EQUITY_TARGET.toLocaleString()} reached! Withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()} and paused trading.`,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const closedPositions: any[] = [];
     const stoppedPositions: any[] = [];
