@@ -1,11 +1,14 @@
 import { ArrowUpRight, ArrowDownRight, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mockTrades } from '@/lib/mockData';
+import { useRecentTrades } from '@/hooks/useRecentTrades';
+import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
 export function RecentTradesCard() {
-  const recentTrades = mockTrades.slice(0, 4);
+  const { stats } = useDashboardData();
+  const isPaper = stats.tradingMode === 'paper';
+  const { trades, isLoading } = useRecentTrades(isPaper, 4);
 
   return (
     <div className="glass-panel p-6">
@@ -22,44 +25,54 @@ export function RecentTradesCard() {
         </Link>
       </div>
 
-      <div className="space-y-3">
-        {recentTrades.map((trade) => (
-          <div 
-            key={trade.id}
-            className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className={cn(
-                'p-2 rounded-lg',
-                trade.pnl && trade.pnl >= 0 ? 'bg-success/20' : 'bg-destructive/20'
-              )}>
-                {trade.pnl && trade.pnl >= 0 ? (
-                  <ArrowUpRight className="w-4 h-4 text-success" />
-                ) : (
-                  <ArrowDownRight className="w-4 h-4 text-destructive" />
-                )}
+      {isLoading ? (
+        <div className="h-32 flex items-center justify-center text-muted-foreground">
+          Loading trades...
+        </div>
+      ) : trades.length === 0 ? (
+        <div className="h-32 flex items-center justify-center text-muted-foreground">
+          No recent trades
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {trades.map((trade) => (
+            <div 
+              key={trade.id}
+              className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  'p-2 rounded-lg',
+                  trade.pnl && trade.pnl >= 0 ? 'bg-success/20' : 'bg-destructive/20'
+                )}>
+                  {trade.pnl && trade.pnl >= 0 ? (
+                    <ArrowUpRight className="w-4 h-4 text-success" />
+                  ) : (
+                    <ArrowDownRight className="w-4 h-4 text-destructive" />
+                  )}
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">{trade.symbol}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {trade.strategy || 'manual'} • {trade.quantity} shares
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium text-foreground">{trade.symbol}</p>
+              <div className="text-right">
+                <p className={cn(
+                  'font-mono font-medium',
+                  trade.pnl && trade.pnl >= 0 ? 'text-profit' : 'text-loss'
+                )}>
+                  {trade.pnl && trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toFixed(2) || '0.00'}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {trade.strategy} • {trade.quantity} shares
+                  {trade.closedAt?.toLocaleDateString()}
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <p className={cn(
-                'font-mono font-medium',
-                trade.pnl && trade.pnl >= 0 ? 'text-profit' : 'text-loss'
-              )}>
-                {trade.pnl && trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toFixed(2)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {trade.closedAt?.toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

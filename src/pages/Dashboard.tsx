@@ -13,9 +13,7 @@ import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
-import { mockAITraderState, mockSafetyGovernor } from '@/lib/mockData';
 import { useDashboardData } from '@/hooks/useDashboardData';
-import { cn } from '@/lib/utils';
 
 export default function Dashboard() {
   const { stats, liveAccounts, isLoading } = useDashboardData();
@@ -100,8 +98,8 @@ export default function Dashboard() {
 
       {/* Market Regime & Safety Status */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <MarketRegimeCard regime={mockAITraderState.marketRegime} />
-        <SafetyStatusCard safety={mockSafetyGovernor} />
+        <MarketRegimeCard />
+        <SafetyStatusCard />
       </div>
 
       {/* Main Content */}

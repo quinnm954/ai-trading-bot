@@ -1,10 +1,7 @@
 import { Activity, TrendingUp, Minus, Zap, Radio, Newspaper } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAISettings } from '@/hooks/useAISettings';
 import type { MarketRegime } from '@/types/trading';
-
-interface MarketRegimeCardProps {
-  regime: MarketRegime;
-}
 
 const regimeConfig: Record<MarketRegime, { 
   label: string; 
@@ -50,9 +47,28 @@ const regimeConfig: Record<MarketRegime, {
   },
 };
 
-export function MarketRegimeCard({ regime }: MarketRegimeCardProps) {
+export function MarketRegimeCard() {
+  const { settings, isLoading } = useAISettings();
+  
+  const regime: MarketRegime = settings?.currentRegime || 'ranging';
   const config = regimeConfig[regime];
   const Icon = config.icon;
+
+  if (isLoading) {
+    return (
+      <div className="glass-panel p-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-muted">
+            <Activity className="w-5 h-5 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Market Regime</p>
+            <p className="font-bold text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="glass-panel p-4">
