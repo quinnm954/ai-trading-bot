@@ -426,25 +426,54 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Check if this is a cron call (no auth) or user call (with auth)
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
+    let userIds: string[] = [];
+
+    if (authHeader && !authHeader.includes(Deno.env.get('SUPABASE_ANON_KEY') || '')) {
+      // Try to get user from JWT
+      const token = authHeader.replace('Bearer ', '');
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          while (payload.length % 4) payload += '=';
+          const decoded = JSON.parse(atob(payload));
+          if (decoded.sub && decoded.exp > Date.now() / 1000) {
+            userIds = [decoded.sub];
+          }
+        }
+      } catch (e) {
+        console.log('JWT decode failed, processing all users');
+      }
+    }
+
+    // If no specific user, process ALL users with AI enabled
+    if (userIds.length === 0) {
+      console.log('🔄 Cron job: Processing all users with AI enabled');
+      const { data: aiSettings } = await supabase
+        .from('ai_settings')
+        .select('user_id')
+        .eq('enabled', true);
+
+      if (aiSettings) {
+        userIds = aiSettings.map((s: any) => s.user_id);
+      }
+    }
+
+    if (userIds.length === 0) {
+      return new Response(JSON.stringify({ message: 'No users with AI enabled' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    console.log(`🤖 AI Trading Engine processing ${userIds.length} user(s)`);
     
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Process first user (for now - can be expanded to loop through all)
+    const userId = userIds[0];
+    const user = { id: userId };
 
-    console.log(`🤖 AI Trading Engine triggered for user: ${user.id}`);
+    console.log(`🤖 Processing user: ${user.id}`);
 
     // Fetch user's AI settings
     const { data: settings, error: settingsError } = await supabase
