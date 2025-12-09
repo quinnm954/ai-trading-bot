@@ -167,14 +167,15 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
     if (response.ok && result.success) {
       const filledSize = parseFloat(result.order?.filled_size || '0');
       const avgPrice = parseFloat(result.order?.average_filled_price || '0');
-      console.log(`✅ REAL BUY: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
+      console.log(`✅ REAL BUY SUCCESS: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
       return { success: true, quantity: filledSize, price: avgPrice };
     } else {
-      console.error(`❌ Coinbase buy failed:`, result);
-      return { success: false, error: result.error || JSON.stringify(result) };
+      const errorMsg = result.error_response?.message || result.error || JSON.stringify(result);
+      console.error(`❌ Coinbase buy failed for ${symbol}:`, errorMsg);
+      return { success: false, error: errorMsg };
     }
   } catch (error) {
-    console.error(`❌ Coinbase buy error:`, error);
+    console.error(`❌ Coinbase buy error for ${symbol}:`, error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
