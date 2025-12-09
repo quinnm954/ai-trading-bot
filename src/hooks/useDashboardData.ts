@@ -24,24 +24,38 @@ async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<st
   const prices: Record<string, number> = {};
   const ids = symbols.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
   
-  if (ids.length === 0) return prices;
+  console.log('[Dashboard] Fetching prices for symbols:', symbols);
+  console.log('[Dashboard] Mapped to CoinGecko IDs:', ids);
+  
+  if (ids.length === 0) {
+    console.warn('[Dashboard] No CoinGecko IDs found for symbols');
+    return prices;
+  }
   
   try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
-    );
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`;
+    console.log('[Dashboard] Fetching from:', url);
+    
+    const response = await fetch(url);
+    
+    console.log('[Dashboard] CoinGecko response status:', response.status);
     
     if (response.ok) {
       const data = await response.json();
+      console.log('[Dashboard] CoinGecko data:', data);
+      
       for (const symbol of symbols) {
         const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
         if (geckoId && data[geckoId]?.usd) {
           prices[symbol.toUpperCase()] = data[geckoId].usd;
         }
       }
+      console.log('[Dashboard] Final prices:', prices);
+    } else {
+      console.error('[Dashboard] CoinGecko error:', response.status, await response.text());
     }
   } catch (error) {
-    console.error('Error fetching live prices:', error);
+    console.error('[Dashboard] Error fetching live prices:', error);
   }
   
   return prices;
@@ -130,11 +144,17 @@ export function useDashboardData() {
       setLiveAccounts(formattedLiveAccounts);
 
       // Fetch positions
-      const { data: positionsData, count: positionsCount } = await supabase
+      const { data: positionsData, count: positionsCount, error: positionsError } = await supabase
         .from('positions')
         .select('symbol, quantity, avg_entry_price, current_price', { count: 'exact' })
         .eq('user_id', user.id)
         .eq('is_paper', tradingMode === 'paper');
+
+      console.log('[Dashboard] Trading mode:', tradingMode);
+      console.log('[Dashboard] Positions query - is_paper:', tradingMode === 'paper');
+      console.log('[Dashboard] Positions data:', positionsData);
+      console.log('[Dashboard] Positions count:', positionsCount);
+      if (positionsError) console.error('[Dashboard] Positions error:', positionsError);
 
       // Fetch live prices for positions from CoinGecko
       let positionsValue = 0;
@@ -144,8 +164,13 @@ export function useDashboardData() {
         
         positionsValue = positionsData.reduce((sum, pos) => {
           const livePrice = livePrices[pos.symbol.toUpperCase()] || pos.current_price || pos.avg_entry_price;
-          return sum + (Number(pos.quantity) * Number(livePrice));
+          const value = Number(pos.quantity) * Number(livePrice);
+          console.log(`[Dashboard] ${pos.symbol}: qty=${pos.quantity}, price=${livePrice}, value=${value}`);
+          return sum + value;
         }, 0);
+        console.log('[Dashboard] Total positions value:', positionsValue);
+      } else {
+        console.log('[Dashboard] No positions found');
       }
 
       // Fetch today's trades and calculate P&L
