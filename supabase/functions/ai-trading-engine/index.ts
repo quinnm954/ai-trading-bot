@@ -1149,15 +1149,35 @@ serve(async (req) => {
 
       // STRICT VALIDATION: Skip if trade value, quantity, or price is $0 or invalid
       if (!tradeValue || tradeValue <= 0 || !quantity || quantity <= 0 || !actualEntryPrice || actualEntryPrice <= 0) {
-        console.log(`⚠️ SKIPPING $0 entry: ${decision.symbol} - value=$${tradeValue}, qty=${quantity}, price=$${actualEntryPrice}`);
+        console.log(`⚠️ SKIPPING invalid trade: ${decision.symbol} - value=$${tradeValue}, qty=${quantity}, price=$${actualEntryPrice}`);
         continue;
       }
 
       // Skip if we don't have enough balance for minimum anti-dust trade
       if (balance < MIN_TRADE_VALUE) {
-        console.log(`⚠️ Insufficient balance ($${balance.toFixed(2)}) for anti-dust minimum trade ($${MIN_TRADE_VALUE})`);
+        console.log(`⚠️ Insufficient balance ($${balance.toFixed(2)}) for minimum trade ($${MIN_TRADE_VALUE})`);
         continue;
       }
+      
+      // PRE-VALIDATE: Check if quantity will be 0 after precision rounding BEFORE executing
+      const precisionMap: Record<string, number> = {
+        'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
+        'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
+        'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
+        'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
+        'ADA': 0, 'DOT': 2, 'MATIC': 0, 'BCH': 4, 'SAND': 0, 'MANA': 0, 'ENJ': 0,
+      };
+      const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
+      const preRoundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+      const prePositionValue = preRoundedQty * actualEntryPrice;
+      
+      if (preRoundedQty <= 0 || prePositionValue < 2) {
+        console.log(`⚠️ SKIPPING zero-quantity trade: ${decision.symbol} - qty=${quantity} rounds to ${preRoundedQty}, value=$${prePositionValue.toFixed(2)}`);
+        continue;
+      }
+      
+      console.log(`✅ Pre-validated: ${decision.symbol} qty=${preRoundedQty} ($${prePositionValue.toFixed(2)})`);
+
 
       // 💰 EXECUTE REAL COINBASE BUY if in LIVE mode
       if (!isPaperMode && decision.action === 'buy') {
