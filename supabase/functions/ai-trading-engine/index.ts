@@ -462,7 +462,10 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   } else if (trendScore <= -0.7) {
     trend = 'strong_downtrend';
     shouldTrade = false;
-    reason = `⚠️ Strong downtrend: ${coin.change24h.toFixed(1)}% - AVOIDING`;
+    // Analyze for potential reversal entry timing
+    const reversalPotential = mtf.entryScore > 60 ? 'HIGH' : mtf.entryScore > 40 ? 'MEDIUM' : 'LOW';
+    const watchSignal = pricePosition < 0.2 ? '👀 Near support - watching for bounce' : '⏳ Waiting for capitulation';
+    reason = `⚠️ Strong downtrend: ${coin.change24h.toFixed(1)}% - WATCHING | Reversal potential: ${reversalPotential} | ${watchSignal}`;
   } else if (trendScore <= -0.3) {
     trend = 'downtrend';
     shouldTrade = false;
