@@ -163,14 +163,23 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
     });
     
     const result = await response.json();
+    console.log(`📋 Coinbase response for ${symbol}:`, JSON.stringify(result).substring(0, 500));
     
     if (response.ok && result.success) {
       const filledSize = parseFloat(result.order?.filled_size || '0');
       const avgPrice = parseFloat(result.order?.average_filled_price || '0');
-      console.log(`✅ REAL BUY SUCCESS: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
-      return { success: true, quantity: filledSize, price: avgPrice };
+      
+      // Check if order actually filled - IOC orders should fill immediately
+      if (filledSize > 0 && avgPrice > 0) {
+        console.log(`✅ REAL BUY SUCCESS: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
+        return { success: true, quantity: filledSize, price: avgPrice };
+      } else {
+        // Order was accepted but not filled - likely insufficient liquidity or other issue
+        console.error(`⚠️ Order accepted but not filled for ${symbol}. Status: ${result.order?.status}, filled_size: ${filledSize}`);
+        return { success: false, error: `Order not filled. Status: ${result.order?.status}` };
+      }
     } else {
-      const errorMsg = result.error_response?.message || result.error || JSON.stringify(result);
+      const errorMsg = result.error_response?.message || result.error_response?.preview_failure_reason || result.error || JSON.stringify(result);
       console.error(`❌ Coinbase buy failed for ${symbol}:`, errorMsg);
       return { success: false, error: errorMsg };
     }
