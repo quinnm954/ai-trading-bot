@@ -7,39 +7,90 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Symbol mapping for CoinGecko API
+const SYMBOL_TO_COINGECKO: Record<string, string> = {
+  'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
+  'DOGE': 'dogecoin', 'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot',
+  'LINK': 'chainlink', 'LTC': 'litecoin', 'UNI': 'uniswap', 'ATOM': 'cosmos',
+  'NEAR': 'near', 'APT': 'aptos', 'ARB': 'arbitrum', 'OP': 'optimism',
+  'INJ': 'injective-protocol', 'TIA': 'celestia', 'SEI': 'sei-network',
+  'SUI': 'sui', 'TON': 'the-open-network', 'ICP': 'internet-computer',
+  'FIL': 'filecoin', 'RENDER': 'render-token', 'FET': 'fetch-ai', 'TAO': 'bittensor',
+  'AAVE': 'aave', 'MKR': 'maker', 'GRT': 'the-graph', 'LDO': 'lido-dao',
+  'CRV': 'curve-dao-token', 'IMX': 'immutable-x', 'STX': 'blockstack',
+  'HBAR': 'hedera-hashgraph', 'XLM': 'stellar', 'ALGO': 'algorand',
+  'VET': 'vechain', 'ETC': 'ethereum-classic', 'BCH': 'bitcoin-cash', 'TRX': 'tron',
+  'SHIB': 'shiba-inu', 'PEPE': 'pepe', 'FLOKI': 'floki', 'BONK': 'bonk', 'WIF': 'dogwifcoin',
+  'GALA': 'gala', 'SAND': 'the-sandbox', 'MANA': 'decentraland', 'AXS': 'axie-infinity',
+  'ENJ': 'enjincoin', 'CHZ': 'chiliz', 'APE': 'apecoin',
+  'CAKE': 'pancakeswap-token', 'COMP': 'compound-governance-token', 'SNX': 'havven',
+  'DYDX': 'dydx', 'GMX': 'gmx', '1INCH': '1inch', 'BAT': 'basic-attention-token',
+  'ZRX': '0x', 'LRC': 'loopring', 'ENS': 'ethereum-name-service', 'RPL': 'rocket-pool',
+  'BLUR': 'blur', 'JUP': 'jupiter-exchange-solana', 'ONDO': 'ondo-finance',
+  'PYTH': 'pyth-network', 'WLD': 'worldcoin-wld', 'THETA': 'theta-token',
+  'FTM': 'fantom', 'RUNE': 'thorchain', 'KAVA': 'kava',
+  'EOS': 'eos', 'NEO': 'neo', 'XTZ': 'tezos', 'QTUM': 'qtum', 'ICX': 'icon',
+  'ZIL': 'zilliqa', 'ONE': 'harmony', 'CELO': 'celo', 'ANKR': 'ankr',
+  'SKL': 'skale', 'STORJ': 'storj', 'OCEAN': 'ocean-protocol', 'MINA': 'mina-protocol',
+  'EGLD': 'elrond-erd-2', 'FLOW': 'flow', 'CFX': 'conflux-token', 'IOTA': 'iota',
+  'KAS': 'kaspa', 'MNT': 'mantle', 'CRO': 'crypto-com-chain', 'OKB': 'okb',
+  'MATIC': 'matic-network', 'POL': 'polygon-ecosystem-token',
+};
+
+// Fetch live prices from CoinGecko
+async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
+  const prices: Record<string, number> = {};
+  
+  const ids = symbols
+    .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
+    .filter(Boolean);
+  
+  if (ids.length === 0) return prices;
+  
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      for (const symbol of symbols) {
+        const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
+        if (geckoId && data[geckoId]?.usd) {
+          prices[symbol.toUpperCase()] = data[geckoId].usd;
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching prices:', error);
+  }
+  
+  return prices;
+}
+
 // Generate JWT for Coinbase CDP API
 async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
   console.log("Parsing private key...");
   
-  // Clean and normalize the key
   let cleanKey = privateKeyPem.trim()
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
   
-  // If key doesn't have PEM headers, try to add them
   if (!cleanKey.includes("-----BEGIN")) {
-    // Check if it looks like base64 content
     if (/^[A-Za-z0-9+/=\s]+$/.test(cleanKey.replace(/\s/g, ''))) {
       cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
     }
   }
   
-  console.log("Key format detected:", cleanKey.includes("PRIVATE KEY") ? "PEM" : "unknown");
-  
   let privateKey: jose.KeyLike;
   
-  // Try multiple import methods
   const importMethods = [
-    // Method 1: Direct PKCS8 import
     async () => {
-      console.log("Trying PKCS8 import...");
       return await jose.importPKCS8(cleanKey, "ES256");
     },
-    // Method 2: Try with reformatted PKCS8 header
     async () => {
-      console.log("Trying reformatted PKCS8...");
       const pemContent = cleanKey
         .replace(/-----BEGIN.*-----/g, "")
         .replace(/-----END.*-----/g, "")
@@ -47,9 +98,7 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
       const reformatted = `-----BEGIN PRIVATE KEY-----\n${pemContent}\n-----END PRIVATE KEY-----`;
       return await jose.importPKCS8(reformatted, "ES256");
     },
-    // Method 3: Parse SEC1 EC key manually
     async () => {
-      console.log("Trying SEC1 manual parse...");
       const pemContents = cleanKey
         .replace(/-----BEGIN.*-----/g, "")
         .replace(/-----END.*-----/g, "")
@@ -61,13 +110,9 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
         keyBytes[i] = binaryString.charCodeAt(i);
       }
       
-      // For P-256, the private key is 32 bytes
-      // Try to extract it from various positions in the ASN.1 structure
       let dBytes: Uint8Array | null = null;
       
-      // Look for the 32-byte private key value
       for (let i = 0; i < keyBytes.length - 32; i++) {
-        // Check if this could be an OCTET STRING containing 32 bytes
         if (keyBytes[i] === 0x04 && keyBytes[i + 1] === 0x20) {
           dBytes = keyBytes.slice(i + 2, i + 34);
           break;
@@ -75,11 +120,9 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
       }
       
       if (!dBytes) {
-        // Try finding a 32-byte sequence after common ASN.1 patterns
         for (let i = 7; i < keyBytes.length - 32; i++) {
           if (keyBytes[i - 1] === 0x20 || keyBytes[i - 1] === 0x21) {
             const candidate = keyBytes.slice(i, i + 32);
-            // Check if it looks like a valid private key (not all zeros, not all same byte)
             const unique = new Set(candidate);
             if (unique.size > 5) {
               dBytes = candidate;
@@ -89,9 +132,7 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
         }
       }
       
-      if (!dBytes) {
-        throw new Error("Could not extract private key bytes");
-      }
+      if (!dBytes) throw new Error("Could not extract private key bytes");
       
       const base64url = (bytes: Uint8Array) => 
         btoa(String.fromCharCode(...bytes))
@@ -99,20 +140,16 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
           .replace(/\//g, '_')
           .replace(/=/g, '');
       
-      // Create JWK with just the d parameter
       const jwk: jose.JWK = {
         kty: "EC",
         crv: "P-256",
         d: base64url(dBytes),
-        // Generate x and y from the key if present in the data
-        x: base64url(new Uint8Array(32)), // Placeholder
-        y: base64url(new Uint8Array(32)), // Placeholder
+        x: base64url(new Uint8Array(32)),
+        y: base64url(new Uint8Array(32)),
       };
       
-      // Try to find public key coordinates in the data
       for (let i = 0; i < keyBytes.length - 65; i++) {
         if (keyBytes[i] === 0x04 && i + 65 <= keyBytes.length) {
-          // Uncompressed point format
           const nextBytes = keyBytes.slice(i, i + 65);
           if (nextBytes[0] === 0x04) {
             jwk.x = base64url(nextBytes.slice(1, 33));
@@ -124,18 +161,11 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
       
       return await jose.importJWK(jwk, "ES256") as jose.KeyLike;
     },
-    // Method 4: Try direct JWK if the key is in JSON format
-    async () => {
-      console.log("Trying JWK import...");
-      const jwk = JSON.parse(cleanKey);
-      return await jose.importJWK(jwk, "ES256") as jose.KeyLike;
-    },
   ];
   
   for (const method of importMethods) {
     try {
       privateKey = await method();
-      console.log("Key import successful!");
       
       return await new jose.SignJWT({ iss: "cdp", sub: apiKey, uri })
         .setProtectedHeader({ alg: "ES256", kid: apiKey, nonce: crypto.randomUUID(), typ: "JWT" })
@@ -143,13 +173,12 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
         .setNotBefore(Math.floor(Date.now() / 1000))
         .setExpirationTime("2m")
         .sign(privateKey);
-    } catch (e: any) {
-      console.log(`Import method failed: ${e.message}`);
+    } catch {
       continue;
     }
   }
   
-  throw new Error("All key import methods failed. Please check the private key format.");
+  throw new Error("All key import methods failed");
 }
 
 async function fetchCoinbaseBalanceAndHoldings(): Promise<{
@@ -235,11 +264,10 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
             cashBalance += value;
             console.log(`💵 ${currency} balance: $${value.toFixed(2)}`);
           } else {
-            // This is a crypto holding
             holdings.push({
               symbol: currency,
               quantity: value,
-              value: 0, // Will be calculated with live prices
+              value: 0,
             });
             console.log(`📊 ${currency} holding: ${value}`);
           }
@@ -270,7 +298,6 @@ serve(async (req) => {
     
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
     
-    // Check if this is a cron job call (no auth header) or user call
     const authHeader = req.headers.get("Authorization");
     const url = new URL(req.url);
     const isCron = url.searchParams.get("cron") === "true" || !authHeader;
@@ -278,7 +305,6 @@ serve(async (req) => {
     let usersToSync: string[] = [];
     
     if (isCron) {
-      // Cron job: sync all users with connected brokers
       console.log("🔄 Cron job: Syncing all connected broker accounts");
       
       const { data: connections, error: connError } = await serviceClient
@@ -290,11 +316,9 @@ serve(async (req) => {
         throw new Error(`Failed to fetch connections: ${connError.message}`);
       }
       
-      // Get unique user IDs
       usersToSync = [...new Set(connections?.map(c => c.user_id).filter(Boolean) as string[])];
       console.log(`Found ${usersToSync.length} users to sync`);
     } else {
-      // User call: sync only this user
       const userClient = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });
@@ -309,7 +333,6 @@ serve(async (req) => {
     const allResults: Record<string, any> = {};
     
     for (const userId of usersToSync) {
-      // Get connected API connections for user
       const { data: connections, error: connError } = await serviceClient
         .from("api_connections")
         .select("*")
@@ -334,7 +357,6 @@ serve(async (req) => {
             
             console.log(`✅ Coinbase synced: $${balanceData.balance.toFixed(2)} cash, ${balanceData.holdings.length} holdings`);
             
-            // Upsert live account with actual balance
             const { error: upsertError } = await serviceClient
               .from("live_account")
               .upsert({
@@ -365,12 +387,16 @@ serve(async (req) => {
               }
             }
             
-            // Sync holdings to positions table
+            // Sync holdings to positions table with accurate P&L
             if (balanceData.holdings.length > 0) {
-              // Get current live positions
+              // Fetch live prices for P&L calculation
+              const holdingSymbols = balanceData.holdings.map(h => h.symbol);
+              const livePrices = await fetchLivePrices(holdingSymbols);
+              
+              // Get current live positions with entry prices
               const { data: existingPositions } = await serviceClient
                 .from("positions")
-                .select("id, symbol")
+                .select("id, symbol, avg_entry_price")
                 .eq("user_id", userId)
                 .eq("is_paper", false);
               
@@ -384,13 +410,29 @@ serve(async (req) => {
                 console.log(`🗑️ Removed position: ${pos.symbol}`);
               }
               
-              // Upsert current holdings
+              // Upsert current holdings with accurate P&L
               for (const holding of balanceData.holdings) {
+                const currentPrice = livePrices[holding.symbol.toUpperCase()] || 0;
+                
                 if (existingSymbols.has(holding.symbol)) {
-                  // Update quantity
+                  // Get existing position to preserve entry price
+                  const existingPos = existingPositions?.find(p => p.symbol === holding.symbol);
+                  const entryPrice = Number(existingPos?.avg_entry_price) || 0;
+                  
+                  // Calculate accurate unrealized P&L
+                  let unrealizedPnl = 0;
+                  if (entryPrice > 0 && currentPrice > 0) {
+                    unrealizedPnl = (currentPrice - entryPrice) * holding.quantity;
+                  }
+                  
                   const { error: updateError } = await serviceClient
                     .from("positions")
-                    .update({ quantity: holding.quantity, updated_at: new Date().toISOString() })
+                    .update({ 
+                      quantity: holding.quantity, 
+                      current_price: currentPrice,
+                      unrealized_pnl: unrealizedPnl,
+                      updated_at: new Date().toISOString() 
+                    })
                     .eq("user_id", userId)
                     .eq("symbol", holding.symbol)
                     .eq("is_paper", false);
@@ -398,10 +440,10 @@ serve(async (req) => {
                   if (updateError) {
                     console.error(`Error updating ${holding.symbol}:`, updateError.message);
                   } else {
-                    console.log(`📊 Updated position: ${holding.quantity} ${holding.symbol}`);
+                    console.log(`📊 Updated: ${holding.quantity} ${holding.symbol} @ $${currentPrice.toFixed(4)}, PnL: $${unrealizedPnl.toFixed(4)}`);
                   }
                 } else {
-                  // Insert new position
+                  // New position - use current price as entry baseline for P&L tracking
                   const { data: insertedData, error: posError } = await serviceClient
                     .from("positions")
                     .insert({
@@ -409,23 +451,22 @@ serve(async (req) => {
                       symbol: holding.symbol,
                       side: "buy",
                       quantity: holding.quantity,
-                      avg_entry_price: 0,
-                      current_price: 0,
+                      avg_entry_price: currentPrice, // Baseline entry = current price
+                      current_price: currentPrice,
                       market_type: "crypto",
                       is_paper: false,
-                      unrealized_pnl: 0,
+                      unrealized_pnl: 0, // P&L starts at 0
                     })
                     .select();
                   
                   if (posError) {
-                    console.error(`❌ Error inserting ${holding.symbol}:`, posError.message, posError.code, posError.details);
+                    console.error(`❌ Error inserting ${holding.symbol}:`, posError.message);
                   } else {
-                    console.log(`✅ Inserted position: ${holding.quantity} ${holding.symbol}, id: ${insertedData?.[0]?.id || 'unknown'}`);
+                    console.log(`✅ Inserted: ${holding.quantity} ${holding.symbol} @ $${currentPrice.toFixed(4)} (baseline entry)`);
                   }
                 }
               }
             } else {
-              // No holdings - delete all live positions
               await serviceClient
                 .from("positions")
                 .delete()
