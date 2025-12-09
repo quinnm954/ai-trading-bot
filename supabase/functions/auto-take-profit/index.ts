@@ -15,6 +15,85 @@ const BASE_STOP_LOSS_PERCENT = -0.08; // Slightly wider for volatility tolerance
 // Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
 const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
 
+// Multi-timeframe exit analysis
+interface MTFExitSignal {
+  symbol: string;
+  exitUrgency: number; // 0-100, higher = exit now
+  holdScore: number; // 0-100, higher = keep holding
+  recommendation: 'exit_now' | 'hold' | 'trail_stop';
+  reasoning: string;
+}
+
+// Analyze whether to hold or exit based on multi-timeframe signals
+function analyzeExitTiming(symbol: string, currentPrice: number, entryPrice: number, priceChange24h: number, high24h: number, low24h: number): MTFExitSignal {
+  const pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+  const priceRange = high24h - low24h;
+  const pricePosition = priceRange > 0 ? (currentPrice - low24h) / priceRange : 0.5;
+  
+  let exitUrgency = 0;
+  let holdScore = 50;
+  let recommendation: MTFExitSignal['recommendation'] = 'hold';
+  const reasons: string[] = [];
+  
+  // RULE 1: Price at top of range + negative momentum = EXIT NOW
+  if (pricePosition > 0.85 && priceChange24h < 0) {
+    exitUrgency += 40;
+    reasons.push('top of range + reversing');
+  }
+  
+  // RULE 2: Strong upward momentum = HOLD for more
+  if (priceChange24h > 2) {
+    holdScore += 30;
+    reasons.push(`strong momentum +${priceChange24h.toFixed(1)}%`);
+  } else if (priceChange24h > 0.5) {
+    holdScore += 15;
+    reasons.push('positive momentum');
+  }
+  
+  // RULE 3: Already profitable + momentum dying = TAKE PROFIT
+  if (pnlPercent > 0.1 && priceChange24h < 0.5 && pricePosition > 0.6) {
+    exitUrgency += 30;
+    reasons.push('profit + momentum fading');
+  }
+  
+  // RULE 4: Near bottom of range + positive momentum = HOLD for bounce
+  if (pricePosition < 0.3 && priceChange24h > 0) {
+    holdScore += 25;
+    exitUrgency -= 20;
+    reasons.push('bouncing from lows');
+  }
+  
+  // RULE 5: Losing + downward momentum = CUT LOSS FAST
+  if (pnlPercent < 0 && priceChange24h < -1) {
+    exitUrgency += 50;
+    reasons.push('losing + falling fast');
+  }
+  
+  // RULE 6: Big winner running = use trailing stop mentality
+  if (pnlPercent > 0.5) {
+    recommendation = 'trail_stop';
+    if (priceChange24h > 1) {
+      holdScore += 20;
+      reasons.push('winner still running');
+    }
+  }
+  
+  // Determine final recommendation
+  if (exitUrgency > 60) {
+    recommendation = 'exit_now';
+  } else if (holdScore > 70) {
+    recommendation = 'hold';
+  }
+  
+  return {
+    symbol,
+    exitUrgency: Math.max(0, Math.min(100, exitUrgency)),
+    holdScore: Math.max(0, Math.min(100, holdScore)),
+    recommendation,
+    reasoning: reasons.join(', ') || 'neutral',
+  };
+}
+
 // Latency tracking for dynamic threshold adjustment
 interface LatencyMetrics {
   avgLatencyMs: number;
@@ -924,11 +1003,46 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // Use latency-adjusted thresholds
     const adjustedTakeProfit = getAdjustedTakeProfit();
     const adjustedStopLoss = getAdjustedStopLoss();
+    
+    // Get price data for MTF analysis (use cached livePrices data)
+    const priceData = await fetchPriceChanges([position.symbol]);
+    const coinData = priceData[position.symbol.toUpperCase()];
+    const change24h = coinData?.change24h || 0;
+    
+    // Estimate high/low from current price and 24h change
+    const estimatedHigh = currentPrice * (1 + Math.abs(change24h) / 100);
+    const estimatedLow = currentPrice * (1 - Math.abs(change24h) / 100);
+    
+    // Multi-timeframe exit analysis
+    const mtfExit = analyzeExitTiming(position.symbol, currentPrice, entryPrice, change24h, estimatedHigh, estimatedLow);
+    console.log(`📊 MTF ${position.symbol}: ${mtfExit.recommendation} | Exit: ${mtfExit.exitUrgency}/100, Hold: ${mtfExit.holdScore}/100 | ${mtfExit.reasoning}`);
+    
     const hitTakeProfit = pnlPercent >= adjustedTakeProfit;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
+    
+    // SMART EXIT: Use MTF to decide whether to exit or hold longer
+    // If MTF says HOLD and we're profitable but below target, wait
+    // If MTF says EXIT_NOW, exit even if below take-profit threshold (if profitable)
+    const mtfOverrideHold = mtfExit.recommendation === 'hold' && mtfExit.holdScore > 70 && pnlPercent > 0.05;
+    const mtfForceExit = mtfExit.recommendation === 'exit_now' && mtfExit.exitUrgency > 60 && pnlPercent > 0;
+    
+    // Skip exit if MTF says hold (but respect stop-loss)
+    if (hitTakeProfit && mtfOverrideHold && !hitStopLoss) {
+      console.log(`⏸️ MTF HOLD: ${position.symbol} at ${pnlPercent.toFixed(3)}% - waiting for better exit (hold score: ${mtfExit.holdScore})`);
+      await supabase.from('positions').update({
+        current_price: currentPrice,
+        unrealized_pnl: pnl,
+        updated_at: new Date().toISOString(),
+      }).eq('id', position.id);
+      continue; // Skip exit, hold for more
+    }
+    
+    // Force exit if MTF says exit now (even below take-profit)
+    const shouldExit = hitTakeProfit || hitStopLoss || mtfForceExit;
 
-    if (hitTakeProfit || hitStopLoss) {
-      console.log(`${hitTakeProfit ? '🎯' : '🛑'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+    if (shouldExit) {
+      const exitReason = hitStopLoss ? '🛑 Stop loss' : mtfForceExit ? '⚡ MTF exit signal' : '🎯 Take profit';
+      console.log(`${exitReason} ${position.symbol}: ${pnlPercent.toFixed(3)}% | ${mtfExit.reasoning}`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
