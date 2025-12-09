@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.sync-broker-balances]
 verify_jwt = false
+
+[functions.ai-trading-engine]
+verify_jwt = false

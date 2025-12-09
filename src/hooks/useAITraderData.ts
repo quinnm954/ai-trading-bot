@@ -253,6 +253,58 @@ export function useAITraderData() {
     });
   }, [connectedBrokers.length, updateSettings, toast]);
 
+  // Run AI trading engine
+  const runTradingEngine = useCallback(async () => {
+    if (!user || !aiSettings.enabled) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      console.log('Running AI trading engine...');
+      
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-trading-engine`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+      console.log('Trading engine result:', result);
+
+      if (result.executedTrades?.length > 0) {
+        toast({
+          title: 'AI Executed Trades',
+          description: `${result.executedTrades.length} trade(s) executed in ${result.regime} market`,
+        });
+        triggerRealtimeUpdate();
+        fetchData();
+      }
+    } catch (error) {
+      console.error('Trading engine error:', error);
+    }
+  }, [user, aiSettings.enabled, toast, triggerRealtimeUpdate, fetchData]);
+
+  // Auto-run trading engine when enabled
+  useEffect(() => {
+    if (!aiSettings.enabled) return;
+
+    // Run immediately when enabled
+    runTradingEngine();
+
+    // Then run every 30 seconds while enabled
+    const tradingInterval = setInterval(() => {
+      runTradingEngine();
+    }, 30000);
+
+    return () => clearInterval(tradingInterval);
+  }, [aiSettings.enabled, runTradingEngine]);
+
   // Toggle AI enabled
   const toggleEnabled = useCallback(async () => {
     const newEnabled = !aiSettings.enabled;
@@ -260,7 +312,19 @@ export function useAITraderData() {
       enabled: newEnabled,
       botStatus: newEnabled ? 'trading' : 'idle',
     });
-  }, [aiSettings.enabled, updateSettings]);
+
+    if (newEnabled) {
+      toast({
+        title: 'AI Trading Enabled',
+        description: 'AI will now analyze markets and execute trades automatically.',
+      });
+    } else {
+      toast({
+        title: 'AI Trading Disabled',
+        description: 'AI trading has been paused.',
+      });
+    }
+  }, [aiSettings.enabled, updateSettings, toast]);
 
   // Get current balance based on mode
   const getCurrentBalance = useCallback(() => {
