@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useApiConnections, ApiCredentials } from '@/hooks/useApiConnections';
 
@@ -226,20 +227,32 @@ export default function ApiKeys() {
                 </div>
 
                 <div>
-                  <label className="text-sm text-muted-foreground mb-2 block">Secret Key</label>
+                  <label className="text-sm text-muted-foreground mb-2 block">
+                    Secret Key / Private Key
+                    {broker.provider === 'coinbase' && (
+                      <span className="text-xs ml-1">(paste full PEM key for CDP)</span>
+                    )}
+                  </label>
                   <div className="relative">
-                    <Input
-                      type={showSecrets[`${broker.provider}-secret`] ? 'text' : 'password'}
+                    <Textarea
                       value={getCredential(broker.provider, 'secretKey')}
                       onChange={(e) => updateCredential(broker.provider, 'secretKey', e.target.value)}
-                      placeholder={isConnected ? '••••••••' : 'Enter your secret key'}
-                      className="pr-10 bg-secondary border-border"
+                      placeholder={isConnected ? '••••••••' : broker.provider === 'coinbase' 
+                        ? 'Paste your secret key or full EC private key (including -----BEGIN EC PRIVATE KEY-----)'
+                        : 'Enter your secret key'}
+                      className={cn(
+                        "pr-10 bg-secondary border-border min-h-[80px] resize-y font-mono text-xs",
+                        !showSecrets[`${broker.provider}-secret`] && getCredential(broker.provider, 'secretKey') && "text-security-disc"
+                      )}
                       disabled={isConnected}
+                      style={!showSecrets[`${broker.provider}-secret`] && getCredential(broker.provider, 'secretKey') ? {
+                        WebkitTextSecurity: 'disc'
+                      } as React.CSSProperties : {}}
                     />
                     <button
                       type="button"
                       onClick={() => toggleSecret(`${broker.provider}-secret`)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                     >
                       {showSecrets[`${broker.provider}-secret`] ? (
                         <EyeOff className="w-4 h-4" />
