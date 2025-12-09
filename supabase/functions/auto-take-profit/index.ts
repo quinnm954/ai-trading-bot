@@ -7,11 +7,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// ORIGINAL FAST SETTINGS - $20 to $240 config
-// Take-profit at 0.08% for RAPID cycling
-const BASE_TAKE_PROFIT_PERCENT = 0.08;
-// Tight stop loss to cut losses immediately
-const BASE_STOP_LOSS_PERCENT = -0.05;
+// FEE-ADJUSTED PROFITABLE SETTINGS
+// Coinbase fees: ~0.6% per trade (taker), so round-trip = ~1.2%
+// Take-profit MUST be > 1.2% to be profitable after fees
+const COINBASE_ROUND_TRIP_FEE = 1.2; // 0.6% buy + 0.6% sell
+const BASE_TAKE_PROFIT_PERCENT = 1.5; // 1.5% take profit = ~0.3% net profit after 1.2% fees
+// Stop loss: cut losses at 2% to limit damage
+const BASE_STOP_LOSS_PERCENT = -2.0;
 // Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
 const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
 
