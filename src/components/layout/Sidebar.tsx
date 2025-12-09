@@ -75,24 +75,6 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="glass-panel p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground">Paper Trading</span>
-              <span className="px-2 py-0.5 text-xs rounded-full bg-warning/20 text-warning">
-                Demo
-              </span>
-            </div>
-            <div className="text-sm font-medium text-foreground">
-              $125,847.32
-            </div>
-            <div className="text-xs text-profit flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" />
-              +$2,341.56 today
-            </div>
-          </div>
-        </div>
       </div>
     </aside>
   );
