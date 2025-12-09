@@ -956,17 +956,18 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // ANTI-DUST: Minimum trade value must be high enough to be sellable later
-      // Coinbase rejects sells below ~$2 value, so we buy at least $10 worth
-      // This ensures positions can always be sold without precision/dust issues
-      const MIN_TRADE_VALUE = 10.00; // Increased from $5 to $10 to prevent dust
-      const MAX_TRADE_VALUE = 25.00; // Increased cap for better position sizes
+      // ANTI-DUST + SPEED: Safe coins only, good position sizes for fast trades
+      const MIN_TRADE_VALUE = 15.00; // Higher minimum = definitely sellable
+      const MAX_TRADE_VALUE = 30.00; // Bigger positions = bigger absolute gains per 0.15% move
       
-      // PRE-CHECK: Skip coins with low prices that are likely to create dust
-      // Very cheap coins (memecoins) need higher quantities which can be problematic
-      const riskyCheapCoins = ['SHIB', 'PEPE', 'FLOKI', 'BONK', 'MEME', 'XEC'];
-      if (riskyCheapCoins.includes(decision.symbol.toUpperCase())) {
-        console.log(`⚠️ Skipping ${decision.symbol} - risky memecoin prone to dust issues`);
+      // SAFE COIN LIST: Only trade coins with proven sellability (good precision, liquid)
+      // Excludes all memecoins and low-precision coins that create dust
+      const SAFE_COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'AVAX', 'DOT', 'LINK', 
+                          'NEAR', 'LTC', 'APT', 'UNI', 'ATOM', 'ARB', 'OP', 'INJ', 
+                          'SEI', 'SUI', 'FIL', 'RENDER', 'AAVE', 'BCH', 'ETC', 'XLM'];
+      
+      if (!SAFE_COINS.includes(decision.symbol.toUpperCase())) {
+        console.log(`⚠️ Skipping ${decision.symbol} - not in safe coin list (dust risk)`);
         continue;
       }
       
