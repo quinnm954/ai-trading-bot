@@ -7,10 +7,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Take-profit at 0.5% for bigger gains per trade
-const BASE_TAKE_PROFIT_PERCENT = 0.5;
-// Ultra-tight stop loss to cut losses immediately
-const BASE_STOP_LOSS_PERCENT = -0.05;
+// SPEED MODE: Ultra-low take-profit for fastest possible profit realization
+// Lower = faster closes = more cycles = compounding gains
+const BASE_TAKE_PROFIT_PERCENT = 0.15; // Lowered from 0.5% to 0.15% - close positions FAST
+// Tight stop loss to cut losses immediately  
+const BASE_STOP_LOSS_PERCENT = -0.08; // Slightly wider for volatility tolerance
 // Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
 const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
 
