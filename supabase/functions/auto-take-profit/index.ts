@@ -253,6 +253,19 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
+    // Round quantity to appropriate precision based on coin
+    // Most coins accept 2-6 decimals, use 2 for safety (Coinbase will reject too many decimals)
+    const precisionMap: Record<string, number> = {
+      'BTC': 6, 'ETH': 5, 'SOL': 3, 'DOGE': 0, 'SHIB': 0, 'PEPE': 0,
+      'FLOKI': 0, 'BONK': 0, 'WIF': 2, 'WLD': 2, 'CHZ': 0,
+    };
+    const precision = precisionMap[symbol] ?? 2;
+    const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+    
+    if (roundedQty <= 0) {
+      return { success: false, error: 'Quantity too small after rounding' };
+    }
+    
     const orderId = crypto.randomUUID();
     const orderBody = {
       client_order_id: orderId,
@@ -260,12 +273,12 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
       side: 'SELL',
       order_configuration: {
         market_market_ioc: {
-          base_size: quantity.toFixed(8)
+          base_size: roundedQty.toFixed(precision)
         }
       }
     };
     
-    console.log(`📤 Selling ${quantity} ${symbol} on Coinbase...`);
+    console.log(`📤 Selling ${roundedQty} ${symbol} on Coinbase (precision: ${precision})...`);
     
     const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
       method: 'POST',
@@ -280,11 +293,11 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     
     if (response.ok && result.success) {
       const filledValue = parseFloat(result.order?.filled_value || '0');
-      console.log(`✅ SOLD ${quantity} ${symbol} for $${filledValue.toFixed(2)} USDC`);
+      console.log(`✅ SOLD ${roundedQty} ${symbol} for $${filledValue.toFixed(2)} USDC`);
       return { success: true, usdValue: filledValue };
     } else {
       console.error(`❌ Coinbase sell failed:`, result);
-      return { success: false, error: result.error || 'Order failed' };
+      return { success: false, error: result.error_response?.message || result.error || 'Order failed' };
     }
   } catch (error) {
     console.error(`❌ Coinbase sell error:`, error);
@@ -529,6 +542,104 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Check for force-sell action
+    const url = new URL(req.url);
+    const action = url.searchParams.get('action');
+    const positionId = url.searchParams.get('position_id');
+
+    if (action === 'force-sell' && positionId) {
+      console.log(`🔴 FORCE SELL requested for position: ${positionId}`);
+      
+      // Get the position
+      const { data: position, error: posErr } = await supabase
+        .from('positions')
+        .select('*')
+        .eq('id', positionId)
+        .single();
+
+      if (posErr || !position) {
+        return new Response(JSON.stringify({ error: 'Position not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`📊 Force selling: ${position.quantity} ${position.symbol}`);
+
+      // Execute REAL Coinbase sell if live mode
+      let sellSuccess = false;
+      let sellUsdValue = 0;
+      let sellError = '';
+      if (!position.is_paper) {
+        console.log(`💰 EXECUTING REAL COINBASE SELL: ${position.quantity} ${position.symbol}`);
+        const sellResult = await executeCoinbaseSell(position.symbol, position.quantity);
+        sellSuccess = sellResult.success;
+        sellUsdValue = sellResult.usdValue || 0;
+        sellError = sellResult.error || '';
+        console.log(`📤 Coinbase sell result:`, sellResult);
+      }
+
+      // Calculate PnL
+      const currentPrice = position.current_price || position.avg_entry_price;
+      const pnl = (currentPrice - position.avg_entry_price) * position.quantity;
+
+      // Create closed trade record
+      await supabase.from('trades').insert({
+        user_id: position.user_id,
+        symbol: position.symbol,
+        side: position.side,
+        quantity: position.quantity,
+        entry_price: position.avg_entry_price,
+        exit_price: currentPrice,
+        pnl: pnl,
+        status: 'closed',
+        is_paper: position.is_paper,
+        market_type: position.market_type,
+        strategy: position.strategy,
+        closed_at: new Date().toISOString(),
+        ai_reasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
+      });
+
+      // Update balance if paper mode
+      if (position.is_paper) {
+        const positionValue = currentPrice * position.quantity;
+        const { data: paperData } = await supabase
+          .from('paper_account')
+          .select('balance')
+          .eq('user_id', position.user_id)
+          .single();
+        
+        if (paperData) {
+          await supabase.from('paper_account')
+            .update({ balance: paperData.balance + positionValue })
+            .eq('user_id', position.user_id);
+        }
+      }
+
+      // Delete the position
+      await supabase.from('positions').delete().eq('id', positionId);
+
+      // Log the decision
+      await supabase.from('ai_decisions').insert({
+        user_id: position.user_id,
+        decision_type: 'force_close',
+        symbol: position.symbol,
+        action: 'sell',
+        reasoning: `Force closed by user. PnL: $${pnl.toFixed(2)}. ${sellSuccess ? `Coinbase: $${sellUsdValue.toFixed(2)} USDC` : 'Simulated'}`,
+      });
+
+      return new Response(JSON.stringify({
+        status: 'success',
+        action: 'force-sell',
+        symbol: position.symbol,
+        quantity: position.quantity,
+        pnl: pnl,
+        coinbaseSell: { success: sellSuccess, usdValue: sellUsdValue, error: sellError },
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Check if this is a cron call (no auth) or user call (with auth)
     const authHeader = req.headers.get('Authorization');
