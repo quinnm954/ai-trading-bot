@@ -450,39 +450,27 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   let shouldTrade = true;
   let reason = '';
   
-  // AGGRESSIVE MODE: Trade more coins, only avoid catastrophic drops
+  // STRONG UPTREND ONLY MODE: Only trade when momentum is strongly upward
   if (trendScore >= 0.5) {
     trend = 'strong_uptrend';
+    shouldTrade = true; // ONLY strong uptrends are tradeable
     reason = `🚀 Strong uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore >= 0.1) {
     trend = 'uptrend';
-    reason = `📈 Uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
+    shouldTrade = false; // Skip regular uptrends
+    reason = `📈 Uptrend (skipping - not strong enough): +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore <= -0.7) {
     trend = 'strong_downtrend';
-    shouldTrade = coin.change24h > -5;
-    reason = shouldTrade ? `💰 Oversold: ${coin.change24h.toFixed(1)}%` : `⚠️ CRASH: ${coin.change24h.toFixed(1)}%`;
+    shouldTrade = false;
+    reason = `⚠️ Strong downtrend: ${coin.change24h.toFixed(1)}% - AVOIDING`;
   } else if (trendScore <= -0.3) {
     trend = 'downtrend';
-    // Only trade if MTF shows potential bounce
-    shouldTrade = mtf.entryScore > 40;
-    reason = `📉 Dip: ${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
+    shouldTrade = false;
+    reason = `📉 Downtrend: ${coin.change24h.toFixed(1)}% - AVOIDING`;
   } else {
     trend = 'neutral';
-    shouldTrade = true;
-    reason = `➡️ Range: ${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
-  }
-  
-  // Only avoid catastrophic drops (>5%)
-  if (coin.change24h <= -5) {
-    shouldTrade = false;
-    trend = 'strong_downtrend';
-    reason = `🚫 CRASH: ${coin.change24h.toFixed(1)}% - AVOIDING`;
-  }
-  
-  // BOOST: Best entry signals get priority
-  if (mtf.bestEntry) {
-    shouldTrade = true;
-    reason = `⭐ BEST ENTRY: ${reason}`;
+    shouldTrade = false; // Skip neutral markets
+    reason = `➡️ Neutral (skipping): ${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   }
   
   return {
