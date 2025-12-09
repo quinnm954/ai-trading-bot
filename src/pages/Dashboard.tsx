@@ -6,7 +6,8 @@ import {
   Banknote,
   RefreshCw,
   PieChart,
-  DollarSign
+  DollarSign,
+  Trash2
 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { EquityChart } from '@/components/dashboard/EquityChart';
@@ -20,16 +21,64 @@ import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressC
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Dashboard() {
   const { stats, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
   const isLiveMode = stats.tradingMode === 'live';
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSelling, setIsSelling] = useState(false);
+  const { toast } = useToast();
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refetch();
     setTimeout(() => setIsRefreshing(false), 500);
+  };
+
+  const handleSellAll = async () => {
+    if (!confirm('Are you sure you want to sell ALL crypto holdings?')) return;
+    
+    setIsSelling(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast({ title: 'Not authenticated', variant: 'destructive' });
+        return;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action: 'sell-all' }),
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.sold?.length > 0) {
+        const totalValue = result.sold.reduce((sum: number, s: any) => sum + (s.usdValue || 0), 0);
+        toast({
+          title: '🔥 Sold All Holdings',
+          description: `Liquidated ${result.sold.length} positions for $${totalValue.toFixed(2)}`,
+        });
+        refetch();
+      } else if (result.errors?.length > 0) {
+        toast({ title: 'Some sells failed', description: result.errors[0], variant: 'destructive' });
+      } else {
+        toast({ title: 'No holdings to sell' });
+      }
+    } catch (error) {
+      toast({ title: 'Sell failed', variant: 'destructive' });
+    } finally {
+      setIsSelling(false);
+    }
   };
 
   return (
@@ -44,16 +93,30 @@ export default function Dashboard() {
             </p>
           )}
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          {isLiveMode && (
+            <Button 
+              variant="destructive" 
+              size="sm" 
+              onClick={handleSellAll}
+              disabled={isSelling}
+              className="gap-2"
+            >
+              <Trash2 className={`w-4 h-4 ${isSelling ? 'animate-pulse' : ''}`} />
+              {isSelling ? 'Selling...' : 'Sell All'}
+            </Button>
+          )}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
       {/* Trading Mode Indicator */}
       {isLiveMode && (
