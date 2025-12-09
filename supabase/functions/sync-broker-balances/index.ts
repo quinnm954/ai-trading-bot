@@ -225,33 +225,32 @@ async function fetchCoinbaseBalance(): Promise<{
   const data = await response.json();
   console.log("Coinbase accounts response:", JSON.stringify(data, null, 2));
   
-  let totalBalance = 0;
-  let usdBalance = 0;
+  let cashBalance = 0;
+  
+  // Stablecoins that are pegged 1:1 to USD
+  const stablecoins = ["USD", "USDC", "USDT", "PYUSD", "USD1", "DAI", "BUSD", "GUSD", "USDP", "TUSD"];
   
   if (data.accounts && Array.isArray(data.accounts)) {
     for (const account of data.accounts) {
-      // Get USD value of available balance
       if (account.available_balance && account.available_balance.value) {
         const value = parseFloat(account.available_balance.value);
+        const currency = account.currency || account.available_balance.currency;
         
-        // If currency is USD, add directly
-        if (account.currency === "USD" || account.available_balance.currency === "USD") {
-          usdBalance += value;
-          console.log(`USD account: $${value}`);
+        // Include USD and all stablecoins as cash (1:1 value)
+        if (value > 0 && stablecoins.includes(currency)) {
+          cashBalance += value;
+          console.log(`${currency} balance: $${value}`);
         }
-        
-        // For now, we'll focus on USD balance only for "cash"
-        // Crypto holdings would need price conversion
       }
     }
   }
 
-  console.log(`Total USD balance: $${usdBalance}`);
+  console.log(`Total cash balance (USD + stablecoins): $${cashBalance}`);
 
   return {
-    balance: usdBalance,
-    buying_power: usdBalance,
-    equity: usdBalance,
+    balance: cashBalance,
+    buying_power: cashBalance,
+    equity: cashBalance,
   };
 }
 
