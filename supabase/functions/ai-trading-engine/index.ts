@@ -960,11 +960,13 @@ serve(async (req) => {
       const MIN_TRADE_VALUE = 15.00; // Higher minimum = definitely sellable
       const MAX_TRADE_VALUE = 30.00; // Bigger positions = bigger absolute gains per 0.15% move
       
-      // SAFE COIN LIST: Only trade coins with proven sellability (good precision, liquid)
-      // Excludes all memecoins and low-precision coins that create dust
+      // SAFE COIN LIST: High-volume coins with good precision and liquidity
+      // Expanded to include more trading opportunities while avoiding dust-prone memecoins
       const SAFE_COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'AVAX', 'DOT', 'LINK', 
                           'NEAR', 'LTC', 'APT', 'UNI', 'ATOM', 'ARB', 'OP', 'INJ', 
-                          'SEI', 'SUI', 'FIL', 'RENDER', 'AAVE', 'BCH', 'ETC', 'XLM'];
+                          'SEI', 'SUI', 'FIL', 'RENDER', 'AAVE', 'BCH', 'ETC', 'XLM',
+                          'TRX', 'ALGO', 'HBAR', 'ICP', 'FTM', 'GRT', 'ENJ', 'SAND',
+                          'MANA', 'CRV', 'EGLD', 'IMX', 'FLOW', 'LDO', 'COMP', 'SNX'];
       
       if (!SAFE_COINS.includes(decision.symbol.toUpperCase())) {
         console.log(`⚠️ Skipping ${decision.symbol} - not in safe coin list (dust risk)`);
