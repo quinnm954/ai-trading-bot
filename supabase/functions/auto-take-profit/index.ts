@@ -241,6 +241,40 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
   throw new Error("All key import methods failed");
 }
 
+// Fetch 24h price changes to find most profitable conversion targets
+async function fetchPriceChanges(symbols: string[]): Promise<Record<string, { price: number; change24h: number }>> {
+  const result: Record<string, { price: number; change24h: number }> = {};
+  
+  const ids = symbols
+    .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
+    .filter(Boolean);
+  
+  if (ids.length === 0) return result;
+  
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd&include_24hr_change=true`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      for (const symbol of symbols) {
+        const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
+        if (geckoId && data[geckoId]) {
+          result[symbol.toUpperCase()] = {
+            price: data[geckoId].usd || 0,
+            change24h: data[geckoId].usd_24h_change || 0,
+          };
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching price changes:', error);
+  }
+  
+  return result;
+}
+
 // Fetch available trading pairs from Coinbase
 async function fetchAvailablePairs(): Promise<Set<string>> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
@@ -711,44 +745,67 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
       let didDirectConversion = false;
+      let conversionTarget = '';
       
       // Execute trade on Coinbase if in live mode
       if (!isPaperMode) {
         // For TAKE PROFIT: Try direct crypto-to-crypto conversion first
         if (hitTakeProfit) {
-          // Find best opportunity to convert to (skip current symbol and stablecoins)
-          const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM'];
+          // Find the most profitable conversion target based on 24h momentum
+          const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'INJ'];
+          
+          // Fetch 24h price changes for potential targets
+          const priceChanges = await fetchPriceChanges(targetSymbols);
+          
+          // Build list of valid conversion targets with momentum data
+          const validTargets: Array<{ symbol: string; change24h: number; price: number }> = [];
           
           for (const targetSymbol of targetSymbols) {
             if (targetSymbol === position.symbol) continue;
             
             const pairId = `${position.symbol}-${targetSymbol}`;
             if (availablePairs.has(pairId)) {
-              console.log(`🔄 Trying direct conversion: ${position.symbol} → ${targetSymbol}`);
-              const swapResult = await executeCryptoToCryptoSwap(position.symbol, targetSymbol, quantity);
+              const data = priceChanges[targetSymbol];
+              if (data) {
+                validTargets.push({
+                  symbol: targetSymbol,
+                  change24h: data.change24h,
+                  price: data.price,
+                });
+              }
+            }
+          }
+          
+          // Sort by 24h change descending (most profitable first)
+          validTargets.sort((a, b) => b.change24h - a.change24h);
+          
+          if (validTargets.length > 0) {
+            const bestTarget = validTargets[0];
+            console.log(`📈 Best conversion target: ${bestTarget.symbol} (${bestTarget.change24h > 0 ? '+' : ''}${bestTarget.change24h.toFixed(2)}% 24h)`);
+            console.log(`🔄 Converting ${position.symbol} → ${bestTarget.symbol}...`);
+            
+            const swapResult = await executeCryptoToCryptoSwap(position.symbol, bestTarget.symbol, quantity);
+            
+            if (swapResult.success) {
+              console.log(`✅ Converted to best performer: ${position.symbol} → ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
+              didDirectConversion = true;
+              conversionTarget = `${bestTarget.symbol} (${bestTarget.change24h > 0 ? '+' : ''}${bestTarget.change24h.toFixed(1)}%)`;
+              conversions++;
               
-              if (swapResult.success) {
-                console.log(`✅ Direct conversion success: ${position.symbol} → ${swapResult.receivedQuantity} ${targetSymbol}`);
-                didDirectConversion = true;
-                conversions++;
-                
-                // Create new position for the target crypto
-                const targetPrice = livePrices[targetSymbol] || 0;
-                if (swapResult.receivedQuantity && targetPrice > 0) {
-                  await supabase.from('positions').insert({
-                    user_id: userId,
-                    symbol: targetSymbol,
-                    side: 'buy',
-                    quantity: swapResult.receivedQuantity,
-                    avg_entry_price: targetPrice,
-                    current_price: targetPrice,
-                    market_type: 'crypto',
-                    is_paper: false,
-                    unrealized_pnl: 0,
-                  });
-                  console.log(`📊 Created new position: ${swapResult.receivedQuantity} ${targetSymbol}`);
-                }
-                break;
+              // Create new position for the target crypto
+              if (swapResult.receivedQuantity && bestTarget.price > 0) {
+                await supabase.from('positions').insert({
+                  user_id: userId,
+                  symbol: bestTarget.symbol,
+                  side: 'buy',
+                  quantity: swapResult.receivedQuantity,
+                  avg_entry_price: bestTarget.price,
+                  current_price: bestTarget.price,
+                  market_type: 'crypto',
+                  is_paper: false,
+                  unrealized_pnl: 0,
+                });
+                console.log(`📊 New position: ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
               }
             }
           }
@@ -789,12 +846,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         }
       }
 
+      const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
       await supabase.from('ai_decisions').insert({
         user_id: userId,
         decision_type: hitTakeProfit ? 'auto_take_profit' : 'auto_stop_loss',
         symbol: position.symbol,
         action: didDirectConversion ? 'convert' : 'sell',
-        reasoning: `${hitTakeProfit ? '🎯 Take profit' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${didDirectConversion ? ' (direct swap)' : ''}`,
+        reasoning: `${hitTakeProfit ? '🎯 Take profit' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${conversionNote}`,
       });
 
       if (hitTakeProfit) takeProfitCount++;
