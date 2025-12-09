@@ -565,6 +565,16 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const entryPrice = Number(position.avg_entry_price);
     const quantity = Number(position.quantity);
     
+    // Skip positions with 0 entry price (synced from broker without entry data)
+    if (entryPrice <= 0) {
+      // Just update current price, don't process take-profit/stop-loss
+      await supabase.from('positions').update({
+        current_price: currentPrice,
+        updated_at: new Date().toISOString(),
+      }).eq('id', position.id);
+      continue;
+    }
+    
     let pnlPercent = 0;
     let pnl = 0;
     
