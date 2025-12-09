@@ -130,10 +130,79 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
   
   console.log("Key bytes length:", keyBytes.length);
   
-  // Import the EC private key - try PKCS8 format first, then SEC1 (EC)
+  // Helper function to convert SEC1 EC key to PKCS8 format
+  // SEC1 format is simpler, PKCS8 wraps it with algorithm identifier
+  const convertSec1ToPkcs8 = (sec1Key: Uint8Array): Uint8Array => {
+    // PKCS8 header for EC P-256 keys
+    // This is the ASN.1 structure: SEQUENCE { INTEGER version, SEQUENCE { OID ecPublicKey, OID prime256v1 }, OCTET STRING sec1Key }
+    const pkcs8Header = new Uint8Array([
+      0x30, 0x81, 0x87,  // SEQUENCE, length 135 (will be adjusted)
+      0x02, 0x01, 0x00,  // INTEGER version = 0
+      0x30, 0x13,        // SEQUENCE (algorithm identifier)
+      0x06, 0x07,        // OID
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,  // ecPublicKey OID (1.2.840.10045.2.1)
+      0x06, 0x08,        // OID
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,  // prime256v1 OID (1.2.840.10045.3.1.7)
+      0x04, 0x6d         // OCTET STRING, length 109 (for typical EC key)
+    ]);
+    
+    // For a typical SEC1 EC P-256 key, the structure is already correct
+    // We just need to wrap it in the PKCS8 structure
+    const totalLength = 26 + sec1Key.length;  // header (26 bytes) + key
+    const pkcs8Key = new Uint8Array(totalLength);
+    
+    // Build the PKCS8 structure
+    let offset = 0;
+    
+    // SEQUENCE tag and length
+    pkcs8Key[offset++] = 0x30;
+    if (totalLength - 2 > 127) {
+      pkcs8Key[offset++] = 0x81;
+      pkcs8Key[offset++] = totalLength - 3;
+    } else {
+      pkcs8Key[offset++] = totalLength - 2;
+    }
+    
+    // Version INTEGER 0
+    pkcs8Key[offset++] = 0x02;
+    pkcs8Key[offset++] = 0x01;
+    pkcs8Key[offset++] = 0x00;
+    
+    // Algorithm identifier SEQUENCE
+    pkcs8Key[offset++] = 0x30;
+    pkcs8Key[offset++] = 0x13;
+    
+    // ecPublicKey OID
+    pkcs8Key[offset++] = 0x06;
+    pkcs8Key[offset++] = 0x07;
+    pkcs8Key.set([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01], offset);
+    offset += 7;
+    
+    // prime256v1 OID
+    pkcs8Key[offset++] = 0x06;
+    pkcs8Key[offset++] = 0x08;
+    pkcs8Key.set([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07], offset);
+    offset += 8;
+    
+    // OCTET STRING containing the SEC1 key
+    pkcs8Key[offset++] = 0x04;
+    if (sec1Key.length > 127) {
+      pkcs8Key[offset++] = 0x81;
+      pkcs8Key[offset++] = sec1Key.length;
+    } else {
+      pkcs8Key[offset++] = sec1Key.length;
+    }
+    
+    pkcs8Key.set(sec1Key, offset);
+    
+    return pkcs8Key.slice(0, offset + sec1Key.length);
+  };
+  
+  // Import the EC private key - try PKCS8 format first, then convert SEC1
   let cryptoKey: CryptoKey;
   const keyBuffer = new ArrayBuffer(keyBytes.length);
   new Uint8Array(keyBuffer).set(keyBytes);
+  
   try {
     // Try PKCS8 format first (-----BEGIN PRIVATE KEY-----)
     cryptoKey = await crypto.subtle.importKey(
@@ -143,15 +212,28 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
       false,
       ["sign"]
     );
+    console.log("Successfully imported as PKCS8");
   } catch (pkcs8Error) {
-    console.log("PKCS8 import failed, trying SEC1/EC format...");
+    console.log("PKCS8 import failed, converting SEC1 to PKCS8...");
     try {
-      // Try SEC1/EC format (-----BEGIN EC PRIVATE KEY-----)
-      // SEC1 keys need to be wrapped in PKCS8 format for Web Crypto API
-      // For now, we'll provide a helpful error message
-      throw new Error("EC Private Key format detected. Please use a PKCS8 format key (-----BEGIN PRIVATE KEY-----) or contact support for EC key format handling.");
+      // Convert SEC1 to PKCS8 and try again
+      const pkcs8Key = convertSec1ToPkcs8(keyBytes);
+      console.log("Converted key length:", pkcs8Key.length);
+      
+      const pkcs8Buffer = new ArrayBuffer(pkcs8Key.length);
+      new Uint8Array(pkcs8Buffer).set(pkcs8Key);
+      
+      cryptoKey = await crypto.subtle.importKey(
+        "pkcs8",
+        pkcs8Buffer,
+        { name: "ECDSA", namedCurve: "P-256" },
+        false,
+        ["sign"]
+      );
+      console.log("Successfully imported converted SEC1 key");
     } catch (ecError: any) {
-      throw new Error(`Unable to import private key. Ensure it's a valid EC P-256 private key. ${ecError.message}`);
+      console.error("SEC1 conversion failed:", ecError);
+      throw new Error(`Unable to import private key. The key format may not be compatible. Error: ${ecError.message}`);
     }
   }
   
