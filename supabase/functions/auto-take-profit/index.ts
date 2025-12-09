@@ -11,9 +11,11 @@ const TAKE_PROFIT_PERCENT = 0.15;
 // Stop loss threshold (negative value) - tighter for risk management
 const STOP_LOSS_PERCENT = -0.25;
 
-// Equity target - close all positions and withdraw when reached
-const EQUITY_TARGET = 200000;
+// Milestone system - withdraw $100k every $100k gain until $1M
 const WITHDRAWAL_AMOUNT = 100000;
+const MILESTONE_INCREMENT = 100000;
+const FINAL_TARGET = 1000000;
+const STARTING_MILESTONE = 200000; // First milestone
 
 // Symbol mapping for CoinGecko API
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -146,10 +148,19 @@ serve(async (req) => {
     const totalEquity = cashBalance + totalPositionValue;
     console.log(`💰 Total Equity: $${totalEquity.toFixed(2)} (Cash: $${cashBalance.toFixed(2)} + Positions: $${totalPositionValue.toFixed(2)})`);
 
+    // Calculate next milestone based on total withdrawn + current equity
+    // Milestones: $200k, $300k, $400k... up to $1M
+    // We calculate the next target based on how many $100k increments above $100k starting point
+    const nextMilestone = Math.ceil(totalEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT;
+    const currentTarget = Math.max(STARTING_MILESTONE, nextMilestone);
+    
+    console.log(`🎯 Next milestone: $${currentTarget.toLocaleString()} | Current equity: $${totalEquity.toFixed(2)}`);
+
     // Check if equity target is reached
-    if (totalEquity >= EQUITY_TARGET && isPaperMode) {
-      console.log(`🎉 EQUITY TARGET REACHED! $${totalEquity.toFixed(2)} >= $${EQUITY_TARGET}`);
-      console.log(`💸 Closing all positions and withdrawing $${WITHDRAWAL_AMOUNT}...`);
+    if (totalEquity >= currentTarget && isPaperMode && currentTarget <= FINAL_TARGET) {
+      const isFinalMilestone = currentTarget >= FINAL_TARGET;
+      console.log(`🎉 MILESTONE REACHED! $${totalEquity.toFixed(2)} >= $${currentTarget.toLocaleString()}`);
+      console.log(`💸 Closing all positions and withdrawing $${WITHDRAWAL_AMOUNT.toLocaleString()}...`);
 
       // Close ALL positions
       for (const position of positions) {
@@ -193,29 +204,40 @@ serve(async (req) => {
         })
         .eq('user_id', user.id);
 
+      const milestoneNumber = (currentTarget - STARTING_MILESTONE) / MILESTONE_INCREMENT + 1;
+      const totalWithdrawn = milestoneNumber * WITHDRAWAL_AMOUNT;
+
       // Log the milestone
       await supabase
         .from('ai_decisions')
         .insert({
           user_id: user.id,
-          decision_type: 'equity_target_reached',
+          decision_type: 'milestone_reached',
           action: 'withdraw',
-          reasoning: `🎉 EQUITY TARGET HIT! Total equity: $${totalEquity.toFixed(2)}. Closed all positions and withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()} to lock profits. Remaining trading capital: $${newBalance.toFixed(2)}`,
+          reasoning: `🎉 MILESTONE ${milestoneNumber} HIT! ($${currentTarget.toLocaleString()}) Total equity: $${totalEquity.toFixed(2)}. Withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()} (Total withdrawn: $${totalWithdrawn.toLocaleString()}). ${isFinalMilestone ? '🏆 FINAL $1M TARGET REACHED!' : `Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`}`,
         });
 
-      // Disable AI trading temporarily
-      await supabase
-        .from('ai_settings')
-        .update({ enabled: false, bot_status: 'idle' })
-        .eq('user_id', user.id);
+      // Only disable AI if final target reached
+      if (isFinalMilestone) {
+        await supabase
+          .from('ai_settings')
+          .update({ enabled: false, bot_status: 'idle' })
+          .eq('user_id', user.id);
+      }
 
       return new Response(JSON.stringify({
-        status: 'equity_target_reached',
+        status: 'milestone_reached',
+        milestone: milestoneNumber,
         totalEquity: totalEquity.toFixed(2),
-        target: EQUITY_TARGET,
+        target: currentTarget,
+        nextTarget: isFinalMilestone ? null : currentTarget + MILESTONE_INCREMENT,
         withdrawn: WITHDRAWAL_AMOUNT,
+        totalWithdrawn: totalWithdrawn,
         remainingBalance: newBalance.toFixed(2),
-        message: `🎉 Congratulations! Equity target of $${EQUITY_TARGET.toLocaleString()} reached! Withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()} and paused trading.`,
+        isFinalMilestone,
+        message: isFinalMilestone 
+          ? `🏆 CONGRATULATIONS! $1 MILLION TARGET REACHED! Total withdrawn: $${totalWithdrawn.toLocaleString()}`
+          : `🎉 Milestone ${milestoneNumber} ($${currentTarget.toLocaleString()}) reached! Withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()}. Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
