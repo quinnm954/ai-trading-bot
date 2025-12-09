@@ -1,8 +1,12 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { useAutoTakeProfit } from '@/hooks/useAutoTakeProfit';
 
 export function AppLayout() {
+  // Run take-profit checker globally when AI is enabled
+  useAutoTakeProfit();
+
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
