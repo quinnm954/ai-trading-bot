@@ -168,17 +168,27 @@ export function useDashboardData() {
 
       // Fetch live prices for positions from CoinGecko
       let positionsValue = 0;
+      let unrealizedPnl = 0;
       if (positionsData && positionsData.length > 0) {
         const symbols = [...new Set(positionsData.map(p => p.symbol))];
         const livePrices = await fetchLivePricesForDashboard(symbols);
         
-        positionsValue = positionsData.reduce((sum, pos) => {
+        positionsData.forEach(pos => {
           const livePrice = livePrices[pos.symbol.toUpperCase()] || pos.current_price || pos.avg_entry_price;
-          const value = Number(pos.quantity) * Number(livePrice);
-          console.log(`[Dashboard] ${pos.symbol}: qty=${pos.quantity}, price=${livePrice}, value=${value}`);
-          return sum + value;
-        }, 0);
-        console.log('[Dashboard] Total positions value:', positionsValue);
+          const quantity = Number(pos.quantity);
+          const entryPrice = Number(pos.avg_entry_price);
+          const value = quantity * Number(livePrice);
+          
+          positionsValue += value;
+          
+          // Calculate unrealized P&L (only if we have a valid entry price)
+          if (entryPrice > 0) {
+            unrealizedPnl += (Number(livePrice) - entryPrice) * quantity;
+          }
+          
+          console.log(`[Dashboard] ${pos.symbol}: qty=${quantity}, price=${livePrice}, value=${value}, unrealizedPnl=${(Number(livePrice) - entryPrice) * quantity}`);
+        });
+        console.log('[Dashboard] Total positions value:', positionsValue, 'Unrealized P&L:', unrealizedPnl);
       } else {
         console.log('[Dashboard] No positions found');
       }
@@ -237,14 +247,26 @@ export function useDashboardData() {
       const weeklyPnlPercent = totalEquity > 0 ? (weeklyPnl / totalEquity) * 100 : 0;
       
       // For paper mode: use initial balance as baseline
-      // For live mode: use realized P&L as percentage of current equity (no initial deposit tracked)
+      // For live mode: use total P&L (realized + unrealized) as percentage of current equity
       let totalPnlPercent = 0;
+      let combinedPnl = totalPnl + unrealizedPnl; // realized + unrealized
+      
       if (tradingMode === 'paper') {
         totalPnlPercent = initialBalance > 0 ? ((totalEquity - initialBalance) / initialBalance) * 100 : 0;
       } else {
-        // Live mode: show P&L percent relative to total equity
-        totalPnlPercent = totalEquity > 0 ? (totalPnl / totalEquity) * 100 : 0;
+        // Live mode: total P&L (realized + unrealized) relative to cost basis
+        // Cost basis = current equity - combined P&L
+        const costBasis = totalEquity - combinedPnl;
+        totalPnlPercent = costBasis > 0 ? (combinedPnl / costBasis) * 100 : 0;
       }
+      
+      console.log('[Dashboard] P&L breakdown:', { 
+        realizedPnl: totalPnl, 
+        unrealizedPnl, 
+        combinedPnl, 
+        totalEquity, 
+        totalPnlPercent 
+      });
 
       setStats({
         cashBalance,
@@ -254,7 +276,7 @@ export function useDashboardData() {
         dailyPnlPercent,
         weeklyPnl,
         weeklyPnlPercent,
-        totalPnl,
+        totalPnl: combinedPnl, // Show combined P&L in stats
         totalPnlPercent,
         openPositions: positionsCount || 0,
         todayTrades: todayTradesCount,
