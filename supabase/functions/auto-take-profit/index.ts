@@ -66,12 +66,12 @@ function getAdjustedStopLoss(): number {
   return adjusted;
 }
 
-// Milestone system - USER REQUESTED: Accumulate $200 USDC, then reinvest half
-// Phase 1: Keep converting profits to USDC until $200 is reached
-// Phase 2: At $200, keep $100 for trading, withdraw $100 as profit, then repeat
-const PHASE_1_TARGET = 200; // Target USDC balance before splitting
-const KEEP_FOR_TRADING = 100; // After target, keep half for trading
-const WITHDRAWAL_AMOUNT = 100; // After target, withdraw half as profit
+// Milestone system - REAL PRODUCTION VALUES
+// Phase 1: Compound until $200k equity, then at each $100k milestone, keep $100k trading, withdraw rest
+// Phase 2: At $1M, keep $500k for trading, withdraw $500k at each milestone
+const PHASE_1_TARGET = 200000; // $200k target for Phase 1 milestone
+const KEEP_FOR_TRADING = 100000; // After target, keep $100k for trading
+const WITHDRAWAL_AMOUNT = 100000; // After target, withdraw profits above $100k
 
 // Symbol mapping for CoinGecko API - Top 100+ cryptos
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
