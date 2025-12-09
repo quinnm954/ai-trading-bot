@@ -6,8 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// ULTRA-AGGRESSIVE: 0.05% take-profit for rapid scalping
-const TAKE_PROFIT_PERCENT = 0.05;
+// ULTRA-AGGRESSIVE: 0.03% take-profit for maximum scalping speed
+const TAKE_PROFIT_PERCENT = 0.03;
 // Tight stop loss to cut losses quick
 const STOP_LOSS_PERCENT = -0.15;
 
