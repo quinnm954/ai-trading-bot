@@ -221,10 +221,10 @@ export function useDashboardData() {
       )
       .subscribe();
 
-    // Auto-refresh every 30 seconds as backup
+    // Auto-refresh every 5 seconds for live trading updates
     const intervalId = setInterval(() => {
       fetchData();
-    }, 30000);
+    }, 5000);
     
     return () => {
       clearInterval(intervalId);
