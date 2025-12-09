@@ -957,10 +957,19 @@ serve(async (req) => {
       if (!coinData) continue;
 
       // ANTI-DUST: Minimum trade value must be high enough to be sellable later
-      // Coinbase rejects sells below ~$1-2 value, so we buy at least $5 worth
+      // Coinbase rejects sells below ~$2 value, so we buy at least $10 worth
       // This ensures positions can always be sold without precision/dust issues
-      const MIN_TRADE_VALUE = 5.00; // Minimum to avoid dust - ensures sellable positions
-      const MAX_TRADE_VALUE = 10.00; // Cap per trade to spread across multiple assets
+      const MIN_TRADE_VALUE = 10.00; // Increased from $5 to $10 to prevent dust
+      const MAX_TRADE_VALUE = 25.00; // Increased cap for better position sizes
+      
+      // PRE-CHECK: Skip coins with low prices that are likely to create dust
+      // Very cheap coins (memecoins) need higher quantities which can be problematic
+      const riskyCheapCoins = ['SHIB', 'PEPE', 'FLOKI', 'BONK', 'MEME', 'XEC'];
+      if (riskyCheapCoins.includes(decision.symbol.toUpperCase())) {
+        console.log(`⚠️ Skipping ${decision.symbol} - risky memecoin prone to dust issues`);
+        continue;
+      }
+      
       const maxValue = Math.min(balance * (settings.max_position_size / 100), MAX_TRADE_VALUE);
       const tradeValue = Math.max(Math.min(maxValue * decision.confidence, maxValue), MIN_TRADE_VALUE);
       let quantity = tradeValue / coinData.price;
@@ -986,7 +995,28 @@ serve(async (req) => {
         if (buyResult.success && buyResult.quantity && buyResult.price) {
           quantity = buyResult.quantity;
           actualEntryPrice = buyResult.price;
-          console.log(`✅ REAL TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice}`);
+          
+          // DUST PREVENTION: Verify the quantity we received is sellable
+          // Apply the same precision/minimum checks we use for selling
+          const precisionMap: Record<string, number> = {
+            'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
+            'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
+            'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
+            'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
+          };
+          const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
+          const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+          const positionValue = roundedQty * actualEntryPrice;
+          
+          if (roundedQty <= 0 || positionValue < 2) {
+            console.error(`⚠️ DUST DETECTED: Bought ${quantity} ${decision.symbol} but sellable qty is ${roundedQty} ($${positionValue.toFixed(2)})`);
+            console.log(`⚠️ This trade will create dust - skipping position creation`);
+            // The buy already happened on Coinbase but we won't track it as a position
+            // It will become dust but at least we won't make more dust trades
+            continue;
+          }
+          
+          console.log(`✅ REAL TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice} (sellable: ${roundedQty})`);
         } else {
           console.error(`❌ REAL BUY FAILED for ${decision.symbol}: ${buyResult.error}`);
           // Skip this trade if real buy failed
