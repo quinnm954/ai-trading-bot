@@ -367,35 +367,70 @@ serve(async (req) => {
             
             // Sync holdings to positions table
             if (balanceData.holdings.length > 0) {
-              // First, delete existing live positions for this user to avoid duplicates
+              // Get current live positions
+              const { data: existingPositions } = await serviceClient
+                .from("positions")
+                .select("id, symbol")
+                .eq("user_id", userId)
+                .eq("is_paper", false);
+              
+              const existingSymbols = new Set(existingPositions?.map(p => p.symbol) || []);
+              const currentSymbols = new Set(balanceData.holdings.map(h => h.symbol));
+              
+              // Delete positions that no longer exist in Coinbase
+              const toDelete = existingPositions?.filter(p => !currentSymbols.has(p.symbol)) || [];
+              for (const pos of toDelete) {
+                await serviceClient.from("positions").delete().eq("id", pos.id);
+                console.log(`🗑️ Removed position: ${pos.symbol}`);
+              }
+              
+              // Upsert current holdings
+              for (const holding of balanceData.holdings) {
+                if (existingSymbols.has(holding.symbol)) {
+                  // Update quantity
+                  const { error: updateError } = await serviceClient
+                    .from("positions")
+                    .update({ quantity: holding.quantity, updated_at: new Date().toISOString() })
+                    .eq("user_id", userId)
+                    .eq("symbol", holding.symbol)
+                    .eq("is_paper", false);
+                  
+                  if (updateError) {
+                    console.error(`Error updating ${holding.symbol}:`, updateError.message);
+                  } else {
+                    console.log(`📊 Updated position: ${holding.quantity} ${holding.symbol}`);
+                  }
+                } else {
+                  // Insert new position
+                  const { error: posError } = await serviceClient
+                    .from("positions")
+                    .insert({
+                      user_id: userId,
+                      symbol: holding.symbol,
+                      side: "buy",
+                      quantity: holding.quantity,
+                      avg_entry_price: 0,
+                      current_price: 0,
+                      market_type: "crypto",
+                      is_paper: false,
+                      unrealized_pnl: 0,
+                    });
+                  
+                  if (posError) {
+                    console.error(`Error inserting ${holding.symbol}:`, posError.message);
+                  } else {
+                    console.log(`📊 Synced position: ${holding.quantity} ${holding.symbol}`);
+                  }
+                }
+              }
+            } else {
+              // No holdings - delete all live positions
               await serviceClient
                 .from("positions")
                 .delete()
                 .eq("user_id", userId)
                 .eq("is_paper", false);
-              
-              // Insert current holdings as positions
-              for (const holding of balanceData.holdings) {
-                const { error: posError } = await serviceClient
-                  .from("positions")
-                  .insert({
-                    user_id: userId,
-                    symbol: holding.symbol,
-                    side: "buy",
-                    quantity: holding.quantity,
-                    avg_entry_price: 0, // We don't know entry price from Coinbase
-                    current_price: 0,
-                    market_type: "crypto",
-                    is_paper: false,
-                    unrealized_pnl: 0,
-                  });
-                
-                if (posError) {
-                  console.error(`Error syncing position ${holding.symbol}:`, posError.message);
-                } else {
-                  console.log(`📊 Synced position: ${holding.quantity} ${holding.symbol}`);
-                }
-              }
+              console.log("🗑️ Cleared all live positions (no holdings)");
             }
             
             allResults[userId] = { 
