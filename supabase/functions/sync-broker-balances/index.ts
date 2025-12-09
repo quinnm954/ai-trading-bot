@@ -388,10 +388,37 @@ serve(async (req) => {
             }
             
             // Sync holdings to positions table with accurate P&L
+            // Filter out dust positions (below $1 value) to prevent clutter
+            const DUST_THRESHOLD_USD = 1.0;
+            
             if (balanceData.holdings.length > 0) {
               // Fetch live prices for P&L calculation
               const holdingSymbols = balanceData.holdings.map(h => h.symbol);
               const livePrices = await fetchLivePrices(holdingSymbols);
+              
+              // Filter out dust positions before processing
+              const filteredHoldings = balanceData.holdings.filter(h => {
+                const price = livePrices[h.symbol.toUpperCase()] || 0;
+                const value = h.quantity * price;
+                if (value < DUST_THRESHOLD_USD) {
+                  console.log(`🧹 Skipping dust: ${h.symbol} = $${value.toFixed(4)}`);
+                  return false;
+                }
+                return true;
+              });
+              
+              console.log(`📊 Processing ${filteredHoldings.length} positions (filtered ${balanceData.holdings.length - filteredHoldings.length} dust)`);
+              
+              // If all positions are dust, clear the positions table
+              if (filteredHoldings.length === 0) {
+                await serviceClient
+                  .from("positions")
+                  .delete()
+                  .eq("user_id", userId)
+                  .eq("is_paper", false);
+                console.log("🗑️ Cleared all live positions (all dust)");
+                continue;
+              }
               
               // Get current live positions with entry prices
               const { data: existingPositions } = await serviceClient
@@ -420,7 +447,7 @@ serve(async (req) => {
               }
               
               const existingSymbols = new Set(existingPositions?.map(p => p.symbol) || []);
-              const currentSymbols = new Set(balanceData.holdings.map(h => h.symbol));
+              const currentSymbols = new Set(filteredHoldings.map(h => h.symbol));
               
               // Delete positions that no longer exist in Coinbase
               const toDelete = existingPositions?.filter(p => !currentSymbols.has(p.symbol)) || [];
@@ -430,7 +457,7 @@ serve(async (req) => {
               }
               
               // Upsert current holdings with accurate P&L
-              for (const holding of balanceData.holdings) {
+              for (const holding of filteredHoldings) {
                 const currentPrice = livePrices[holding.symbol.toUpperCase()] || 0;
                 
                 if (existingSymbols.has(holding.symbol)) {
