@@ -2,6 +2,50 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
+// Symbol mapping for CoinGecko API
+const SYMBOL_TO_COINGECKO: Record<string, string> = {
+  'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
+  'DOGE': 'dogecoin', 'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot',
+  'MATIC': 'matic-network', 'POL': 'matic-network', 'LINK': 'chainlink',
+  'UNI': 'uniswap', 'LTC': 'litecoin', 'SHIB': 'shiba-inu', 'PEPE': 'pepe',
+  'FLOKI': 'floki', 'BONK': 'bonk', 'WIF': 'dogwifcoin', 'WLD': 'worldcoin-wld',
+  'ONDO': 'ondo-finance', 'JUP': 'jupiter-exchange-solana', 'VET': 'vechain',
+  'CHZ': 'chiliz', 'GALA': 'gala', 'SAND': 'the-sandbox', 'MANA': 'decentraland',
+  'APE': 'apecoin', 'INJ': 'injective-protocol', 'TIA': 'celestia', 'SEI': 'sei-network',
+  'ARB': 'arbitrum', 'OP': 'optimism', 'IMX': 'immutable-x', 'NEAR': 'near',
+  'FET': 'fetch-ai', 'RENDER': 'render-token', 'AAVE': 'aave', 'MKR': 'maker',
+  'GRT': 'the-graph', 'LDO': 'lido-dao', 'CRV': 'curve-dao-token', 'CAKE': 'pancakeswap-token',
+  'APT': 'aptos', 'HBAR': 'hedera-hashgraph', 'ATOM': 'cosmos', 'ALGO': 'algorand',
+  'ENJ': 'enjincoin', 'STX': 'stacks', 'TAO': 'bittensor', 'SUI': 'sui',
+};
+
+async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
+  const prices: Record<string, number> = {};
+  const ids = symbols.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
+  
+  if (ids.length === 0) return prices;
+  
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      for (const symbol of symbols) {
+        const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
+        if (geckoId && data[geckoId]?.usd) {
+          prices[symbol.toUpperCase()] = data[geckoId].usd;
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching live prices:', error);
+  }
+  
+  return prices;
+}
+
 interface DashboardStats {
   cashBalance: number;
   positionsValue: number;
@@ -84,19 +128,22 @@ export function useDashboardData() {
 
       setLiveAccounts(formattedLiveAccounts);
 
-      // Fetch positions and calculate value
+      // Fetch positions
       const { data: positionsData, count: positionsCount } = await supabase
         .from('positions')
-        .select('quantity, avg_entry_price, current_price', { count: 'exact' })
+        .select('symbol, quantity, avg_entry_price, current_price', { count: 'exact' })
         .eq('user_id', user.id)
         .eq('is_paper', tradingMode === 'paper');
 
-      // Calculate total positions value
+      // Fetch live prices for positions from CoinGecko
       let positionsValue = 0;
-      if (positionsData) {
+      if (positionsData && positionsData.length > 0) {
+        const symbols = [...new Set(positionsData.map(p => p.symbol))];
+        const livePrices = await fetchLivePricesForDashboard(symbols);
+        
         positionsValue = positionsData.reduce((sum, pos) => {
-          const price = pos.current_price || pos.avg_entry_price;
-          return sum + (Number(pos.quantity) * Number(price));
+          const livePrice = livePrices[pos.symbol.toUpperCase()] || pos.current_price || pos.avg_entry_price;
+          return sum + (Number(pos.quantity) * Number(livePrice));
         }, 0);
       }
 
@@ -236,16 +283,34 @@ export function useDashboardData() {
       )
       .subscribe();
 
-    // Auto-refresh every 3 seconds for faster live trading updates
+    // Subscribe to real-time live account updates (for balance sync)
+    const liveAccountChannel = supabase
+      .channel('dashboard-live-account-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_account',
+        },
+        () => {
+          triggerRealtimeUpdate();
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    // Auto-refresh every 10 seconds (positions get live prices each refresh)
     const intervalId = setInterval(() => {
       fetchData();
-    }, 3000);
+    }, 10000);
     
     return () => {
       clearInterval(intervalId);
       supabase.removeChannel(tradesChannel);
       supabase.removeChannel(positionsChannel);
       supabase.removeChannel(paperChannel);
+      supabase.removeChannel(liveAccountChannel);
     };
   }, [fetchData, triggerRealtimeUpdate]);
 
