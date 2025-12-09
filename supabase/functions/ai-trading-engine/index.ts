@@ -907,13 +907,20 @@ serve(async (req) => {
       if (!coinData) continue;
 
       // ANTI-DUST: Minimum trade value must be high enough to be sellable later
-      // Increased minimum to prevent $0 entries and ensure meaningful positions
-      const MIN_TRADE_VALUE = 10.00; // Minimum $10 to avoid dust and $0 entries
-      const MAX_TRADE_VALUE = 15.00; // Cap per trade to spread across multiple assets
+      // Coinbase rejects sells below ~$1-2 value, so we buy at least $5 worth
+      // This ensures positions can always be sold without precision/dust issues
+      const MIN_TRADE_VALUE = 5.00; // Minimum to avoid dust - ensures sellable positions
+      const MAX_TRADE_VALUE = 10.00; // Cap per trade to spread across multiple assets
       const maxValue = Math.min(balance * (settings.max_position_size / 100), MAX_TRADE_VALUE);
       const tradeValue = Math.max(Math.min(maxValue * decision.confidence, maxValue), MIN_TRADE_VALUE);
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
+
+      // STRICT VALIDATION: Skip if trade value, quantity, or price is $0 or invalid
+      if (!tradeValue || tradeValue <= 0 || !quantity || quantity <= 0 || !actualEntryPrice || actualEntryPrice <= 0) {
+        console.log(`⚠️ SKIPPING $0 entry: ${decision.symbol} - value=$${tradeValue}, qty=${quantity}, price=$${actualEntryPrice}`);
+        continue;
+      }
 
       // Skip if we don't have enough balance for minimum anti-dust trade
       if (balance < MIN_TRADE_VALUE) {
