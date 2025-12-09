@@ -54,9 +54,7 @@ export function PositionsTable() {
             <tbody>
               {positions.map((position) => {
                 const pnl = position.unrealizedPnl || 0;
-                const pnlPercent = position.avgEntryPrice > 0 && position.currentPrice 
-                  ? ((position.currentPrice - position.avgEntryPrice) / position.avgEntryPrice) * 100 
-                  : 0;
+                const pnlPercent = position.pnlPercent || 0;
                 const displaySide = position.side === 'buy' ? 'long' : 'short';
                 
                 return (
