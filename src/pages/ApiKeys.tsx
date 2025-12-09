@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   Key, 
   Eye, 
@@ -8,13 +8,19 @@ import {
   Loader2,
   Trash2,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useApiConnections, ApiCredentials } from '@/hooks/useApiConnections';
+
+interface ValidationResult {
+  isValid: boolean;
+  message: string;
+}
 
 interface BrokerConfig {
   provider: 'alpaca' | 'coinbase';
@@ -66,6 +72,71 @@ export default function ApiKeys() {
     
     return isCdp ? 'cdp' : 'legacy';
   };
+
+  // Validate credentials format
+  const validateCredentials = (provider: string): ValidationResult => {
+    const apiKey = credentials[provider]?.apiKey || '';
+    const secretKey = credentials[provider]?.secretKey || '';
+    const passphrase = credentials[provider]?.passphrase || '';
+    
+    if (!apiKey && !secretKey) {
+      return { isValid: true, message: '' };
+    }
+
+    if (provider === 'alpaca') {
+      // Alpaca: API key and secret should be alphanumeric, typically 20+ chars
+      if (apiKey && apiKey.length < 10) {
+        return { isValid: false, message: 'API key seems too short' };
+      }
+      if (secretKey && secretKey.length < 20) {
+        return { isValid: false, message: 'Secret key seems too short' };
+      }
+      if (apiKey && secretKey) {
+        return { isValid: true, message: 'Format looks valid' };
+      }
+    }
+
+    if (provider === 'coinbase') {
+      const keyType = detectCoinbaseKeyType(provider);
+      
+      if (keyType === 'cdp') {
+        // CDP: API key starts with "organizations/", secret is PEM key
+        if (!apiKey.startsWith('organizations/')) {
+          return { isValid: false, message: 'CDP API key should start with "organizations/"' };
+        }
+        if (secretKey && !secretKey.includes('-----BEGIN')) {
+          return { isValid: false, message: 'CDP private key should be in PEM format (-----BEGIN EC PRIVATE KEY-----)' };
+        }
+        // Check for common PEM issues
+        if (secretKey.includes('-----BEGIN')) {
+          if (!secretKey.includes('-----END')) {
+            return { isValid: false, message: 'PEM key appears incomplete - missing END marker' };
+          }
+          // Check for escaped newlines that need to be actual newlines
+          if (secretKey.includes('\\n') && !secretKey.includes('\n')) {
+            return { isValid: false, message: 'PEM key has escaped newlines - paste the raw key directly' };
+          }
+          return { isValid: true, message: 'CDP credentials format looks valid' };
+        }
+      } else if (keyType === 'legacy') {
+        // Legacy: Check if secret looks like base64
+        const base64Regex = /^[A-Za-z0-9+/=]+$/;
+        const cleanSecret = secretKey.replace(/\s/g, '');
+        
+        if (secretKey && !base64Regex.test(cleanSecret)) {
+          return { isValid: false, message: 'Legacy secret key should be base64 encoded' };
+        }
+        if (!passphrase) {
+          return { isValid: false, message: 'Passphrase is required for legacy API keys' };
+        }
+        return { isValid: true, message: 'Legacy credentials format looks valid' };
+      }
+    }
+
+    return { isValid: true, message: '' };
+  };
+
+  const getValidation = (provider: string) => validateCredentials(provider);
 
   const toggleSecret = (key: string) => {
     setShowSecrets(prev => ({ ...prev, [key]: !prev[key] }));
@@ -153,8 +224,8 @@ export default function ApiKeys() {
         {brokers.map((broker) => {
           const connection = getConnection(broker.provider);
           const isConnected = connection?.is_connected || false;
-
           const keyType = detectCoinbaseKeyType(broker.provider);
+          const validation = getValidation(broker.provider);
 
           return (
             <div 
@@ -321,6 +392,23 @@ export default function ApiKeys() {
                         )}
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Validation message */}
+                {validation.message && !isConnected && (
+                  <div className={cn(
+                    "flex items-center gap-2 p-3 rounded-lg text-sm",
+                    validation.isValid 
+                      ? "bg-success/10 text-success" 
+                      : "bg-destructive/10 text-destructive"
+                  )}>
+                    {validation.isValid ? (
+                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    )}
+                    <span>{validation.message}</span>
                   </div>
                 )}
 
