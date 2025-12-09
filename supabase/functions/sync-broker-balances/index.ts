@@ -260,102 +260,124 @@ serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     
-    // User client for auth
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
-
-    // Service client for DB operations
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Check if this is a cron job call (no auth header) or user call
+    const authHeader = req.headers.get("Authorization");
+    const url = new URL(req.url);
+    const isCron = url.searchParams.get("cron") === "true" || !authHeader;
+    
+    let usersToSync: string[] = [];
+    
+    if (isCron) {
+      // Cron job: sync all users with connected brokers
+      console.log("🔄 Cron job: Syncing all connected broker accounts");
+      
+      const { data: connections, error: connError } = await serviceClient
+        .from("api_connections")
+        .select("user_id")
+        .eq("is_connected", true);
+      
+      if (connError) {
+        throw new Error(`Failed to fetch connections: ${connError.message}`);
+      }
+      
+      // Get unique user IDs
+      usersToSync = [...new Set(connections?.map(c => c.user_id).filter(Boolean) as string[])];
+      console.log(`Found ${usersToSync.length} users to sync`);
+    } else {
+      // User call: sync only this user
+      const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
 
-    // Get connected API connections for user
-    const { data: connections, error: connError } = await serviceClient
-      .from("api_connections")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("is_connected", true);
-
-    if (connError) {
-      throw new Error(`Failed to fetch connections: ${connError.message}`);
+      const { data: { user }, error: authError } = await userClient.auth.getUser();
+      if (authError || !user) {
+        throw new Error("Unauthorized");
+      }
+      usersToSync = [user.id];
     }
 
-    if (!connections || connections.length === 0) {
-      return new Response(
-        JSON.stringify({ success: true, message: "No connected brokers", synced: [] }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const allResults: Record<string, any> = {};
+    
+    for (const userId of usersToSync) {
+      // Get connected API connections for user
+      const { data: connections, error: connError } = await serviceClient
+        .from("api_connections")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("is_connected", true);
 
-    const synced = [];
-    const results: Record<string, any> = {};
+      if (connError) {
+        console.error(`Failed to fetch connections for ${userId}: ${connError.message}`);
+        continue;
+      }
 
-    for (const conn of connections) {
-      try {
-        console.log(`Syncing ${conn.provider} account for user ${user.id}`);
-        
-        if (conn.provider === "coinbase") {
-          const balanceData = await fetchCoinbaseBalance();
+      if (!connections || connections.length === 0) {
+        continue;
+      }
+
+      for (const conn of connections) {
+        try {
+          console.log(`Syncing ${conn.provider} account for user ${userId}`);
           
-          console.log(`Coinbase balance fetched: $${balanceData.balance}`);
-          
-          // Upsert live account with actual balance
-          const { error: upsertError } = await serviceClient
-            .from("live_account")
-            .upsert({
-              user_id: user.id,
-              provider: conn.provider,
-              balance: balanceData.balance,
-              buying_power: balanceData.buying_power,
-              equity: balanceData.equity,
-              last_synced_at: new Date().toISOString(),
-            }, {
-              onConflict: "user_id,provider",
-            });
-
-          if (upsertError) {
-            // Try update instead
-            const { error: updateError } = await serviceClient
+          if (conn.provider === "coinbase") {
+            const balanceData = await fetchCoinbaseBalance();
+            
+            console.log(`✅ Coinbase balance synced: $${balanceData.balance.toFixed(2)}`);
+            
+            // Upsert live account with actual balance
+            const { error: upsertError } = await serviceClient
               .from("live_account")
-              .update({
+              .upsert({
+                user_id: userId,
+                provider: conn.provider,
                 balance: balanceData.balance,
                 buying_power: balanceData.buying_power,
                 equity: balanceData.equity,
                 last_synced_at: new Date().toISOString(),
-              })
-              .eq("user_id", user.id)
-              .eq("provider", conn.provider);
+              }, {
+                onConflict: "user_id,provider",
+              });
 
-            if (updateError) {
-              console.error("Update error:", updateError);
-              throw updateError;
+            if (upsertError) {
+              // Try update instead
+              const { error: updateError } = await serviceClient
+                .from("live_account")
+                .update({
+                  balance: balanceData.balance,
+                  buying_power: balanceData.buying_power,
+                  equity: balanceData.equity,
+                  last_synced_at: new Date().toISOString(),
+                })
+                .eq("user_id", userId)
+                .eq("provider", conn.provider);
+
+              if (updateError) {
+                console.error("Update error:", updateError);
+                throw updateError;
+              }
             }
+            
+            allResults[userId] = { provider: conn.provider, ...balanceData };
           }
-          
-          synced.push(conn.provider);
-          results[conn.provider] = balanceData;
+        } catch (err: any) {
+          console.error(`Error syncing ${conn.provider} for ${userId}:`, err.message);
+          allResults[userId] = { error: err.message };
         }
-      } catch (err: any) {
-        console.error(`Error syncing ${conn.provider}:`, err);
-        results[conn.provider] = { error: err.message };
       }
     }
 
     return new Response(
-      JSON.stringify({ success: true, synced, results }),
+      JSON.stringify({ 
+        success: true, 
+        synced: usersToSync.length, 
+        results: allResults 
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
