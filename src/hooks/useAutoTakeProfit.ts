@@ -47,9 +47,12 @@ export function useAutoTakeProfit() {
       const result = await response.json();
 
       if (result.takeProfitCount > 0) {
+        const conversionNote = result.conversions > 0 
+          ? ` (${result.conversions} direct conversion${result.conversions > 1 ? 's' : ''})` 
+          : '';
         toast({
           title: '🎯 Take Profit Hit!',
-          description: `Closed ${result.takeProfitCount} position(s) with +${result.closedPositions?.[0]?.pnlPercent || '0.45'}% profit`,
+          description: `Closed ${result.takeProfitCount} position(s)${conversionNote}`,
         });
       }
 
