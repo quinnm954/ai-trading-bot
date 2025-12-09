@@ -11,11 +11,14 @@ const TAKE_PROFIT_PERCENT = 0.15;
 // Stop loss threshold (negative value) - tighter for risk management
 const STOP_LOSS_PERCENT = -0.25;
 
-// Milestone system - withdrawal increases each milestone, always keep $100k for trading
-const KEEP_FOR_TRADING = 100000;
+// Milestone system - before $1M: keep $100k, withdraw rest at each $100k milestone
+// After $1M: keep $500k for trading, withdraw $500k profit indefinitely
+const KEEP_FOR_TRADING_EARLY = 100000;
+const KEEP_FOR_TRADING_LATE = 500000;
 const MILESTONE_INCREMENT = 100000;
-const FINAL_TARGET = 1000000;
+const FIRST_MILLION = 1000000;
 const STARTING_MILESTONE = 200000; // First milestone
+const POST_MILLION_TARGET = 1000000; // After hitting $1M, target equity is always $1M (500k + 500k profit)
 
 // Symbol mapping for CoinGecko API
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -148,25 +151,38 @@ serve(async (req) => {
     const totalEquity = cashBalance + totalPositionValue;
     console.log(`💰 Total Equity: $${totalEquity.toFixed(2)} (Cash: $${cashBalance.toFixed(2)} + Positions: $${totalPositionValue.toFixed(2)})`);
 
-    // Calculate next milestone based on total withdrawn + current equity
-    // Milestones: $200k, $300k, $400k... up to $1M
-    // We calculate the next target based on how many $100k increments above $100k starting point
-    const nextMilestone = Math.ceil(totalEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT;
-    const currentTarget = Math.max(STARTING_MILESTONE, nextMilestone);
+    // Determine which mode we're in based on equity level
+    const isPostMillionMode = totalEquity >= POST_MILLION_TARGET || cashBalance >= KEEP_FOR_TRADING_LATE;
     
-    console.log(`🎯 Next milestone: $${currentTarget.toLocaleString()} | Current equity: $${totalEquity.toFixed(2)}`);
+    let currentTarget: number;
+    let keepAmount: number;
+    
+    if (isPostMillionMode) {
+      // Post-million mode: trade with $500k, withdraw at $1M (when profits = $500k)
+      currentTarget = POST_MILLION_TARGET;
+      keepAmount = KEEP_FOR_TRADING_LATE;
+      console.log(`🚀 POST-MILLION MODE: Trading $500k, target $1M`);
+    } else {
+      // Pre-million mode: milestones every $100k, keep $100k
+      const nextMilestone = Math.ceil(totalEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT;
+      currentTarget = Math.max(STARTING_MILESTONE, nextMilestone);
+      keepAmount = KEEP_FOR_TRADING_EARLY;
+    }
+    
+    console.log(`🎯 Target: $${currentTarget.toLocaleString()} | Current equity: $${totalEquity.toFixed(2)}`);
 
     // Check if equity target is reached
-    if (totalEquity >= currentTarget && isPaperMode && currentTarget <= FINAL_TARGET) {
-      const isFinalMilestone = currentTarget >= FINAL_TARGET;
-      const milestoneNumber = (currentTarget - STARTING_MILESTONE) / MILESTONE_INCREMENT + 1;
+    if (totalEquity >= currentTarget && isPaperMode) {
+      const isFirstMillion = !isPostMillionMode && currentTarget >= FIRST_MILLION;
+      const milestoneNumber = isPostMillionMode 
+        ? 'POST-$1M' 
+        : ((currentTarget - STARTING_MILESTONE) / MILESTONE_INCREMENT + 1).toString();
       
-      // Withdrawal amount increases each milestone: $100k, $200k, $300k...
-      // Always keep $100k for trading
-      const withdrawalAmount = totalEquity - KEEP_FOR_TRADING;
+      // Calculate withdrawal: equity minus what we keep for trading
+      const withdrawalAmount = totalEquity - keepAmount;
       
       console.log(`🎉 MILESTONE ${milestoneNumber} REACHED! $${totalEquity.toFixed(2)} >= $${currentTarget.toLocaleString()}`);
-      console.log(`💸 Closing all positions and withdrawing $${withdrawalAmount.toFixed(2)} (keeping $${KEEP_FOR_TRADING.toLocaleString()} for trading)...`);
+      console.log(`💸 Closing all positions and withdrawing $${withdrawalAmount.toFixed(2)} (keeping $${keepAmount.toLocaleString()} for trading)...`);
 
       // Close ALL positions
       for (const position of positions) {
@@ -200,8 +216,8 @@ serve(async (req) => {
           .eq('id', position.id);
       }
 
-      // Keep $100k for trading, withdraw the rest
-      const newBalance = KEEP_FOR_TRADING;
+      // Set balance to keep amount
+      const newBalance = keepAmount;
       await supabase
         .from('paper_account')
         .update({ 
@@ -210,37 +226,48 @@ serve(async (req) => {
         })
         .eq('user_id', user.id);
 
+      // Determine next target
+      let nextTarget: number;
+      let reasoningMessage: string;
+      
+      if (isPostMillionMode) {
+        // In post-million mode, always target $1M again
+        nextTarget = POST_MILLION_TARGET;
+        reasoningMessage = `💎 POST-MILLION WITHDRAWAL! Equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)} profit, keeping $${keepAmount.toLocaleString()} for trading. Target: $${POST_MILLION_TARGET.toLocaleString()} (rinse & repeat forever!)`;
+      } else if (isFirstMillion) {
+        // First time hitting $1M - switch to post-million mode
+        nextTarget = POST_MILLION_TARGET;
+        reasoningMessage = `🏆 $1 MILLION REACHED! Equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)}, now trading with $${KEEP_FOR_TRADING_LATE.toLocaleString()}. Will withdraw $500k profit at each $1M milestone FOREVER!`;
+      } else {
+        // Pre-million mode - next $100k milestone
+        nextTarget = currentTarget + MILESTONE_INCREMENT;
+        reasoningMessage = `🎉 MILESTONE ${milestoneNumber} HIT! ($${currentTarget.toLocaleString()}) Equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)} (keeping $${keepAmount.toLocaleString()}). Next target: $${nextTarget.toLocaleString()}`;
+      }
+
       // Log the milestone
       await supabase
         .from('ai_decisions')
         .insert({
           user_id: user.id,
-          decision_type: 'milestone_reached',
+          decision_type: isPostMillionMode ? 'post_million_withdrawal' : 'milestone_reached',
           action: 'withdraw',
-          reasoning: `🎉 MILESTONE ${milestoneNumber} HIT! ($${currentTarget.toLocaleString()}) Total equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)} (keeping $${KEEP_FOR_TRADING.toLocaleString()} for trading). ${isFinalMilestone ? '🏆 FINAL $1M TARGET REACHED!' : `Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`}`,
+          reasoning: reasoningMessage,
         });
 
-      // Only disable AI if final target reached
-      if (isFinalMilestone) {
-        await supabase
-          .from('ai_settings')
-          .update({ enabled: false, bot_status: 'idle' })
-          .eq('user_id', user.id);
-      }
+      // NEVER disable AI - keep trading forever!
+      // (removed the code that disabled AI at final milestone)
 
       return new Response(JSON.stringify({
         status: 'milestone_reached',
         milestone: milestoneNumber,
         totalEquity: totalEquity.toFixed(2),
         target: currentTarget,
-        nextTarget: isFinalMilestone ? null : currentTarget + MILESTONE_INCREMENT,
+        nextTarget: nextTarget,
         withdrawn: withdrawalAmount.toFixed(2),
-        keepForTrading: KEEP_FOR_TRADING,
+        keepForTrading: keepAmount,
         remainingBalance: newBalance.toFixed(2),
-        isFinalMilestone,
-        message: isFinalMilestone 
-          ? `🏆 CONGRATULATIONS! $1 MILLION TARGET REACHED! Withdrew $${withdrawalAmount.toFixed(2)}`
-          : `🎉 Milestone ${milestoneNumber} ($${currentTarget.toLocaleString()}) reached! Withdrew $${withdrawalAmount.toFixed(2)}, keeping $${KEEP_FOR_TRADING.toLocaleString()} for trading. Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`,
+        isPostMillionMode: isPostMillionMode || isFirstMillion,
+        message: reasoningMessage,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
