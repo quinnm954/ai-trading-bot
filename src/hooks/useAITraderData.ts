@@ -340,24 +340,29 @@ export function useAITraderData() {
     }
   }, [user, aiSettings.enabled, toast, triggerRealtimeUpdate, fetchData, runTakeProfitChecker]);
 
-  // Auto-run trading engine and take-profit checker when enabled
+  // Auto-run trading engine and take-profit/stop-loss checker continuously when enabled
   useEffect(() => {
     if (!aiSettings.enabled) return;
 
+    console.log('🤖 AI Bot enabled - starting continuous trading loop');
+
     // Run immediately when enabled
     runTradingEngine();
+    runTakeProfitChecker();
 
-    // Then run every 30 seconds while enabled
+    // Trading engine runs every 30 seconds to find new opportunities
     const tradingInterval = setInterval(() => {
+      console.log('🔄 Trading engine cycle...');
       runTradingEngine();
     }, 30000);
 
-    // Run take-profit checker more frequently (every 10 seconds)
+    // Take-profit/stop-loss checker runs every 5 seconds for fast position management
     const takeProfitInterval = setInterval(() => {
       runTakeProfitChecker();
-    }, 10000);
+    }, 5000);
 
     return () => {
+      console.log('🛑 AI Bot disabled - stopping trading loop');
       clearInterval(tradingInterval);
       clearInterval(takeProfitInterval);
     };
