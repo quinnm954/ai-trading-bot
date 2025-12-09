@@ -6,8 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Take profit threshold - set to 0.45% to trigger on current positions
-const TAKE_PROFIT_PERCENT = 0.45;
+// Take profit threshold - ultra-fast scalping at 0.15%
+const TAKE_PROFIT_PERCENT = 0.15;
 // Stop loss threshold (negative value) - tighter for risk management
 const STOP_LOSS_PERCENT = -0.25;
 
