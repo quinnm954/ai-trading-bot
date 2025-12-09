@@ -61,33 +61,59 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
     sub: apiKey,
   };
   
-  // Clean up the private key - normalize line endings and whitespace
-  let cleanKey = privateKeyPem.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // Clean up the private key - handle various formats and escape sequences
+  let cleanKey = privateKeyPem.trim();
   
-  console.log("Processing private key, length:", cleanKey.length);
+  // Handle escaped newlines (e.g., literal "\n" strings from JSON or copy-paste)
+  cleanKey = cleanKey.replace(/\\n/g, '\n').replace(/\\r/g, '');
+  
+  // Normalize line endings
+  cleanKey = cleanKey.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  console.log("Processing private key, original length:", privateKeyPem.length, "cleaned length:", cleanKey.length);
+  console.log("Key starts with:", cleanKey.substring(0, 50));
   
   // Extract just the base64 content from the PEM
   let pemContents: string;
   
   if (cleanKey.includes("-----BEGIN")) {
-    // It's a PEM formatted key
-    pemContents = cleanKey
-      .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
-      .replace(/-----END EC PRIVATE KEY-----/g, "")
-      .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-      .replace(/-----END PRIVATE KEY-----/g, "")
-      .replace(/\s+/g, ""); // Remove ALL whitespace including newlines
+    // It's a PEM formatted key - extract content between headers
+    const beginMatch = cleanKey.match(/-----BEGIN[^-]+-----/);
+    const endMatch = cleanKey.match(/-----END[^-]+-----/);
+    
+    if (beginMatch && endMatch) {
+      const startIdx = cleanKey.indexOf(beginMatch[0]) + beginMatch[0].length;
+      const endIdx = cleanKey.indexOf(endMatch[0]);
+      pemContents = cleanKey.substring(startIdx, endIdx);
+    } else {
+      // Fallback: just remove known headers
+      pemContents = cleanKey
+        .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
+        .replace(/-----END EC PRIVATE KEY-----/g, "")
+        .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+        .replace(/-----END PRIVATE KEY-----/g, "");
+    }
+    
+    // Remove ALL whitespace including newlines
+    pemContents = pemContents.replace(/\s+/g, "");
   } else {
     // Assume it's raw base64, just clean whitespace
     pemContents = cleanKey.replace(/\s+/g, "");
   }
   
   console.log("PEM contents length after cleanup:", pemContents.length);
+  console.log("First 20 chars of base64:", pemContents.substring(0, 20));
   
-  // Validate base64 characters
-  const base64Regex = /^[A-Za-z0-9+/=]+$/;
-  if (!base64Regex.test(pemContents)) {
-    throw new Error("Private key contains invalid characters. Please ensure you're pasting the complete EC private key.");
+  // Validate base64 characters - be more lenient and filter out invalid chars
+  const validBase64 = pemContents.replace(/[^A-Za-z0-9+/=]/g, "");
+  
+  if (validBase64.length === 0) {
+    throw new Error("Private key appears to be empty or contains no valid base64 content. Please paste the complete EC private key including the -----BEGIN and -----END lines.");
+  }
+  
+  if (validBase64.length !== pemContents.length) {
+    console.log("Removed", pemContents.length - validBase64.length, "invalid characters from base64");
+    pemContents = validBase64;
   }
   
   // Decode base64 to get the key bytes
