@@ -396,9 +396,28 @@ serve(async (req) => {
               // Get current live positions with entry prices
               const { data: existingPositions } = await serviceClient
                 .from("positions")
-                .select("id, symbol, avg_entry_price")
+                .select("id, symbol, avg_entry_price, quantity")
                 .eq("user_id", userId)
                 .eq("is_paper", false);
+              
+              // Get trades to find actual entry prices (for positions with $0 or missing entry)
+              const { data: userTrades } = await serviceClient
+                .from("trades")
+                .select("symbol, entry_price, quantity, created_at")
+                .eq("user_id", userId)
+                .eq("is_paper", false)
+                .eq("status", "open")
+                .order("created_at", { ascending: false });
+              
+              // Build a map of symbol -> best entry price from trades
+              const tradeEntryPrices: Record<string, number> = {};
+              if (userTrades) {
+                for (const trade of userTrades) {
+                  if (!tradeEntryPrices[trade.symbol] && trade.entry_price > 0) {
+                    tradeEntryPrices[trade.symbol] = Number(trade.entry_price);
+                  }
+                }
+              }
               
               const existingSymbols = new Set(existingPositions?.map(p => p.symbol) || []);
               const currentSymbols = new Set(balanceData.holdings.map(h => h.symbol));
@@ -415,9 +434,15 @@ serve(async (req) => {
                 const currentPrice = livePrices[holding.symbol.toUpperCase()] || 0;
                 
                 if (existingSymbols.has(holding.symbol)) {
-                  // Get existing position to preserve entry price
+                  // Get existing position to check entry price
                   const existingPos = existingPositions?.find(p => p.symbol === holding.symbol);
-                  const entryPrice = Number(existingPos?.avg_entry_price) || 0;
+                  let entryPrice = Number(existingPos?.avg_entry_price) || 0;
+                  
+                  // If entry price is 0 or missing, try to get it from trades
+                  if (entryPrice <= 0 && tradeEntryPrices[holding.symbol]) {
+                    entryPrice = tradeEntryPrices[holding.symbol];
+                    console.log(`📝 Fixed entry price for ${holding.symbol}: $${entryPrice.toFixed(4)} (from trades)`);
+                  }
                   
                   // Calculate accurate unrealized P&L
                   let unrealizedPnl = 0;
@@ -425,14 +450,22 @@ serve(async (req) => {
                     unrealizedPnl = (currentPrice - entryPrice) * holding.quantity;
                   }
                   
+                  // Update position - also update entry price if we fixed it
+                  const updateData: Record<string, any> = { 
+                    quantity: holding.quantity, 
+                    current_price: currentPrice,
+                    unrealized_pnl: unrealizedPnl,
+                    updated_at: new Date().toISOString() 
+                  };
+                  
+                  // Only update entry price if we have a better one
+                  if (entryPrice > 0 && Number(existingPos?.avg_entry_price) <= 0) {
+                    updateData.avg_entry_price = entryPrice;
+                  }
+                  
                   const { error: updateError } = await serviceClient
                     .from("positions")
-                    .update({ 
-                      quantity: holding.quantity, 
-                      current_price: currentPrice,
-                      unrealized_pnl: unrealizedPnl,
-                      updated_at: new Date().toISOString() 
-                    })
+                    .update(updateData)
                     .eq("user_id", userId)
                     .eq("symbol", holding.symbol)
                     .eq("is_paper", false);
@@ -440,10 +473,15 @@ serve(async (req) => {
                   if (updateError) {
                     console.error(`Error updating ${holding.symbol}:`, updateError.message);
                   } else {
-                    console.log(`📊 Updated: ${holding.quantity} ${holding.symbol} @ $${currentPrice.toFixed(4)}, PnL: $${unrealizedPnl.toFixed(4)}`);
+                    console.log(`📊 Updated: ${holding.quantity} ${holding.symbol} @ $${currentPrice.toFixed(4)}, entry: $${entryPrice.toFixed(4)}, PnL: $${unrealizedPnl.toFixed(4)}`);
                   }
                 } else {
-                  // New position - use current price as entry baseline for P&L tracking
+                  // New position - check trades for entry price first, else use current price as baseline
+                  const entryPrice = tradeEntryPrices[holding.symbol] || currentPrice;
+                  const unrealizedPnl = entryPrice > 0 && currentPrice > 0 
+                    ? (currentPrice - entryPrice) * holding.quantity 
+                    : 0;
+                  
                   const { data: insertedData, error: posError } = await serviceClient
                     .from("positions")
                     .insert({
@@ -451,18 +489,18 @@ serve(async (req) => {
                       symbol: holding.symbol,
                       side: "buy",
                       quantity: holding.quantity,
-                      avg_entry_price: currentPrice, // Baseline entry = current price
+                      avg_entry_price: entryPrice,
                       current_price: currentPrice,
                       market_type: "crypto",
                       is_paper: false,
-                      unrealized_pnl: 0, // P&L starts at 0
+                      unrealized_pnl: unrealizedPnl,
                     })
                     .select();
                   
                   if (posError) {
                     console.error(`❌ Error inserting ${holding.symbol}:`, posError.message);
                   } else {
-                    console.log(`✅ Inserted: ${holding.quantity} ${holding.symbol} @ $${currentPrice.toFixed(4)} (baseline entry)`);
+                    console.log(`✅ Inserted: ${holding.quantity} ${holding.symbol} @ $${currentPrice.toFixed(4)}, entry: $${entryPrice.toFixed(4)}`);
                   }
                 }
               }
