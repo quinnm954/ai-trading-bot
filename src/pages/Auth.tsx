@@ -1,24 +1,47 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { z } from 'zod';
-import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useRateLimiter } from '@/hooks/useRateLimiter';
+
+// Enhanced password validation - requires complexity
+const passwordValidation = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one number');
+
+// Login uses simpler validation (user may have old password)
+const loginPasswordValidation = z.string().min(6, 'Password must be at least 6 characters');
+
+const emailValidation = z
+  .string()
+  .trim()
+  .email('Please enter a valid email address')
+  .max(255, 'Email must be less than 255 characters');
 
 const authSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  email: emailValidation,
+  password: passwordValidation,
+});
+
+const loginSchema = z.object({
+  email: emailValidation,
+  password: loginPasswordValidation,
 });
 
 const emailSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
+  email: emailValidation,
 });
 
 const passwordSchema = z.object({
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: passwordValidation,
 });
 
 type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
@@ -36,6 +59,7 @@ export default function Auth() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { signIn, signUp, resetPassword, updatePassword, isAuthenticated, isLoading } = useAuth();
+  const { isLocked, getLockoutRemaining, getAttemptsRemaining, recordFailedAttempt, resetAttempts } = useRateLimiter();
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && mode !== 'reset') {
@@ -53,11 +77,15 @@ export default function Auth() {
   const validateForm = () => {
     try {
       if (mode === 'forgot') {
-        emailSchema.parse({ email });
+        emailSchema.parse({ email: email.trim() });
       } else if (mode === 'reset') {
         passwordSchema.parse({ password });
+      } else if (mode === 'login') {
+        // Use simpler validation for login (user may have old password)
+        loginSchema.parse({ email: email.trim(), password });
       } else {
-        authSchema.parse({ email, password });
+        // Signup requires strong password
+        authSchema.parse({ email: email.trim(), password });
       }
       setErrors({});
       return true;
@@ -77,13 +105,24 @@ export default function Auth() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Check rate limiting for login attempts
+    if (mode === 'login' && isLocked()) {
+      const remaining = getLockoutRemaining();
+      toast({
+        title: 'Too many attempts',
+        description: `Account temporarily locked. Try again in ${remaining} minute${remaining !== 1 ? 's' : ''}.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     if (!validateForm()) return;
     
     setIsSubmitting(true);
 
     try {
       if (mode === 'forgot') {
-        const { error } = await resetPassword(email);
+        const { error } = await resetPassword(email.trim());
         if (error) {
           toast({
             title: 'Reset failed',
@@ -113,12 +152,22 @@ export default function Auth() {
           navigate('/dashboard', { replace: true });
         }
       } else if (mode === 'login') {
-        const { error } = await signIn(email, password);
+        const { error } = await signIn(email.trim(), password);
         if (error) {
-          if (error.message.includes('Invalid login credentials')) {
+          // Record failed attempt for rate limiting
+          const nowLocked = recordFailedAttempt();
+          const attemptsLeft = getAttemptsRemaining();
+          
+          if (nowLocked) {
+            toast({
+              title: 'Account locked',
+              description: 'Too many failed attempts. Please try again in 15 minutes.',
+              variant: 'destructive',
+            });
+          } else if (error.message.includes('Invalid login credentials')) {
             toast({
               title: 'Login failed',
-              description: 'Invalid email or password. Please try again.',
+              description: `Invalid email or password. ${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining.`,
               variant: 'destructive',
             });
           } else {
@@ -129,6 +178,8 @@ export default function Auth() {
             });
           }
         } else {
+          // Reset rate limiter on successful login
+          resetAttempts();
           toast({
             title: 'Welcome back!',
             description: 'Successfully logged in.',
@@ -241,6 +292,16 @@ export default function Auth() {
           <p className="text-muted-foreground text-center mb-6">
             {getSubtitle()}
           </p>
+
+          {/* Lockout warning */}
+          {mode === 'login' && isLocked() && (
+            <div className="mb-4 p-3 rounded-lg bg-loss/10 border border-loss/20 flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-loss flex-shrink-0" />
+              <p className="text-sm text-loss">
+                Too many failed attempts. Try again in {getLockoutRemaining()} minute{getLockoutRemaining() !== 1 ? 's' : ''}.
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email field - shown for login, signup, forgot */}
