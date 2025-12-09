@@ -6,8 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Take profit threshold - lowered for faster execution
-const TAKE_PROFIT_PERCENT = 0.5;
+// Take profit threshold - set to 0.45% to trigger on current positions
+const TAKE_PROFIT_PERCENT = 0.45;
 // Stop loss threshold (negative value) - tighter for risk management
 const STOP_LOSS_PERCENT = -0.25;
 
