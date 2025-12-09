@@ -17,6 +17,7 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'GRT': 'the-graph', 'LDO': 'lido-dao', 'CRV': 'curve-dao-token', 'CAKE': 'pancakeswap-token',
   'APT': 'aptos', 'HBAR': 'hedera-hashgraph', 'ATOM': 'cosmos', 'ALGO': 'algorand',
   'ENJ': 'enjincoin', 'STX': 'stacks', 'TAO': 'bittensor', 'SUI': 'sui',
+  'XLM': 'stellar', 'BAT': 'basic-attention-token',
 };
 
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {

@@ -60,6 +60,10 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'LDO': 'lido-dao',
   'CRV': 'curve-dao-token',
   'CAKE': 'pancakeswap-token',
+  'XLM': 'stellar',
+  'HBAR': 'hedera-hashgraph',
+  'APT': 'aptos',
+  'BAT': 'basic-attention-token',
 };
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
