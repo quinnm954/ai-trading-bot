@@ -261,7 +261,7 @@ export function useAITraderData() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      console.log('Running auto take-profit checker...');
+      console.log('Running auto take-profit/stop-loss checker...');
       
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit`,
@@ -275,12 +275,22 @@ export function useAITraderData() {
       );
 
       const result = await response.json();
-      console.log('Take-profit result:', result);
+      console.log('Take-profit/stop-loss result:', result);
 
-      if (result.closedCount > 0) {
+      if (result.takeProfitCount > 0) {
         toast({
           title: '🎯 Take Profit Hit!',
-          description: `Closed ${result.closedCount} position(s) at +2% profit`,
+          description: `Closed ${result.takeProfitCount} position(s) at +2% profit`,
+        });
+        triggerRealtimeUpdate();
+        fetchData();
+      }
+
+      if (result.stopLossCount > 0) {
+        toast({
+          title: '🛑 Stop Loss Triggered',
+          description: `Closed ${result.stopLossCount} position(s) at -1% to limit losses`,
+          variant: 'destructive',
         });
         triggerRealtimeUpdate();
         fetchData();

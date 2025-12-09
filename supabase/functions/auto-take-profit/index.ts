@@ -8,6 +8,8 @@ const corsHeaders = {
 
 // Take profit threshold
 const TAKE_PROFIT_PERCENT = 2.0;
+// Stop loss threshold (negative value)
+const STOP_LOSS_PERCENT = -1.0;
 
 // Symbol mapping for CoinGecko API
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -82,7 +84,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Auto take-profit check for user: ${user.id}`);
+    console.log(`Auto take-profit/stop-loss check for user: ${user.id}`);
 
     // Get user's AI settings to check trading mode
     const { data: settings } = await supabase
@@ -121,6 +123,7 @@ serve(async (req) => {
     console.log('Live prices:', livePrices);
 
     const closedPositions: any[] = [];
+    const stoppedPositions: any[] = [];
 
     for (const position of positions) {
       const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
@@ -145,9 +148,15 @@ serve(async (req) => {
 
       console.log(`${position.symbol}: Entry $${entryPrice}, Current $${currentPrice}, P&L: ${pnlPercent.toFixed(2)}%`);
 
-      // Check if hit take-profit target
-      if (pnlPercent >= TAKE_PROFIT_PERCENT) {
-        console.log(`🎯 TAKE PROFIT HIT: ${position.symbol} at +${pnlPercent.toFixed(2)}%`);
+      // Check if hit take-profit target OR stop-loss
+      const hitTakeProfit = pnlPercent >= TAKE_PROFIT_PERCENT;
+      const hitStopLoss = pnlPercent <= STOP_LOSS_PERCENT;
+
+      if (hitTakeProfit || hitStopLoss) {
+        const reason = hitTakeProfit 
+          ? `🎯 TAKE PROFIT HIT: ${position.symbol} at +${pnlPercent.toFixed(2)}%`
+          : `🛑 STOP LOSS HIT: ${position.symbol} at ${pnlPercent.toFixed(2)}%`;
+        console.log(reason);
 
         // Close the position - update the trade
         const { error: tradeUpdateError } = await supabase
@@ -179,7 +188,7 @@ serve(async (req) => {
           continue;
         }
 
-        // Update paper account balance with profit
+        // Update paper account balance
         if (isPaperMode) {
           const { data: paperAccount } = await supabase
             .from('paper_account')
@@ -188,7 +197,7 @@ serve(async (req) => {
             .single();
 
           if (paperAccount) {
-            // Return original investment + profit
+            // Return original investment +/- P&L
             const originalInvestment = entryPrice * quantity;
             const newBalance = paperAccount.balance + originalInvestment + pnl;
             
@@ -207,19 +216,28 @@ serve(async (req) => {
           .from('ai_decisions')
           .insert({
             user_id: user.id,
-            decision_type: 'auto_take_profit',
+            decision_type: hitTakeProfit ? 'auto_take_profit' : 'auto_stop_loss',
             symbol: position.symbol,
             action: 'sell',
-            reasoning: `🎯 Auto take-profit triggered at +${pnlPercent.toFixed(2)}% (target: +${TAKE_PROFIT_PERCENT}%). Profit: $${pnl.toFixed(2)}`,
+            reasoning: hitTakeProfit 
+              ? `🎯 Auto take-profit triggered at +${pnlPercent.toFixed(2)}% (target: +${TAKE_PROFIT_PERCENT}%). Profit: $${pnl.toFixed(2)}`
+              : `🛑 Auto stop-loss triggered at ${pnlPercent.toFixed(2)}% (limit: ${STOP_LOSS_PERCENT}%). Loss: $${pnl.toFixed(2)}`,
           });
 
-        closedPositions.push({
+        const closedData = {
           symbol: position.symbol,
           entryPrice,
           exitPrice: currentPrice,
           pnlPercent: pnlPercent.toFixed(2),
           pnl: pnl.toFixed(2),
-        });
+          type: hitTakeProfit ? 'take_profit' : 'stop_loss',
+        };
+
+        if (hitTakeProfit) {
+          closedPositions.push(closedData);
+        } else {
+          stoppedPositions.push(closedData);
+        }
       } else {
         // Update position with current price and unrealized P&L
         await supabase
@@ -235,10 +253,13 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       status: 'success',
-      takeProfitTarget: `${TAKE_PROFIT_PERCENT}%`,
+      takeProfitTarget: `+${TAKE_PROFIT_PERCENT}%`,
+      stopLossLimit: `${STOP_LOSS_PERCENT}%`,
       checkedPositions: positions.length,
-      closedCount: closedPositions.length,
+      takeProfitCount: closedPositions.length,
+      stopLossCount: stoppedPositions.length,
       closedPositions,
+      stoppedPositions,
       isPaperMode,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
