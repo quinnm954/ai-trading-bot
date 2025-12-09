@@ -112,10 +112,7 @@ export default function ApiKeys() {
           if (!secretKey.includes('-----END')) {
             return { isValid: false, message: 'PEM key appears incomplete - missing END marker' };
           }
-          // Check for escaped newlines that need to be actual newlines
-          if (secretKey.includes('\\n') && !secretKey.includes('\n')) {
-            return { isValid: false, message: 'PEM key has escaped newlines - paste the raw key directly' };
-          }
+          // Escaped newlines are handled automatically by the server
           return { isValid: true, message: 'CDP credentials format looks valid' };
         }
       } else if (keyType === 'legacy') {
