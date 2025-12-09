@@ -17,7 +17,17 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'GRT': 'the-graph', 'LDO': 'lido-dao', 'CRV': 'curve-dao-token', 'CAKE': 'pancakeswap-token',
   'APT': 'aptos', 'HBAR': 'hedera-hashgraph', 'ATOM': 'cosmos', 'ALGO': 'algorand',
   'ENJ': 'enjincoin', 'STX': 'stacks', 'TAO': 'bittensor', 'SUI': 'sui',
-  'XLM': 'stellar', 'BAT': 'basic-attention-token',
+  'XLM': 'stellar', 'BAT': 'basic-attention-token', 'TON': 'the-open-network',
+  'TRX': 'tron', 'ICP': 'internet-computer', 'FIL': 'filecoin', 'ETC': 'ethereum-classic',
+  'XTZ': 'tezos', 'EOS': 'eos', 'FLOW': 'flow', 'NEO': 'neo', 'KAS': 'kaspa',
+  'RUNE': 'thorchain', 'PYTH': 'pyth-network', 'CFX': 'conflux-token',
+  'CRO': 'crypto-com-chain', 'EGLD': 'elrond-erd-2', 'THETA': 'theta-token',
+  'IOTA': 'iota', 'KAVA': 'kava', 'MINA': 'mina-protocol', 'ZIL': 'zilliqa',
+  'ENS': 'ethereum-name-service', 'SNX': 'havven', 'COMP': 'compound-governance-token',
+  '1INCH': '1inch', 'CELO': 'celo', 'QTUM': 'qtum', 'ZRX': '0x', 'ANKR': 'ankr',
+  'LRC': 'loopring', 'SKL': 'skale', 'ICX': 'icon', 'ONE': 'harmony',
+  'STORJ': 'storj', 'OCEAN': 'ocean-protocol', 'RPL': 'rocket-pool', 'GMX': 'gmx',
+  'AXS': 'axie-infinity', 'BLUR': 'blur', 'XEC': 'ecash', 'BCH': 'bitcoin-cash',
 };
 
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
