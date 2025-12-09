@@ -64,7 +64,7 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
-// Simple trading strategy based on momentum and RSI-like logic
+// Aggressive trading strategy based on momentum and RSI-like logic
 function analyzeForTrades(
   marketData: MarketData[],
   regime: string,
@@ -72,6 +72,10 @@ function analyzeForTrades(
   balance: number
 ): TradingDecision[] {
   const decisions: TradingDecision[] = [];
+  
+  // AGGRESSIVE: Much lower thresholds for triggering trades
+  const CONFIDENCE_THRESHOLD = 0.15; // Was 0.3
+  const POSITION_MULTIPLIER = 2.5; // Larger positions
   
   for (const coin of marketData) {
     let action: 'buy' | 'sell' | 'hold' = 'hold';
@@ -82,52 +86,61 @@ function analyzeForTrades(
     const priceRange = coin.high24h - coin.low24h;
     const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
     
-    // Momentum-based strategy
+    // AGGRESSIVE: Momentum-based strategy with lower thresholds
     if (regime === 'trending') {
-      if (coin.change24h > 5 && pricePosition < 0.7) {
+      if (coin.change24h > 2 && pricePosition < 0.85) { // Was 5% and 0.7
         action = 'buy';
-        confidence = Math.min(0.8, coin.change24h / 10);
-        reason = `Strong uptrend (+${coin.change24h.toFixed(1)}%), catching momentum`;
-      } else if (coin.change24h < -5 && pricePosition > 0.3) {
+        confidence = Math.min(0.9, (coin.change24h / 5) + 0.3);
+        reason = `Aggressive momentum buy (+${coin.change24h.toFixed(1)}%)`;
+      } else if (coin.change24h < -2 && pricePosition > 0.15) { // Was -5% and 0.3
         action = 'sell';
-        confidence = Math.min(0.7, Math.abs(coin.change24h) / 10);
-        reason = `Downtrend detected (${coin.change24h.toFixed(1)}%), reducing exposure`;
+        confidence = Math.min(0.85, (Math.abs(coin.change24h) / 5) + 0.3);
+        reason = `Aggressive short on downtrend (${coin.change24h.toFixed(1)}%)`;
       }
     }
     
-    // Mean reversion in ranging market
+    // AGGRESSIVE: Mean reversion with wider zones
     if (regime === 'ranging') {
-      if (pricePosition < 0.2 && coin.change24h < -2) {
+      if (pricePosition < 0.35 && coin.change24h < 0) { // Was 0.2 and -2%
         action = 'buy';
-        confidence = 0.6;
-        reason = `Oversold in range (at ${(pricePosition * 100).toFixed(0)}% of daily range)`;
-      } else if (pricePosition > 0.8 && coin.change24h > 2) {
+        confidence = 0.7; // Was 0.6
+        reason = `Aggressive buy - near range bottom (${(pricePosition * 100).toFixed(0)}%)`;
+      } else if (pricePosition > 0.65 && coin.change24h > 0) { // Was 0.8 and 2%
         action = 'sell';
-        confidence = 0.6;
-        reason = `Overbought in range (at ${(pricePosition * 100).toFixed(0)}% of daily range)`;
+        confidence = 0.7;
+        reason = `Aggressive sell - near range top (${(pricePosition * 100).toFixed(0)}%)`;
       }
     }
     
-    // Volatility breakout
+    // AGGRESSIVE: Volatility breakout with lower threshold
     if (regime === 'high_volatility') {
-      if (coin.change24h > 8) {
+      if (coin.change24h > 4) { // Was 8%
         action = 'buy';
-        confidence = 0.5;
-        reason = `Volatility breakout to upside (+${coin.change24h.toFixed(1)}%)`;
+        confidence = 0.65; // Was 0.5
+        reason = `Aggressive volatility breakout (+${coin.change24h.toFixed(1)}%)`;
+      } else if (coin.change24h < -4) {
+        action = 'buy'; // Buy the dip aggressively
+        confidence = 0.55;
+        reason = `Aggressive dip buy in high volatility (${coin.change24h.toFixed(1)}%)`;
       }
     }
     
-    // DCA in low volatility
+    // AGGRESSIVE: DCA on any red candle in low volatility
     if (regime === 'low_volatility') {
-      if (coin.change24h < -1 && confidence === 0) {
+      if (coin.change24h < 0) { // Any negative change
         action = 'buy';
+        confidence = 0.5; // Was 0.4
+        reason = `Aggressive DCA accumulation`;
+      } else if (coin.change24h > 1) {
+        action = 'buy'; // Also buy on small gains to not miss moves
         confidence = 0.4;
-        reason = `DCA opportunity in low volatility`;
+        reason = `Low vol momentum entry (+${coin.change24h.toFixed(1)}%)`;
       }
     }
     
-    if (action !== 'hold' && confidence > 0.3) {
-      const positionValue = balance * (maxPositionSize / 100) * confidence;
+    if (action !== 'hold' && confidence >= CONFIDENCE_THRESHOLD) {
+      // AGGRESSIVE: Larger position sizes
+      const positionValue = balance * (maxPositionSize / 100) * confidence * POSITION_MULTIPLIER;
       const quantity = positionValue / coin.price;
       
       decisions.push({
@@ -140,7 +153,8 @@ function analyzeForTrades(
     }
   }
   
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+  // Return more trades (up to 5 instead of 3)
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
 }
 
 serve(async (req) => {
@@ -283,12 +297,12 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // Calculate position size respecting limits
-      const maxValue = balance * (settings.max_position_size / 100);
+      // Calculate position size - AGGRESSIVE: larger positions
+      const maxValue = balance * (settings.max_position_size / 100) * 2; // Double max position
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
       const quantity = tradeValue / coinData.price;
 
-      if (tradeValue < 10) continue; // Skip tiny trades
+      if (tradeValue < 1) continue; // Lower minimum to $1 (was $10)
 
       // Record the trade
       const tradeData = {
