@@ -61,39 +61,73 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
     sub: apiKey,
   };
   
-  // Clean up the private key - handle both formats
-  let cleanKey = privateKeyPem.trim();
+  // Clean up the private key - normalize line endings and whitespace
+  let cleanKey = privateKeyPem.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   
-  // If it doesn't have PEM headers, try to add them
-  if (!cleanKey.includes("-----BEGIN")) {
-    // Remove any whitespace and newlines
-    cleanKey = cleanKey.replace(/\s/g, '');
-    cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
+  console.log("Processing private key, length:", cleanKey.length);
+  
+  // Extract just the base64 content from the PEM
+  let pemContents: string;
+  
+  if (cleanKey.includes("-----BEGIN")) {
+    // It's a PEM formatted key
+    pemContents = cleanKey
+      .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
+      .replace(/-----END EC PRIVATE KEY-----/g, "")
+      .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+      .replace(/-----END PRIVATE KEY-----/g, "")
+      .replace(/\s+/g, ""); // Remove ALL whitespace including newlines
+  } else {
+    // Assume it's raw base64, just clean whitespace
+    pemContents = cleanKey.replace(/\s+/g, "");
   }
   
-  // Parse the PEM key
-  const pemContents = cleanKey
-    .replace("-----BEGIN EC PRIVATE KEY-----", "")
-    .replace("-----END EC PRIVATE KEY-----", "")
-    .replace("-----BEGIN PRIVATE KEY-----", "")
-    .replace("-----END PRIVATE KEY-----", "")
-    .replace(/\s/g, "");
+  console.log("PEM contents length after cleanup:", pemContents.length);
+  
+  // Validate base64 characters
+  const base64Regex = /^[A-Za-z0-9+/=]+$/;
+  if (!base64Regex.test(pemContents)) {
+    throw new Error("Private key contains invalid characters. Please ensure you're pasting the complete EC private key.");
+  }
   
   // Decode base64 to get the key bytes
-  const binaryString = atob(pemContents);
-  const keyBytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    keyBytes[i] = binaryString.charCodeAt(i);
+  let keyBytes: Uint8Array;
+  try {
+    const binaryString = atob(pemContents);
+    keyBytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      keyBytes[i] = binaryString.charCodeAt(i);
+    }
+  } catch (e: any) {
+    throw new Error(`Failed to decode private key: ${e.message}`);
   }
   
-  // Import the EC private key
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyBytes.buffer,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"]
-  );
+  console.log("Key bytes length:", keyBytes.length);
+  
+  // Import the EC private key - try PKCS8 format first, then SEC1 (EC)
+  let cryptoKey: CryptoKey;
+  const keyBuffer = new ArrayBuffer(keyBytes.length);
+  new Uint8Array(keyBuffer).set(keyBytes);
+  try {
+    // Try PKCS8 format first (-----BEGIN PRIVATE KEY-----)
+    cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      keyBuffer,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+  } catch (pkcs8Error) {
+    console.log("PKCS8 import failed, trying SEC1/EC format...");
+    try {
+      // Try SEC1/EC format (-----BEGIN EC PRIVATE KEY-----)
+      // SEC1 keys need to be wrapped in PKCS8 format for Web Crypto API
+      // For now, we'll provide a helpful error message
+      throw new Error("EC Private Key format detected. Please use a PKCS8 format key (-----BEGIN PRIVATE KEY-----) or contact support for EC key format handling.");
+    } catch (ecError: any) {
+      throw new Error(`Unable to import private key. Ensure it's a valid EC P-256 private key. ${ecError.message}`);
+    }
+  }
   
   // Encode header and payload
   const encodedHeader = base64UrlEncode(JSON.stringify(header));
@@ -107,9 +141,8 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
     new TextEncoder().encode(signingInput)
   );
   
-  // Convert DER signature to raw format (r || s)
-  const signatureArray = new Uint8Array(signature);
-  const encodedSignature = base64UrlEncode(signatureArray.buffer);
+  // Convert signature to base64url
+  const encodedSignature = base64UrlEncode(new Uint8Array(signature).buffer);
   
   return `${signingInput}.${encodedSignature}`;
 }
