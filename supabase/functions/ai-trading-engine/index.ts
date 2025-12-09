@@ -802,13 +802,14 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // AGGRESSIVE: Larger positions for faster compounding
-      const maxValue = balance * (settings.max_position_size / 100) * 5;
+      // CONSERVATIVE: $5 max per trade to work with small balances
+      const MAX_TRADE_VALUE = 5.00; // Hard cap at $5 per trade
+      const maxValue = Math.min(balance * (settings.max_position_size / 100), MAX_TRADE_VALUE);
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
 
-      if (tradeValue < 0.10) continue; // Trade with any balance, even tiny amounts
+      if (tradeValue < 1.00) continue; // Minimum $1 trade
 
       // 💰 EXECUTE REAL COINBASE BUY if in LIVE mode
       if (!isPaperMode && decision.action === 'buy') {
