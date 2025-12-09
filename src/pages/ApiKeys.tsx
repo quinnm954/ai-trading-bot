@@ -266,7 +266,7 @@ export default function ApiKeys() {
                 {broker.requiresPassphrase && (
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">
-                      Passphrase <span className="text-xs">(optional)</span>
+                      Passphrase <span className="text-xs">(required for legacy API, not needed for CDP)</span>
                     </label>
                     <div className="relative">
                       <Input
