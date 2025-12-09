@@ -4,7 +4,9 @@ import {
   Target, 
   Activity,
   Banknote,
-  RefreshCw
+  RefreshCw,
+  PieChart,
+  DollarSign
 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { EquityChart } from '@/components/dashboard/EquityChart';
@@ -67,33 +69,39 @@ export default function Dashboard() {
       <MarketTicker />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
-          title={isLiveMode ? "Live Balance" : "Paper Balance"}
-          value={isLoading ? '...' : `$${stats.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-          change={stats.dailyPnlPercent}
-          trend={stats.dailyPnl >= 0 ? 'up' : 'down'}
-          icon={isLiveMode ? Banknote : Wallet}
+          title="Cash Balance"
+          value={isLoading ? '...' : `$${stats.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={Wallet}
+          changeLabel="Available to trade"
+        />
+        <StatCard
+          title="Positions Value"
+          value={isLoading ? '...' : `$${stats.positionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={PieChart}
+          changeLabel={`${stats.openPositions} open positions`}
+        />
+        <StatCard
+          title="Total Equity"
+          value={isLoading ? '...' : `$${stats.totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          change={stats.totalPnlPercent}
+          trend={stats.totalPnlPercent >= 0 ? 'up' : 'down'}
+          icon={DollarSign}
         />
         <StatCard
           title="Today's P&L"
-          value={`${stats.dailyPnl >= 0 ? '+' : ''}$${stats.dailyPnl.toLocaleString()}`}
+          value={`${stats.dailyPnl >= 0 ? '+' : ''}$${stats.dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           change={stats.dailyPnlPercent}
           trend={stats.dailyPnl >= 0 ? 'up' : 'down'}
           icon={TrendingUp}
-        />
-        <StatCard
-          title="Open Positions"
-          value={stats.openPositions.toString()}
-          changeLabel={`$${stats.equity.toLocaleString()} in equity`}
-          icon={Target}
         />
         <StatCard
           title="Today's Trades"
           value={stats.todayTrades.toString()}
           change={stats.weeklyPnlPercent}
           changeLabel="Weekly performance"
-          trend="up"
+          trend={stats.weeklyPnlPercent >= 0 ? 'up' : 'down'}
           icon={Activity}
         />
       </div>

@@ -3,14 +3,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
 interface DashboardStats {
-  totalBalance: number;
+  cashBalance: number;
+  positionsValue: number;
+  totalEquity: number;
   dailyPnl: number;
   dailyPnlPercent: number;
   weeklyPnl: number;
   weeklyPnlPercent: number;
   totalPnl: number;
   totalPnlPercent: number;
-  equity: number;
   openPositions: number;
   todayTrades: number;
   tradingMode: 'paper' | 'live';
@@ -27,14 +28,15 @@ interface LiveAccount {
 export function useDashboardData() {
   const { user } = useAuth();
   const [stats, setStats] = useState<DashboardStats>({
-    totalBalance: 0,
+    cashBalance: 0,
+    positionsValue: 0,
+    totalEquity: 0,
     dailyPnl: 0,
     dailyPnlPercent: 0,
     weeklyPnl: 0,
     weeklyPnlPercent: 0,
     totalPnl: 0,
     totalPnlPercent: 0,
-    equity: 0,
     openPositions: 0,
     todayTrades: 0,
     tradingMode: 'paper',
@@ -82,12 +84,21 @@ export function useDashboardData() {
 
       setLiveAccounts(formattedLiveAccounts);
 
-      // Fetch positions count
-      const { count: positionsCount } = await supabase
+      // Fetch positions and calculate value
+      const { data: positionsData, count: positionsCount } = await supabase
         .from('positions')
-        .select('*', { count: 'exact', head: true })
+        .select('quantity, avg_entry_price, current_price', { count: 'exact' })
         .eq('user_id', user.id)
         .eq('is_paper', tradingMode === 'paper');
+
+      // Calculate total positions value
+      let positionsValue = 0;
+      if (positionsData) {
+        positionsValue = positionsData.reduce((sum, pos) => {
+          const price = pos.current_price || pos.avg_entry_price;
+          return sum + (Number(pos.quantity) * Number(price));
+        }, 0);
+      }
 
       // Fetch today's trades and calculate P&L
       const today = new Date();
@@ -128,27 +139,31 @@ export function useDashboardData() {
         });
       }
 
-      // Calculate balance based on mode
-      let totalBalance = paperAccount?.balance || 100000;
+      // Calculate cash balance based on mode
+      let cashBalance = paperAccount?.balance || 100000;
       
       if (tradingMode === 'live' && formattedLiveAccounts.length > 0) {
-        totalBalance = formattedLiveAccounts.reduce((sum, acc) => sum + acc.equity, 0);
+        cashBalance = formattedLiveAccounts.reduce((sum, acc) => sum + acc.balance, 0);
       }
 
-      // Calculate percentages
-      const dailyPnlPercent = totalBalance > 0 ? (dailyPnl / totalBalance) * 100 : 0;
-      const weeklyPnlPercent = totalBalance > 0 ? (weeklyPnl / totalBalance) * 100 : 0;
-      const totalPnlPercent = initialBalance > 0 ? ((totalBalance - initialBalance) / initialBalance) * 100 : 0;
+      // Total equity = cash + positions value
+      const totalEquity = cashBalance + positionsValue;
+
+      // Calculate percentages based on total equity
+      const dailyPnlPercent = totalEquity > 0 ? (dailyPnl / totalEquity) * 100 : 0;
+      const weeklyPnlPercent = totalEquity > 0 ? (weeklyPnl / totalEquity) * 100 : 0;
+      const totalPnlPercent = initialBalance > 0 ? ((totalEquity - initialBalance) / initialBalance) * 100 : 0;
 
       setStats({
-        totalBalance,
+        cashBalance,
+        positionsValue,
+        totalEquity,
         dailyPnl,
         dailyPnlPercent,
         weeklyPnl,
         weeklyPnlPercent,
         totalPnl,
         totalPnlPercent,
-        equity: totalBalance,
         openPositions: positionsCount || 0,
         todayTrades: todayTradesCount,
         tradingMode,
