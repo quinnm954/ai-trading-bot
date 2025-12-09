@@ -140,30 +140,33 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   let shouldTrade = true;
   let reason = '';
   
+  // AGGRESSIVE MODE: Trade more coins, only avoid catastrophic drops
   if (trendScore >= 0.5) {
     trend = 'strong_uptrend';
-    reason = `Strong uptrend: +${coin.change24h.toFixed(1)}%, price near high`;
-  } else if (trendScore >= 0.2) {
+    reason = `🚀 Strong uptrend: +${coin.change24h.toFixed(1)}%`;
+  } else if (trendScore >= 0.1) {
     trend = 'uptrend';
-    reason = `Uptrend: +${coin.change24h.toFixed(1)}%`;
-  } else if (trendScore <= -0.5) {
+    reason = `📈 Uptrend: +${coin.change24h.toFixed(1)}%`;
+  } else if (trendScore <= -0.7) {
     trend = 'strong_downtrend';
-    shouldTrade = false; // DON'T trade in strong downtrends
-    reason = `⚠️ STRONG DOWNTREND: ${coin.change24h.toFixed(1)}%, price near low - AVOIDING`;
-  } else if (trendScore <= -0.2) {
+    // Still trade oversold bounces, just smaller size
+    shouldTrade = coin.change24h > -5; // Only avoid >5% drops
+    reason = shouldTrade ? `💰 Oversold bounce: ${coin.change24h.toFixed(1)}%` : `⚠️ CRASH: ${coin.change24h.toFixed(1)}%`;
+  } else if (trendScore <= -0.3) {
     trend = 'downtrend';
-    shouldTrade = false; // DON'T trade in downtrends
-    reason = `⚠️ DOWNTREND: ${coin.change24h.toFixed(1)}% - AVOIDING`;
+    shouldTrade = true; // Trade dips for bounce plays
+    reason = `📉 Dip buy opportunity: ${coin.change24h.toFixed(1)}%`;
   } else {
     trend = 'neutral';
-    reason = `Neutral/consolidating: ${coin.change24h.toFixed(1)}%`;
+    shouldTrade = true;
+    reason = `➡️ Consolidating: ${coin.change24h.toFixed(1)}%`;
   }
   
-  // Additional safety: If price dropped more than 3% in 24h, always avoid
-  if (coin.change24h <= -3) {
+  // Only avoid catastrophic drops (>5%)
+  if (coin.change24h <= -5) {
     shouldTrade = false;
     trend = 'strong_downtrend';
-    reason = `🚫 MAJOR DROP: ${coin.change24h.toFixed(1)}% in 24h - NOT TRADING`;
+    reason = `🚫 CRASH: ${coin.change24h.toFixed(1)}% - AVOIDING`;
   }
   
   return {
@@ -310,7 +313,7 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
-// Rule-based fallback analysis (if AI fails)
+// AGGRESSIVE rule-based analysis for maximum speed
 function analyzeWithRules(
   marketData: MarketData[],
   regime: string,
@@ -328,48 +331,52 @@ function analyzeWithRules(
     const priceRange = coin.high24h - coin.low24h;
     const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
     
-    if (coin.change24h > 0.5) {
+    // AGGRESSIVE: Lower thresholds to trade more often
+    if (coin.change24h > 0.1) {
       action = 'buy';
-      confidence = Math.min(0.95, 0.5 + (coin.change24h / 10));
-      reason = `Momentum ride (+${coin.change24h.toFixed(2)}%)`;
+      confidence = Math.min(0.98, 0.7 + (coin.change24h / 5));
+      reason = `🚀 Momentum (+${coin.change24h.toFixed(2)}%)`;
       pattern = 'momentum_breakout';
-    } else if (coin.change24h < -0.5 && pricePosition < 0.4) {
+    } else if (coin.change24h < -0.2 && pricePosition < 0.5) {
       action = 'buy';
-      confidence = 0.7;
-      reason = `Bounce play at ${(pricePosition * 100).toFixed(0)}% range`;
+      confidence = 0.85;
+      reason = `💰 Dip buy at ${(pricePosition * 100).toFixed(0)}%`;
       pattern = 'oversold_bounce';
-    } else if (pricePosition < 0.25) {
+    } else if (pricePosition < 0.35) {
       action = 'buy';
-      confidence = 0.8;
-      reason = `Near daily low (${(pricePosition * 100).toFixed(0)}%)`;
+      confidence = 0.9;
+      reason = `📍 Support bounce (${(pricePosition * 100).toFixed(0)}%)`;
       pattern = 'support_bounce';
-    } else if (pricePosition > 0.75) {
-      action = 'sell';
+    } else if (pricePosition > 0.65 && coin.change24h > 0) {
+      action = 'buy';
       confidence = 0.75;
-      reason = `Near daily high (${(pricePosition * 100).toFixed(0)}%)`;
-      pattern = 'resistance_rejection';
+      reason = `📈 Breakout continuation (${(pricePosition * 100).toFixed(0)}%)`;
+      pattern = 'breakout_continuation';
     }
     
-    if (regime === 'high_volatility') {
-      confidence *= 1.2;
-    }
+    // Boost confidence in volatile markets
+    if (regime === 'high_volatility') confidence *= 1.3;
+    if (regime === 'trending') confidence *= 1.2;
     
-    if (action !== 'hold' && confidence >= 0.10) {
-      const positionValue = balance * (maxPositionSize / 100) * confidence * 3;
+    // AGGRESSIVE: Trade almost everything, larger positions
+    if (action !== 'hold' && confidence >= 0.05) {
+      // Use 5x position multiplier for speed
+      const positionValue = balance * (maxPositionSize / 100) * confidence * 5;
       const quantity = positionValue / coin.price;
       
       decisions.push({
         action,
         symbol: coin.symbol,
-        reason: `📊 Rules: ${reason}`,
-        confidence: Math.min(confidence, 0.95),
+        reason: `📊 ${reason}`,
+        confidence: Math.min(confidence, 0.98),
         suggestedSize: quantity,
         pattern,
       });
     }
   }
   
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+  // Return top 10 trades instead of 5 for more action
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 10);
 }
 
 serve(async (req) => {
@@ -556,11 +563,12 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      const maxValue = balance * (settings.max_position_size / 100) * 3;
+      // AGGRESSIVE: Larger positions for faster compounding
+      const maxValue = balance * (settings.max_position_size / 100) * 5;
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
       const quantity = tradeValue / coinData.price;
 
-      if (tradeValue < 0.5) continue;
+      if (tradeValue < 1) continue; // Lower minimum for more trades
 
       const strategyType = decision.pattern?.includes('momentum') ? 'trend_breakout' :
                           decision.pattern?.includes('bounce') ? 'rsi' :

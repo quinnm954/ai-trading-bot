@@ -6,10 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Take profit threshold - ultra-fast scalping at 0.15%
-const TAKE_PROFIT_PERCENT = 0.15;
-// Stop loss threshold (negative value) - tighter for risk management
-const STOP_LOSS_PERCENT = -0.25;
+// AGGRESSIVE: Even faster scalping at 0.08% for rapid compounding
+const TAKE_PROFIT_PERCENT = 0.08;
+// Tighter stop loss to cut losses quick
+const STOP_LOSS_PERCENT = -0.15;
 
 // Milestone system - before $1M: keep $100k, withdraw rest at each $100k milestone
 // After $1M: keep $500k for trading, withdraw $500k profit indefinitely
