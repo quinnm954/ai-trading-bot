@@ -283,7 +283,19 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     
     // Check minimum value - Coinbase typically requires ~$1 minimum order
     if (roundedQty <= 0) {
-      return { success: false, error: 'Quantity zero after rounding' };
+      return { success: false, error: 'Quantity zero after rounding - dust position' };
+    }
+    
+    // ANTI-DUST: Skip sells that are too small to execute
+    // This prevents "INVALID_SIZE_PRECISION" and "MIN_NOTIONAL" errors
+    const MIN_SELL_QUANTITY: Record<string, number> = {
+      'BTC': 0.00001, 'ETH': 0.0001, 'SOL': 0.001, 'XRP': 1, 'DOGE': 10,
+      'LTC': 0.001, 'APT': 0.1, 'ONDO': 1, 'CHZ': 10, 'FLOKI': 10000,
+      'HBAR': 1, 'WLD': 0.1, 'XLM': 1, 'SHIB': 100000, 'PEPE': 100000,
+    };
+    const minQty = MIN_SELL_QUANTITY[symbol.toUpperCase()] ?? 0.01;
+    if (roundedQty < minQty) {
+      return { success: false, error: `Quantity ${roundedQty} below minimum ${minQty} - dust position` };
     }
     
     const orderId = crypto.randomUUID();

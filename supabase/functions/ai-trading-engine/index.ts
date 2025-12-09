@@ -812,17 +812,19 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // Coinbase minimum order is ~$1-2, so we need at least $2 per trade
-      const MIN_TRADE_VALUE = 2.00; // Coinbase rejects orders below this
-      const MAX_TRADE_VALUE = 5.00; // Cap per trade to spread across multiple assets
+      // ANTI-DUST: Minimum trade value must be high enough to be sellable later
+      // Coinbase rejects sells below ~$1-2 value, so we buy at least $5 worth
+      // This ensures positions can always be sold without precision/dust issues
+      const MIN_TRADE_VALUE = 5.00; // Minimum to avoid dust - ensures sellable positions
+      const MAX_TRADE_VALUE = 10.00; // Cap per trade to spread across multiple assets
       const maxValue = Math.min(balance * (settings.max_position_size / 100), MAX_TRADE_VALUE);
       const tradeValue = Math.max(Math.min(maxValue * decision.confidence, maxValue), MIN_TRADE_VALUE);
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
 
-      // Skip if we don't have enough balance for minimum trade
+      // Skip if we don't have enough balance for minimum anti-dust trade
       if (balance < MIN_TRADE_VALUE) {
-        console.log(`⚠️ Insufficient balance ($${balance.toFixed(2)}) for minimum trade ($${MIN_TRADE_VALUE})`);
+        console.log(`⚠️ Insufficient balance ($${balance.toFixed(2)}) for anti-dust minimum trade ($${MIN_TRADE_VALUE})`);
         continue;
       }
 
