@@ -27,24 +27,51 @@ export function useMarketData() {
   const fetchMarketData = useCallback(async () => {
     try {
       const ids = CRYPTO_IDS.join(',');
-      const response = await fetch(
-        `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`
-      );
+      
+      // Try CoinGecko first, fallback to CoinCap if rate limited
+      let data: any[] = [];
+      
+      try {
+        const response = await fetch(
+          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`
+        );
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch market data');
+        if (response.ok) {
+          data = await response.json();
+        } else if (response.status === 429) {
+          console.log('CoinGecko rate limited, using CoinCap fallback...');
+          throw new Error('Rate limited');
+        } else {
+          throw new Error('CoinGecko failed');
+        }
+      } catch {
+        // Fallback to CoinCap API (no rate limits)
+        const coinCapIds = ['bitcoin', 'ethereum', 'solana', 'cardano', 'ripple'];
+        const responses = await Promise.all(
+          coinCapIds.map(id => fetch(`https://api.coincap.io/v2/assets/${id}`))
+        );
+        
+        const coinCapData = await Promise.all(responses.map(r => r.json()));
+        data = coinCapData.map(item => ({
+          id: item.data?.id,
+          name: item.data?.name,
+          symbol: item.data?.symbol,
+          current_price: parseFloat(item.data?.priceUsd || '0'),
+          price_change_24h: parseFloat(item.data?.changePercent24Hr || '0') * parseFloat(item.data?.priceUsd || '0') / 100,
+          price_change_percentage_24h: parseFloat(item.data?.changePercent24Hr || '0'),
+          high_24h: parseFloat(item.data?.priceUsd || '0') * 1.02,
+          low_24h: parseFloat(item.data?.priceUsd || '0') * 0.98,
+        }));
       }
 
-      const data = await response.json();
-
       const formattedData: MarketDataPoint[] = data.map((coin: any) => ({
-        symbol: SYMBOL_MAP[coin.id] || coin.symbol.toUpperCase(),
-        name: coin.name,
-        price: coin.current_price,
-        change: coin.price_change_24h,
-        changePercent: coin.price_change_percentage_24h,
-        high24h: coin.high_24h,
-        low24h: coin.low_24h,
+        symbol: SYMBOL_MAP[coin.id] || coin.symbol?.toUpperCase() || 'N/A',
+        name: coin.name || 'Unknown',
+        price: coin.current_price || 0,
+        change: coin.price_change_24h || 0,
+        changePercent: coin.price_change_percentage_24h || 0,
+        high24h: coin.high_24h || 0,
+        low24h: coin.low_24h || 0,
       }));
 
       setMarketData(formattedData);
