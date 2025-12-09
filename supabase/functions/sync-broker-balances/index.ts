@@ -1,10 +1,116 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Generate JWT for Coinbase CDP API
+async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
+  let cleanKey = privateKeyPem.trim()
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  
+  if (!cleanKey.includes("-----BEGIN")) {
+    cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
+  }
+  
+  let privateKey: jose.KeyLike;
+  
+  try {
+    if (cleanKey.includes("-----BEGIN PRIVATE KEY-----")) {
+      privateKey = await jose.importPKCS8(cleanKey, "ES256");
+    } else {
+      try {
+        privateKey = await jose.importPKCS8(cleanKey, "ES256");
+      } catch {
+        // Parse SEC1 format manually
+        const pemContents = cleanKey
+          .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
+          .replace(/-----END EC PRIVATE KEY-----/g, "")
+          .replace(/\s+/g, "");
+        
+        const binaryString = atob(pemContents);
+        const keyBytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          keyBytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        // Parse ASN.1 to extract private key
+        let offset = 0;
+        if (keyBytes[offset++] !== 0x30) throw new Error("Invalid SEC1");
+        let seqLen = keyBytes[offset++];
+        if (seqLen & 0x80) {
+          const lenBytes = seqLen & 0x7f;
+          seqLen = 0;
+          for (let i = 0; i < lenBytes; i++) seqLen = (seqLen << 8) | keyBytes[offset++];
+        }
+        
+        if (keyBytes[offset++] !== 0x02) throw new Error("Invalid SEC1");
+        offset += keyBytes[offset++];
+        
+        if (keyBytes[offset++] !== 0x04) throw new Error("Invalid SEC1");
+        const privKeyLen = keyBytes[offset++];
+        const dBytes = keyBytes.slice(offset, offset + privKeyLen);
+        offset += privKeyLen;
+        
+        let xBytes: Uint8Array | null = null;
+        let yBytes: Uint8Array | null = null;
+        
+        while (offset < keyBytes.length) {
+          const tag = keyBytes[offset++];
+          let len = keyBytes[offset++];
+          if (len & 0x80) {
+            const lenBytes = len & 0x7f;
+            len = 0;
+            for (let i = 0; i < lenBytes; i++) len = (len << 8) | keyBytes[offset++];
+          }
+          
+          if (tag === 0xa1) {
+            if (keyBytes[offset] === 0x03) {
+              offset++;
+              let bitStringLen = keyBytes[offset++];
+              if (bitStringLen & 0x80) {
+                const lenBytes = bitStringLen & 0x7f;
+                bitStringLen = 0;
+                for (let i = 0; i < lenBytes; i++) bitStringLen = (bitStringLen << 8) | keyBytes[offset++];
+              }
+              offset++;
+              if (keyBytes[offset] === 0x04) {
+                offset++;
+                xBytes = keyBytes.slice(offset, offset + 32);
+                yBytes = keyBytes.slice(offset + 32, offset + 64);
+              }
+            }
+            break;
+          }
+          offset += len;
+        }
+        
+        const base64url = (bytes: Uint8Array) => 
+          btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        
+        const jwk: jose.JWK = { kty: "EC", crv: "P-256", d: base64url(dBytes) };
+        if (xBytes && yBytes) { jwk.x = base64url(xBytes); jwk.y = base64url(yBytes); }
+        
+        privateKey = await jose.importJWK(jwk, "ES256") as jose.KeyLike;
+      }
+    }
+  } catch (e: any) {
+    throw new Error(`Failed to import private key: ${e.message}`);
+  }
+  
+  return await new jose.SignJWT({ iss: "cdp", sub: apiKey, uri })
+    .setProtectedHeader({ alg: "ES256", kid: apiKey, nonce: crypto.randomUUID(), typ: "JWT" })
+    .setIssuedAt()
+    .setNotBefore(Math.floor(Date.now() / 1000))
+    .setExpirationTime("2m")
+    .sign(privateKey);
+}
 
 async function fetchCoinbaseBalance(): Promise<{
   balance: number;
@@ -18,37 +124,57 @@ async function fetchCoinbaseBalance(): Promise<{
     throw new Error("Coinbase API credentials not configured");
   }
 
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const method = "GET";
-  const requestPath = "/api/v3/brokerage/accounts";
-  
-  const message = timestamp + method + requestPath;
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(apiSecret);
-  const messageData = encoder.encode(message);
-  
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
-  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  // Detect if this is CDP format
+  const isCdp = apiKey.startsWith("organizations/") || apiSecret.includes("-----BEGIN");
 
-  console.log("Fetching Coinbase accounts...");
-  
-  const response = await fetch("https://api.coinbase.com" + requestPath, {
-    method: "GET",
-    headers: {
-      "CB-ACCESS-KEY": apiKey,
-      "CB-ACCESS-SIGN": signatureBase64,
-      "CB-ACCESS-TIMESTAMP": timestamp,
-      "Content-Type": "application/json",
-    },
-  });
+  console.log(`Fetching Coinbase accounts using ${isCdp ? "CDP JWT" : "Legacy HMAC"} auth...`);
+
+  const requestPath = "/api/v3/brokerage/accounts";
+
+  let response: Response;
+
+  if (isCdp) {
+    // CDP authentication with JWT
+    const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
+    
+    response = await fetch(`https://api.coinbase.com${requestPath}`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } else {
+    // Legacy HMAC authentication
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const method = "GET";
+    const message = timestamp + method + requestPath;
+    
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(apiSecret);
+    const messageData = encoder.encode(message);
+    
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    
+    const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
+    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+
+    response = await fetch("https://api.coinbase.com" + requestPath, {
+      method: "GET",
+      headers: {
+        "CB-ACCESS-KEY": apiKey,
+        "CB-ACCESS-SIGN": signatureBase64,
+        "CB-ACCESS-TIMESTAMP": timestamp,
+        "Content-Type": "application/json",
+      },
+    });
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
