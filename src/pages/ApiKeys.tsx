@@ -51,6 +51,22 @@ export default function ApiKeys() {
   const [testing, setTesting] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
+  // Detect if Coinbase credentials are CDP or Legacy
+  const detectCoinbaseKeyType = (provider: string): 'cdp' | 'legacy' | null => {
+    if (provider !== 'coinbase') return null;
+    
+    const apiKey = credentials[provider]?.apiKey || '';
+    const secretKey = credentials[provider]?.secretKey || '';
+    
+    if (!apiKey && !secretKey) return null;
+    
+    const isCdp = apiKey.startsWith('organizations/') || 
+                  secretKey.includes('-----BEGIN') || 
+                  secretKey.includes('PRIVATE KEY');
+    
+    return isCdp ? 'cdp' : 'legacy';
+  };
+
   const toggleSecret = (key: string) => {
     setShowSecrets(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -138,6 +154,8 @@ export default function ApiKeys() {
           const connection = getConnection(broker.provider);
           const isConnected = connection?.is_connected || false;
 
+          const keyType = detectCoinbaseKeyType(broker.provider);
+
           return (
             <div 
               key={broker.provider}
@@ -170,6 +188,17 @@ export default function ApiKeys() {
                           <XCircle className="w-4 h-4 text-muted-foreground" />
                           <span className="text-sm text-muted-foreground">Not connected</span>
                         </>
+                      )}
+                      {/* Show detected key type for Coinbase */}
+                      {keyType && !isConnected && (
+                        <span className={cn(
+                          "text-xs px-2 py-0.5 rounded-full ml-2",
+                          keyType === 'cdp' 
+                            ? "bg-primary/20 text-primary" 
+                            : "bg-warning/20 text-warning"
+                        )}>
+                          {keyType === 'cdp' ? 'CDP API' : 'Legacy API'}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -266,7 +295,10 @@ export default function ApiKeys() {
                 {broker.requiresPassphrase && (
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">
-                      Passphrase <span className="text-xs">(required for legacy API, not needed for CDP)</span>
+                      Passphrase 
+                      {keyType === 'legacy' && <span className="text-xs text-warning ml-1">(required for legacy API)</span>}
+                      {keyType === 'cdp' && <span className="text-xs text-muted-foreground ml-1">(not needed for CDP)</span>}
+                      {!keyType && <span className="text-xs ml-1">(required for legacy API, not needed for CDP)</span>}
                     </label>
                     <div className="relative">
                       <Input
