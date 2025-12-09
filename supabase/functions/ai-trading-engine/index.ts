@@ -313,6 +313,32 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
+// Get best strategy for current regime from performance data
+async function getBestStrategyForRegime(supabase: any, userId: string, regime: string): Promise<string> {
+  const { data: performance } = await supabase
+    .from('strategy_performance')
+    .select('strategy, score, win_rate')
+    .eq('user_id', userId)
+    .eq('market_regime', regime)
+    .order('score', { ascending: false })
+    .limit(1);
+  
+  if (performance && performance.length > 0) {
+    console.log(`🎯 Best strategy for ${regime}: ${performance[0].strategy} (score: ${performance[0].score}, win: ${performance[0].win_rate}%)`);
+    return performance[0].strategy;
+  }
+  
+  // Fallback defaults by regime
+  const defaults: Record<string, string> = {
+    'trending': 'ema_crossover',
+    'ranging': 'rsi',
+    'high_volatility': 'volatility_breakout',
+    'low_volatility': 'dca',
+    'news_driven': 'custom'
+  };
+  return defaults[regime] || 'rsi';
+}
+
 // AGGRESSIVE rule-based analysis for maximum speed
 function analyzeWithRules(
   marketData: MarketData[],
@@ -570,9 +596,9 @@ serve(async (req) => {
 
       if (tradeValue < 1) continue; // Lower minimum for more trades
 
-      const strategyType = decision.pattern?.includes('momentum') ? 'trend_breakout' :
-                          decision.pattern?.includes('bounce') ? 'rsi' :
-                          regime === 'high_volatility' ? 'volatility_breakout' : 'dca';
+      // Get best strategy from performance data for current regime
+      const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
+      const strategyType = bestStrategy;
 
       const tradeData = {
         user_id: user.id,
