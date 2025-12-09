@@ -634,7 +634,7 @@ serve(async (req) => {
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
       const quantity = tradeValue / coinData.price;
 
-      if (tradeValue < 1) continue; // Lower minimum for more trades
+      if (tradeValue < 0.10) continue; // Trade with any balance, even tiny amounts
 
       // Get best strategy from performance data for current regime
       const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
