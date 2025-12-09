@@ -131,14 +131,24 @@ serve(async (req) => {
     
     console.log('Live prices:', livePrices);
 
-    // Get paper account balance
-    const { data: paperAccount } = await supabase
-      .from('paper_account')
-      .select('balance, initial_balance')
-      .eq('user_id', user.id)
-      .single();
-
-    const cashBalance = paperAccount?.balance || 0;
+    // Get account balance based on trading mode
+    let cashBalance = 0;
+    
+    if (isPaperMode) {
+      const { data: paperAccount } = await supabase
+        .from('paper_account')
+        .select('balance, initial_balance')
+        .eq('user_id', user.id)
+        .single();
+      cashBalance = paperAccount?.balance || 0;
+    } else {
+      const { data: liveAccount } = await supabase
+        .from('live_account')
+        .select('balance')
+        .eq('user_id', user.id)
+        .single();
+      cashBalance = liveAccount?.balance || 0;
+    }
 
     // Calculate total equity (cash + position values)
     let totalPositionValue = 0;
@@ -172,7 +182,7 @@ serve(async (req) => {
     console.log(`🎯 Target: $${currentTarget.toLocaleString()} | Current equity: $${totalEquity.toFixed(2)}`);
 
     // Check if equity target is reached
-    if (totalEquity >= currentTarget && isPaperMode) {
+    if (totalEquity >= currentTarget) {
       const isFirstMillion = !isPostMillionMode && currentTarget >= FIRST_MILLION;
       const milestoneNumber = isPostMillionMode 
         ? 'POST-$1M' 
@@ -206,7 +216,7 @@ serve(async (req) => {
           })
           .eq('user_id', user.id)
           .eq('symbol', position.symbol)
-          .eq('is_paper', true)
+          .eq('is_paper', isPaperMode)
           .eq('status', 'open');
 
         // Delete the position
@@ -216,15 +226,25 @@ serve(async (req) => {
           .eq('id', position.id);
       }
 
-      // Set balance to keep amount
+      // Set balance to keep amount based on trading mode
       const newBalance = keepAmount;
-      await supabase
-        .from('paper_account')
-        .update({ 
-          balance: newBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', user.id);
+      if (isPaperMode) {
+        await supabase
+          .from('paper_account')
+          .update({ 
+            balance: newBalance,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', user.id);
+      } else {
+        await supabase
+          .from('live_account')
+          .update({ 
+            balance: newBalance,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', user.id);
+      }
 
       // Determine next target
       let nextTarget: number;
