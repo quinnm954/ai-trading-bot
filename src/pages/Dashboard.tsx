@@ -82,11 +82,11 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 lg:space-y-6 animate-fade-in">
       {/* Header with Refresh */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <h1 className="text-xl lg:text-2xl font-bold text-foreground">Dashboard</h1>
           {lastUpdated && (
             <p className="text-xs text-muted-foreground">
               Last updated: {lastUpdated.toLocaleTimeString()}
@@ -103,7 +103,8 @@ export default function Dashboard() {
               className="gap-2"
             >
               <Trash2 className={`w-4 h-4 ${isSelling ? 'animate-pulse' : ''}`} />
-              {isSelling ? 'Selling...' : 'Sell All'}
+              <span className="hidden sm:inline">{isSelling ? 'Selling...' : 'Sell All'}</span>
+              <span className="sm:hidden">{isSelling ? '...' : 'Sell'}</span>
             </Button>
           )}
           <Button 
@@ -114,7 +115,7 @@ export default function Dashboard() {
             className="gap-2"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
       </div>
