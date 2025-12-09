@@ -771,14 +771,57 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     const entryPrice = Number(position.avg_entry_price);
     const quantity = Number(position.quantity);
+    const positionValue = currentPrice * quantity;
     
-    // Skip positions with 0 entry price (synced from broker without entry data)
+    // Handle positions with $0 entry price (synced from broker)
+    // These are REAL holdings that should be sold when profitable!
     if (entryPrice <= 0) {
-      // Just update current price, don't process take-profit/stop-loss
-      await supabase.from('positions').update({
-        current_price: currentPrice,
-        updated_at: new Date().toISOString(),
-      }).eq('id', position.id);
+      // For legacy positions, sell if position is worth >= $10 and we don't have much cash
+      // This unlocks capital that's stuck in old positions
+      const shouldSellLegacy = positionValue >= 10; // Sell if worth $10+
+      
+      if (shouldSellLegacy && !isPaperMode) {
+        console.log(`💰 SELLING LEGACY POSITION: ${quantity} ${position.symbol} worth $${positionValue.toFixed(2)} (no entry price)`);
+        
+        const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        
+        if (sellResult.success && sellResult.usdValue) {
+          console.log(`✅ Legacy position sold: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)} USDC`);
+          
+          // Close trade and delete position
+          await supabase.from('trades').update({
+            status: 'closed',
+            exit_price: currentPrice,
+            pnl: sellResult.usdValue, // Treat entire value as profit since no cost basis
+            closed_at: new Date().toISOString(),
+          }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+          
+          await supabase.from('positions').delete().eq('id', position.id);
+          takeProfitCount++;
+          
+          // Log the decision
+          await supabase.from('ai_decisions').insert({
+            user_id: userId,
+            decision_type: 'legacy_position_sold',
+            symbol: position.symbol,
+            action: 'sell',
+            reasoning: `Sold legacy position (no entry price): ${quantity.toFixed(6)} ${position.symbol} for $${sellResult.usdValue.toFixed(2)} USDC`,
+          });
+        } else {
+          console.log(`⚠️ Could not sell legacy ${position.symbol}: ${sellResult.error}`);
+          // Update current price anyway
+          await supabase.from('positions').update({
+            current_price: currentPrice,
+            updated_at: new Date().toISOString(),
+          }).eq('id', position.id);
+        }
+      } else {
+        // Just update current price for small legacy positions
+        await supabase.from('positions').update({
+          current_price: currentPrice,
+          updated_at: new Date().toISOString(),
+        }).eq('id', position.id);
+      }
       continue;
     }
     
