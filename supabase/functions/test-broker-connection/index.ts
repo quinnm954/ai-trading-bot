@@ -148,13 +148,14 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
 }
 
 async function testCoinbaseConnection(apiKey: string, secretKey: string, passphrase?: string) {
-  // Detect if this is a CDP API key by checking:
-  // 1. API key starts with "organizations/"
-  // 2. Secret key looks like a PEM private key (contains BEGIN or is very long)
+  // Detect if this is a CDP API key
+  // Primary indicator: API key starts with "organizations/"
+  // Secondary indicators: Secret key looks like a PEM private key
   const isCdpKey = apiKey.startsWith("organizations/") || 
                    secretKey.includes("-----BEGIN") || 
-                   secretKey.includes("PRIVATE KEY") ||
-                   secretKey.length > 200; // PEM keys are typically very long
+                   secretKey.includes("PRIVATE KEY");
+  
+  console.log("Coinbase key detection - isCdpKey:", isCdpKey, "apiKey prefix:", apiKey.substring(0, 20));
   
   if (isCdpKey) {
     // CDP API uses JWT authentication
