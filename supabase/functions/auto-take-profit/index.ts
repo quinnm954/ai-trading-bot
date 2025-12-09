@@ -253,35 +253,37 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    // Comprehensive precision map for Coinbase - 0 decimals for meme/small coins, higher for majors
+    // Comprehensive precision map for Coinbase - use appropriate decimals for each coin
+    // Higher precision allows selling smaller amounts
     const precisionMap: Record<string, number> = {
       // Major coins - higher precision
-      'BTC': 6, 'ETH': 5, 'SOL': 4, 'XRP': 0, 'BNB': 4, 'ADA': 0, 'AVAX': 3,
-      'DOT': 2, 'LINK': 2, 'MATIC': 0, 'POL': 0, 'UNI': 2, 'LTC': 4, 'ATOM': 2,
-      'NEAR': 2, 'APT': 2, 'ARB': 0, 'OP': 2, 'INJ': 2, 'TIA': 2, 'SEI': 0,
-      'SUI': 2, 'TON': 2, 'ICP': 2, 'FIL': 2, 'RENDER': 2, 'FET': 0, 'TAO': 3,
-      'AAVE': 3, 'MKR': 4, 'GRT': 0, 'LDO': 2, 'CRV': 0, 'IMX': 0, 'STX': 0,
-      'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'VET': 0, 'ETC': 3, 'BCH': 4, 'TRX': 0,
-      // Meme coins - 0 decimals (whole numbers only)
-      'DOGE': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 2, 'MEME': 0,
-      // Gaming/Metaverse - usually 0-2 decimals
-      'GALA': 0, 'SAND': 0, 'MANA': 0, 'AXS': 2, 'ENJ': 0, 'CHZ': 0, 'APE': 2,
+      'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'BNB': 6, 'ADA': 2, 'AVAX': 4,
+      'DOT': 4, 'LINK': 4, 'MATIC': 2, 'POL': 2, 'UNI': 4, 'LTC': 6, 'ATOM': 4,
+      'NEAR': 4, 'APT': 4, 'ARB': 2, 'OP': 4, 'INJ': 4, 'TIA': 4, 'SEI': 2,
+      'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4, 'RENDER': 4, 'FET': 2, 'TAO': 6,
+      'AAVE': 6, 'MKR': 6, 'GRT': 2, 'LDO': 4, 'CRV': 2, 'IMX': 2, 'STX': 2,
+      'HBAR': 2, 'XLM': 2, 'ALGO': 2, 'VET': 2, 'ETC': 6, 'BCH': 6, 'TRX': 2,
+      // Meme coins - allow some decimals for selling
+      'DOGE': 2, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 4, 'MEME': 0,
+      // Gaming/Metaverse
+      'GALA': 2, 'SAND': 2, 'MANA': 2, 'AXS': 4, 'ENJ': 2, 'CHZ': 2, 'APE': 4,
       // DeFi tokens
-      'CAKE': 2, 'COMP': 3, 'SNX': 2, 'DYDX': 2, 'GMX': 3, '1INCH': 0, 'BAT': 0,
-      'ZRX': 0, 'LRC': 0, 'ENS': 3, 'RPL': 3, 'BLUR': 0, 'JUP': 0, 'ONDO': 2,
-      'PYTH': 0, 'WLD': 2, 'THETA': 2, 'FTM': 0, 'RUNE': 2, 'KAVA': 2,
+      'CAKE': 4, 'COMP': 6, 'SNX': 4, 'DYDX': 4, 'GMX': 6, '1INCH': 2, 'BAT': 2,
+      'ZRX': 2, 'LRC': 2, 'ENS': 6, 'RPL': 6, 'BLUR': 2, 'JUP': 2, 'ONDO': 4,
+      'PYTH': 2, 'WLD': 4, 'THETA': 4, 'FTM': 2, 'RUNE': 4, 'KAVA': 4,
       // Others
-      'EOS': 2, 'NEO': 2, 'XTZ': 2, 'QTUM': 2, 'ICX': 0, 'ZIL': 0, 'ONE': 0,
-      'CELO': 2, 'ANKR': 0, 'SKL': 0, 'STORJ': 2, 'OCEAN': 0, 'MINA': 2,
-      'EGLD': 3, 'FLOW': 2, 'CFX': 0, 'IOTA': 0, 'XEC': 0, 'KAS': 0, 'MNT': 0,
-      'CRO': 0, 'OKB': 2, 'LEO': 2, 'DAI': 2,
+      'EOS': 4, 'NEO': 4, 'XTZ': 4, 'QTUM': 4, 'ICX': 2, 'ZIL': 2, 'ONE': 2,
+      'CELO': 4, 'ANKR': 2, 'SKL': 2, 'STORJ': 4, 'OCEAN': 2, 'MINA': 4,
+      'EGLD': 6, 'FLOW': 4, 'CFX': 2, 'IOTA': 2, 'XEC': 0, 'KAS': 2, 'MNT': 2,
+      'CRO': 2, 'OKB': 4, 'LEO': 4, 'DAI': 4,
     };
-    // Default to 0 decimals (whole numbers) to be safe - Coinbase rejects excess precision
-    const precision = precisionMap[symbol.toUpperCase()] ?? 0;
+    // Default to 2 decimals to allow selling small amounts
+    const precision = precisionMap[symbol.toUpperCase()] ?? 2;
     const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
     
+    // Check minimum value - Coinbase typically requires ~$1 minimum order
     if (roundedQty <= 0) {
-      return { success: false, error: 'Quantity too small after rounding' };
+      return { success: false, error: 'Quantity zero after rounding' };
     }
     
     const orderId = crypto.randomUUID();
@@ -308,14 +310,18 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     });
     
     const result = await response.json();
+    console.log(`📋 Coinbase sell response for ${symbol}:`, JSON.stringify(result).substring(0, 500));
     
     if (response.ok && result.success) {
-      const filledValue = parseFloat(result.order?.filled_value || '0');
-      console.log(`✅ SOLD ${roundedQty} ${symbol} for $${filledValue.toFixed(2)} USDC`);
+      // filled_value is the total quote value (USDC) received
+      const filledValue = parseFloat(result.order?.filled_value || result.order?.total_value_after_fees || '0');
+      const filledSize = parseFloat(result.order?.filled_size || '0');
+      console.log(`✅ SOLD ${filledSize} ${symbol} for $${filledValue.toFixed(2)} USDC`);
       return { success: true, usdValue: filledValue };
     } else {
-      console.error(`❌ Coinbase sell failed:`, result);
-      return { success: false, error: result.error_response?.message || result.error || 'Order failed' };
+      const errorMsg = result.error_response?.message || result.error_response?.preview_failure_reason || result.error || 'Order failed';
+      console.error(`❌ Coinbase sell failed for ${symbol}:`, errorMsg);
+      return { success: false, error: errorMsg };
     }
   } catch (error) {
     console.error(`❌ Coinbase sell error:`, error);
