@@ -6,10 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Take profit threshold - lowered to 0.5% to demonstrate faster profits
-const TAKE_PROFIT_PERCENT = 0.5;
+// Take profit threshold
+const TAKE_PROFIT_PERCENT = 2.0;
 // Stop loss threshold (negative value)
-const STOP_LOSS_PERCENT = -0.5;
+const STOP_LOSS_PERCENT = -1.0;
 
 // Symbol mapping for CoinGecko API
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
