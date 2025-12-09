@@ -6,19 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// AGGRESSIVE: Even faster scalping at 0.08% for rapid compounding
-const TAKE_PROFIT_PERCENT = 0.08;
-// Tighter stop loss to cut losses quick
+// ULTRA-AGGRESSIVE: 0.05% take-profit for rapid scalping
+const TAKE_PROFIT_PERCENT = 0.05;
+// Tight stop loss to cut losses quick
 const STOP_LOSS_PERCENT = -0.15;
 
-// Milestone system - before $1M: keep $100k, withdraw rest at each $100k milestone
-// After $1M: keep $500k for trading, withdraw $500k profit indefinitely
+// Milestone system
 const KEEP_FOR_TRADING_EARLY = 100000;
 const KEEP_FOR_TRADING_LATE = 500000;
 const MILESTONE_INCREMENT = 100000;
 const FIRST_MILLION = 1000000;
-const STARTING_MILESTONE = 200000; // First milestone
-const POST_MILLION_TARGET = 1000000; // After hitting $1M, target equity is always $1M (500k + 500k profit)
+const STARTING_MILESTONE = 200000;
+const POST_MILLION_TARGET = 1000000;
 
 // Symbol mapping for CoinGecko API
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -32,6 +31,16 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'DOT': 'polkadot',
   'MATIC': 'matic-network',
   'LINK': 'chainlink',
+  'SHIB': 'shiba-inu',
+  'LTC': 'litecoin',
+  'UNI': 'uniswap',
+  'ATOM': 'cosmos',
+  'XLM': 'stellar',
+  'TRX': 'tron',
+  'NEAR': 'near',
+  'APT': 'aptos',
+  'ARB': 'arbitrum',
+  'OP': 'optimism',
 };
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
@@ -64,6 +73,180 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
   return prices;
 }
 
+async function processUserPositions(supabase: any, userId: string, isPaperMode: boolean) {
+  console.log(`Processing user: ${userId}, paper mode: ${isPaperMode}`);
+  
+  // Fetch all open positions for this user
+  const { data: positions, error: posError } = await supabase
+    .from('positions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_paper', isPaperMode);
+
+  if (posError || !positions || positions.length === 0) {
+    return { takeProfitCount: 0, stopLossCount: 0 };
+  }
+
+  // Fetch live prices for all position symbols
+  const symbols: string[] = [...new Set(positions.map((p: any) => p.symbol))] as string[];
+  const livePrices = await fetchLivePrices(symbols);
+
+  // Get account balance
+  let cashBalance = 0;
+  if (isPaperMode) {
+    const { data: paperAccount } = await supabase
+      .from('paper_account')
+      .select('balance')
+      .eq('user_id', userId)
+      .single();
+    cashBalance = paperAccount?.balance || 0;
+  } else {
+    const { data: liveAccount } = await supabase
+      .from('live_account')
+      .select('balance')
+      .eq('user_id', userId)
+      .single();
+    cashBalance = liveAccount?.balance || 0;
+  }
+
+  // Calculate total equity
+  let totalPositionValue = 0;
+  for (const position of positions) {
+    const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+    if (currentPrice) {
+      totalPositionValue += currentPrice * Number(position.quantity);
+    }
+  }
+  const totalEquity = cashBalance + totalPositionValue;
+
+  // Check milestone
+  const isPostMillionMode = totalEquity >= POST_MILLION_TARGET || cashBalance >= KEEP_FOR_TRADING_LATE;
+  let currentTarget: number;
+  let keepAmount: number;
+  
+  if (isPostMillionMode) {
+    currentTarget = POST_MILLION_TARGET;
+    keepAmount = KEEP_FOR_TRADING_LATE;
+  } else {
+    const nextMilestone = Math.ceil(totalEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT;
+    currentTarget = Math.max(STARTING_MILESTONE, nextMilestone);
+    keepAmount = KEEP_FOR_TRADING_EARLY;
+  }
+
+  // Handle milestone reached
+  if (totalEquity >= currentTarget) {
+    const withdrawalAmount = totalEquity - keepAmount;
+    console.log(`🎉 MILESTONE for user ${userId}! Equity: $${totalEquity.toFixed(2)}, withdrawing $${withdrawalAmount.toFixed(2)}`);
+    
+    // Close all positions
+    for (const position of positions) {
+      const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+      if (!currentPrice) continue;
+
+      const entryPrice = Number(position.avg_entry_price);
+      const quantity = Number(position.quantity);
+      const pnl = position.side === 'buy' 
+        ? (currentPrice - entryPrice) * quantity
+        : (entryPrice - currentPrice) * quantity;
+
+      await supabase.from('trades').update({
+        status: 'closed',
+        exit_price: currentPrice,
+        pnl,
+        closed_at: new Date().toISOString(),
+      }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+
+      await supabase.from('positions').delete().eq('id', position.id);
+    }
+
+    // Update balance
+    if (isPaperMode) {
+      await supabase.from('paper_account').update({ balance: keepAmount, updated_at: new Date().toISOString() }).eq('user_id', userId);
+    } else {
+      await supabase.from('live_account').update({ balance: keepAmount, updated_at: new Date().toISOString() }).eq('user_id', userId);
+    }
+
+    await supabase.from('ai_decisions').insert({
+      user_id: userId,
+      decision_type: 'milestone_reached',
+      action: 'withdraw',
+      reasoning: `Milestone! Equity: $${totalEquity.toFixed(2)}, withdrew $${withdrawalAmount.toFixed(2)}`,
+    });
+
+    return { takeProfitCount: positions.length, stopLossCount: 0, milestone: true };
+  }
+
+  // Process individual take-profit/stop-loss
+  let takeProfitCount = 0;
+  let stopLossCount = 0;
+
+  for (const position of positions) {
+    const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+    if (!currentPrice) continue;
+
+    const entryPrice = Number(position.avg_entry_price);
+    const quantity = Number(position.quantity);
+    
+    let pnlPercent = 0;
+    let pnl = 0;
+    
+    if (position.side === 'buy') {
+      pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+      pnl = (currentPrice - entryPrice) * quantity;
+    } else {
+      pnlPercent = ((entryPrice - currentPrice) / entryPrice) * 100;
+      pnl = (entryPrice - currentPrice) * quantity;
+    }
+
+    const hitTakeProfit = pnlPercent >= TAKE_PROFIT_PERCENT;
+    const hitStopLoss = pnlPercent <= STOP_LOSS_PERCENT;
+
+    if (hitTakeProfit || hitStopLoss) {
+      console.log(`${hitTakeProfit ? '🎯' : '🛑'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+
+      await supabase.from('trades').update({
+        status: 'closed',
+        exit_price: currentPrice,
+        pnl,
+        closed_at: new Date().toISOString(),
+      }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+
+      await supabase.from('positions').delete().eq('id', position.id);
+
+      if (isPaperMode) {
+        const { data: paperAccount } = await supabase.from('paper_account').select('balance').eq('user_id', userId).single();
+        if (paperAccount) {
+          const originalInvestment = entryPrice * quantity;
+          await supabase.from('paper_account').update({ 
+            balance: paperAccount.balance + originalInvestment + pnl,
+            updated_at: new Date().toISOString()
+          }).eq('user_id', userId);
+        }
+      }
+
+      await supabase.from('ai_decisions').insert({
+        user_id: userId,
+        decision_type: hitTakeProfit ? 'auto_take_profit' : 'auto_stop_loss',
+        symbol: position.symbol,
+        action: 'sell',
+        reasoning: `${hitTakeProfit ? '🎯 Take profit' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%`,
+      });
+
+      if (hitTakeProfit) takeProfitCount++;
+      else stopLossCount++;
+    } else {
+      // Update position with current price
+      await supabase.from('positions').update({
+        current_price: currentPrice,
+        unrealized_pnl: pnl,
+        updated_at: new Date().toISOString(),
+      }).eq('id', position.id);
+    }
+  }
+
+  return { takeProfitCount, stopLossCount };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -72,394 +255,69 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    
-    // Use service role for all operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get authorization header and decode JWT directly
+    // Check if this is a cron call (no auth) or user call (with auth)
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    let userIds: string[] = [];
 
-    const token = authHeader.replace('Bearer ', '');
-    
-    // Decode JWT payload directly (base64url decode the middle part)
-    let userId: string;
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) throw new Error('Invalid JWT format');
-      
-      // Decode base64url payload with proper padding
-      let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      // Add padding if needed
-      while (payload.length % 4) {
-        payload += '=';
-      }
-      const decoded = JSON.parse(atob(payload));
-      
-      console.log('JWT decoded, user:', decoded.sub, 'exp:', decoded.exp);
-      
-      // Check expiration
-      if (decoded.exp && decoded.exp < Date.now() / 1000) {
-        console.log('Token expired at:', decoded.exp, 'now:', Date.now() / 1000);
-        throw new Error('Token expired');
-      }
-      
-      userId = decoded.sub;
-      if (!userId) throw new Error('No user ID in token');
-    } catch (e) {
-      console.error('JWT decode error:', e);
-      return new Response(JSON.stringify({ error: 'Invalid token', details: String(e) }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const user = { id: userId };
-
-    console.log(`Auto take-profit/stop-loss check for user: ${user.id}`);
-
-    // Get user's AI settings to check trading mode
-    const { data: settings } = await supabase
-      .from('ai_settings')
-      .select('trading_mode')
-      .eq('user_id', user.id)
-      .single();
-
-    const isPaperMode = settings?.trading_mode === 'paper';
-
-    // Fetch all open positions
-    const { data: positions, error: posError } = await supabase
-      .from('positions')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_paper', isPaperMode);
-
-    if (posError) {
-      console.error('Error fetching positions:', posError);
-      throw posError;
-    }
-
-    if (!positions || positions.length === 0) {
-      return new Response(JSON.stringify({ 
-        message: 'No open positions',
-        closedCount: 0 
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Fetch live prices for all position symbols
-    const symbols = [...new Set(positions.map(p => p.symbol))];
-    const livePrices = await fetchLivePrices(symbols);
-    
-    console.log('Live prices:', livePrices);
-
-    // Get account balance based on trading mode
-    let cashBalance = 0;
-    
-    if (isPaperMode) {
-      const { data: paperAccount } = await supabase
-        .from('paper_account')
-        .select('balance, initial_balance')
-        .eq('user_id', user.id)
-        .single();
-      cashBalance = paperAccount?.balance || 0;
-    } else {
-      const { data: liveAccount } = await supabase
-        .from('live_account')
-        .select('balance')
-        .eq('user_id', user.id)
-        .single();
-      cashBalance = liveAccount?.balance || 0;
-    }
-
-    // Calculate total equity (cash + position values)
-    let totalPositionValue = 0;
-    for (const position of positions) {
-      const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
-      if (currentPrice) {
-        totalPositionValue += currentPrice * Number(position.quantity);
-      }
-    }
-    const totalEquity = cashBalance + totalPositionValue;
-    console.log(`💰 Total Equity: $${totalEquity.toFixed(2)} (Cash: $${cashBalance.toFixed(2)} + Positions: $${totalPositionValue.toFixed(2)})`);
-
-    // Determine which mode we're in based on equity level
-    const isPostMillionMode = totalEquity >= POST_MILLION_TARGET || cashBalance >= KEEP_FOR_TRADING_LATE;
-    
-    let currentTarget: number;
-    let keepAmount: number;
-    
-    if (isPostMillionMode) {
-      // Post-million mode: trade with $500k, withdraw at $1M (when profits = $500k)
-      currentTarget = POST_MILLION_TARGET;
-      keepAmount = KEEP_FOR_TRADING_LATE;
-      console.log(`🚀 POST-MILLION MODE: Trading $500k, target $1M`);
-    } else {
-      // Pre-million mode: milestones every $100k, keep $100k
-      const nextMilestone = Math.ceil(totalEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT;
-      currentTarget = Math.max(STARTING_MILESTONE, nextMilestone);
-      keepAmount = KEEP_FOR_TRADING_EARLY;
-    }
-    
-    console.log(`🎯 Target: $${currentTarget.toLocaleString()} | Current equity: $${totalEquity.toFixed(2)}`);
-
-    // Check if equity target is reached
-    if (totalEquity >= currentTarget) {
-      const isFirstMillion = !isPostMillionMode && currentTarget >= FIRST_MILLION;
-      const milestoneNumber = isPostMillionMode 
-        ? 'POST-$1M' 
-        : ((currentTarget - STARTING_MILESTONE) / MILESTONE_INCREMENT + 1).toString();
-      
-      // Calculate withdrawal: equity minus what we keep for trading
-      const withdrawalAmount = totalEquity - keepAmount;
-      
-      console.log(`🎉 MILESTONE ${milestoneNumber} REACHED! $${totalEquity.toFixed(2)} >= $${currentTarget.toLocaleString()}`);
-      console.log(`💸 Closing all positions and withdrawing $${withdrawalAmount.toFixed(2)} (keeping $${keepAmount.toLocaleString()} for trading)...`);
-
-      // Close ALL positions
-      for (const position of positions) {
-        const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
-        if (!currentPrice) continue;
-
-        const entryPrice = Number(position.avg_entry_price);
-        const quantity = Number(position.quantity);
-        const pnl = position.side === 'buy' 
-          ? (currentPrice - entryPrice) * quantity
-          : (entryPrice - currentPrice) * quantity;
-
-        // Close the trade
-        await supabase
-          .from('trades')
-          .update({
-            status: 'closed',
-            exit_price: currentPrice,
-            pnl: pnl,
-            closed_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id)
-          .eq('symbol', position.symbol)
-          .eq('is_paper', isPaperMode)
-          .eq('status', 'open');
-
-        // Delete the position
-        await supabase
-          .from('positions')
-          .delete()
-          .eq('id', position.id);
-      }
-
-      // Set balance to keep amount based on trading mode
-      const newBalance = keepAmount;
-      if (isPaperMode) {
-        await supabase
-          .from('paper_account')
-          .update({ 
-            balance: newBalance,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      } else {
-        await supabase
-          .from('live_account')
-          .update({ 
-            balance: newBalance,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      }
-
-      // Determine next target
-      let nextTarget: number;
-      let reasoningMessage: string;
-      
-      if (isPostMillionMode) {
-        // In post-million mode, always target $1M again
-        nextTarget = POST_MILLION_TARGET;
-        reasoningMessage = `💎 POST-MILLION WITHDRAWAL! Equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)} profit, keeping $${keepAmount.toLocaleString()} for trading. Target: $${POST_MILLION_TARGET.toLocaleString()} (rinse & repeat forever!)`;
-      } else if (isFirstMillion) {
-        // First time hitting $1M - switch to post-million mode
-        nextTarget = POST_MILLION_TARGET;
-        reasoningMessage = `🏆 $1 MILLION REACHED! Equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)}, now trading with $${KEEP_FOR_TRADING_LATE.toLocaleString()}. Will withdraw $500k profit at each $1M milestone FOREVER!`;
-      } else {
-        // Pre-million mode - next $100k milestone
-        nextTarget = currentTarget + MILESTONE_INCREMENT;
-        reasoningMessage = `🎉 MILESTONE ${milestoneNumber} HIT! ($${currentTarget.toLocaleString()}) Equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)} (keeping $${keepAmount.toLocaleString()}). Next target: $${nextTarget.toLocaleString()}`;
-      }
-
-      // Log the milestone
-      await supabase
-        .from('ai_decisions')
-        .insert({
-          user_id: user.id,
-          decision_type: isPostMillionMode ? 'post_million_withdrawal' : 'milestone_reached',
-          action: 'withdraw',
-          reasoning: reasoningMessage,
-        });
-
-      // NEVER disable AI - keep trading forever!
-      // (removed the code that disabled AI at final milestone)
-
-      return new Response(JSON.stringify({
-        status: 'milestone_reached',
-        milestone: milestoneNumber,
-        totalEquity: totalEquity.toFixed(2),
-        target: currentTarget,
-        nextTarget: nextTarget,
-        withdrawn: withdrawalAmount.toFixed(2),
-        keepForTrading: keepAmount,
-        remainingBalance: newBalance.toFixed(2),
-        isPostMillionMode: isPostMillionMode || isFirstMillion,
-        message: reasoningMessage,
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const closedPositions: any[] = [];
-    const stoppedPositions: any[] = [];
-
-    for (const position of positions) {
-      const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
-      if (!currentPrice) continue;
-
-      const entryPrice = Number(position.avg_entry_price);
-      const quantity = Number(position.quantity);
-      
-      // Calculate P&L percentage based on side
-      let pnlPercent = 0;
-      let pnl = 0;
-      
-      if (position.side === 'buy') {
-        // Long: profit when price goes up
-        pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
-        pnl = (currentPrice - entryPrice) * quantity;
-      } else {
-        // Short: profit when price goes down
-        pnlPercent = ((entryPrice - currentPrice) / entryPrice) * 100;
-        pnl = (entryPrice - currentPrice) * quantity;
-      }
-
-      console.log(`${position.symbol}: Entry $${entryPrice}, Current $${currentPrice}, P&L: ${pnlPercent.toFixed(2)}%`);
-
-      // Check if hit take-profit target OR stop-loss
-      const hitTakeProfit = pnlPercent >= TAKE_PROFIT_PERCENT;
-      const hitStopLoss = pnlPercent <= STOP_LOSS_PERCENT;
-
-      if (hitTakeProfit || hitStopLoss) {
-        const reason = hitTakeProfit 
-          ? `🎯 TAKE PROFIT HIT: ${position.symbol} at +${pnlPercent.toFixed(2)}%`
-          : `🛑 STOP LOSS HIT: ${position.symbol} at ${pnlPercent.toFixed(2)}%`;
-        console.log(reason);
-
-        // Close the position - update the trade
-        const { error: tradeUpdateError } = await supabase
-          .from('trades')
-          .update({
-            status: 'closed',
-            exit_price: currentPrice,
-            pnl: pnl,
-            closed_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id)
-          .eq('symbol', position.symbol)
-          .eq('is_paper', isPaperMode)
-          .eq('status', 'open');
-
-        if (tradeUpdateError) {
-          console.error('Error closing trade:', tradeUpdateError);
-          continue;
-        }
-
-        // Delete the position
-        const { error: posDeleteError } = await supabase
-          .from('positions')
-          .delete()
-          .eq('id', position.id);
-
-        if (posDeleteError) {
-          console.error('Error deleting position:', posDeleteError);
-          continue;
-        }
-
-        // Update paper account balance
-        if (isPaperMode) {
-          const { data: paperAccount } = await supabase
-            .from('paper_account')
-            .select('balance')
-            .eq('user_id', user.id)
-            .single();
-
-          if (paperAccount) {
-            // Return original investment +/- P&L
-            const originalInvestment = entryPrice * quantity;
-            const newBalance = paperAccount.balance + originalInvestment + pnl;
-            
-            await supabase
-              .from('paper_account')
-              .update({ 
-                balance: newBalance,
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', user.id);
+    if (authHeader && !authHeader.includes(Deno.env.get('SUPABASE_ANON_KEY') || '')) {
+      // User-specific call - decode JWT
+      const token = authHeader.replace('Bearer ', '');
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          while (payload.length % 4) payload += '=';
+          const decoded = JSON.parse(atob(payload));
+          if (decoded.sub && decoded.exp > Date.now() / 1000) {
+            userIds = [decoded.sub];
           }
         }
-
-        // Log the AI decision
-        await supabase
-          .from('ai_decisions')
-          .insert({
-            user_id: user.id,
-            decision_type: hitTakeProfit ? 'auto_take_profit' : 'auto_stop_loss',
-            symbol: position.symbol,
-            action: 'sell',
-            reasoning: hitTakeProfit 
-              ? `🎯 Auto take-profit triggered at +${pnlPercent.toFixed(2)}% (target: +${TAKE_PROFIT_PERCENT}%). Profit: $${pnl.toFixed(2)}`
-              : `🛑 Auto stop-loss triggered at ${pnlPercent.toFixed(2)}% (limit: ${STOP_LOSS_PERCENT}%). Loss: $${pnl.toFixed(2)}`,
-          });
-
-        const closedData = {
-          symbol: position.symbol,
-          entryPrice,
-          exitPrice: currentPrice,
-          pnlPercent: pnlPercent.toFixed(2),
-          pnl: pnl.toFixed(2),
-          type: hitTakeProfit ? 'take_profit' : 'stop_loss',
-        };
-
-        if (hitTakeProfit) {
-          closedPositions.push(closedData);
-        } else {
-          stoppedPositions.push(closedData);
-        }
-      } else {
-        // Update position with current price and unrealized P&L
-        await supabase
-          .from('positions')
-          .update({
-            current_price: currentPrice,
-            unrealized_pnl: pnl,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', position.id);
+      } catch (e) {
+        console.log('JWT decode failed, processing all users');
       }
+    }
+
+    // If no specific user, process ALL users with AI enabled
+    if (userIds.length === 0) {
+      console.log('🔄 Cron job: Processing all users with AI enabled');
+      const { data: aiSettings } = await supabase
+        .from('ai_settings')
+        .select('user_id, trading_mode')
+        .eq('enabled', true);
+
+      if (aiSettings) {
+        userIds = aiSettings.map((s: any) => s.user_id);
+      }
+    }
+
+    console.log(`Processing ${userIds.length} user(s)`);
+
+    let totalTakeProfit = 0;
+    let totalStopLoss = 0;
+
+    for (const userId of userIds) {
+      // Get user's trading mode
+      const { data: settings } = await supabase
+        .from('ai_settings')
+        .select('trading_mode')
+        .eq('user_id', userId)
+        .single();
+
+      const isPaperMode = settings?.trading_mode === 'paper';
+      const result = await processUserPositions(supabase, userId, isPaperMode);
+      totalTakeProfit += result.takeProfitCount;
+      totalStopLoss += result.stopLossCount;
     }
 
     return new Response(JSON.stringify({
       status: 'success',
+      usersProcessed: userIds.length,
       takeProfitTarget: `+${TAKE_PROFIT_PERCENT}%`,
       stopLossLimit: `${STOP_LOSS_PERCENT}%`,
-      checkedPositions: positions.length,
-      takeProfitCount: closedPositions.length,
-      stopLossCount: stoppedPositions.length,
-      closedPositions,
-      stoppedPositions,
-      isPaperMode,
+      totalTakeProfitClosed: totalTakeProfit,
+      totalStopLossClosed: totalStopLoss,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
