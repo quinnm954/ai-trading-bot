@@ -13,28 +13,16 @@ export function useAutoTakeProfit() {
     if (!user) return;
 
     try {
-      // Force refresh session to get fresh token
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Get fresh session - this will return null if user logged out
+      const { data: { session } } = await supabase.auth.getSession();
       
-      if (sessionError || !session) {
-        console.log('No valid session for take-profit checker');
-        return;
+      if (!session?.access_token) {
+        return; // No session, skip silently
       }
 
-      // Check if token is about to expire (within 60 seconds) and refresh
-      const expiresAt = session.expires_at;
-      const now = Math.floor(Date.now() / 1000);
-      
-      let accessToken = session.access_token;
-      
-      if (expiresAt && expiresAt - now < 60) {
-        console.log('Token expiring soon, refreshing...');
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        if (refreshError || !refreshData.session) {
-          console.log('Failed to refresh session');
-          return;
-        }
-        accessToken = refreshData.session.access_token;
+      // Verify the user ID matches to prevent stale token issues
+      if (session.user?.id !== user.id) {
+        return; // Session user doesn't match, skip
       }
 
       const response = await fetch(
@@ -43,7 +31,7 @@ export function useAutoTakeProfit() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${session.access_token}`,
           },
         }
       );
