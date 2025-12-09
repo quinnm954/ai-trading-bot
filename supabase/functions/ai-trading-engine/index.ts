@@ -803,14 +803,19 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // MICRO TRADES: $1 max per trade for very small balances
-      const MAX_TRADE_VALUE = 1.00; // Hard cap at $1 per trade for testing
+      // Coinbase minimum order is ~$1-2, so we need at least $2 per trade
+      const MIN_TRADE_VALUE = 2.00; // Coinbase rejects orders below this
+      const MAX_TRADE_VALUE = 5.00; // Cap per trade to spread across multiple assets
       const maxValue = Math.min(balance * (settings.max_position_size / 100), MAX_TRADE_VALUE);
-      const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
+      const tradeValue = Math.max(Math.min(maxValue * decision.confidence, maxValue), MIN_TRADE_VALUE);
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
 
-      if (tradeValue < 0.50) continue; // Minimum $0.50 trade
+      // Skip if we don't have enough balance for minimum trade
+      if (balance < MIN_TRADE_VALUE) {
+        console.log(`⚠️ Insufficient balance ($${balance.toFixed(2)}) for minimum trade ($${MIN_TRADE_VALUE})`);
+        continue;
+      }
 
       // 💰 EXECUTE REAL COINBASE BUY if in LIVE mode
       if (!isPaperMode && decision.action === 'buy') {
