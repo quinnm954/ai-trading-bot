@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { Brain, Mail, Lock, Loader2, ArrowRight, Zap } from 'lucide-react';
+import { Brain, Mail, Lock, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,10 +13,6 @@ const authSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
-// Dev credentials - REMOVE IN PRODUCTION
-const DEV_EMAIL = 'quinnm954@gmail.com';
-const DEV_PASSWORD = 'dev123456';
-
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -27,8 +23,6 @@ export default function Auth() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { signIn, signUp, isAuthenticated, isLoading } = useAuth();
-  
-  const isDev = import.meta.env.DEV;
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
@@ -107,42 +101,6 @@ export default function Auth() {
           });
         }
       }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDevLogin = async () => {
-    setIsSubmitting(true);
-    try {
-      // First try to sign in
-      const { error: signInError } = await signIn(DEV_EMAIL, DEV_PASSWORD);
-      if (signInError) {
-        // If login fails, try to create the account first
-        const { error: signUpError } = await signUp(DEV_EMAIL, DEV_PASSWORD);
-        if (signUpError && !signUpError.message.includes('User already registered')) {
-          toast({
-            title: 'Dev login failed',
-            description: signUpError.message,
-            variant: 'destructive',
-          });
-          return;
-        }
-        // Try signing in again after signup
-        const { error } = await signIn(DEV_EMAIL, DEV_PASSWORD);
-        if (error) {
-          toast({
-            title: 'Dev login failed',
-            description: error.message,
-            variant: 'destructive',
-          });
-          return;
-        }
-      }
-      toast({
-        title: 'Dev Mode',
-        description: 'Logged in as developer.',
-      });
     } finally {
       setIsSubmitting(false);
     }
@@ -238,29 +196,6 @@ export default function Auth() {
               )}
             </Button>
           </form>
-
-          {isDev && (
-            <div className="mt-4">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Dev Mode</span>
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full mt-4 gap-2 border-warning/50 text-warning hover:bg-warning/10"
-                onClick={handleDevLogin}
-                disabled={isSubmitting}
-              >
-                <Zap className="w-4 h-4" />
-                Quick Dev Login
-              </Button>
-            </div>
-          )}
 
           <div className="mt-6 text-center">
             <p className="text-muted-foreground">
