@@ -11,13 +11,9 @@ const TAKE_PROFIT_PERCENT = 0.03;
 // Tight stop loss to cut losses quick
 const STOP_LOSS_PERCENT = -0.15;
 
-// Milestone system
-const KEEP_FOR_TRADING_EARLY = 100000;
-const KEEP_FOR_TRADING_LATE = 500000;
-const MILESTONE_INCREMENT = 100000;
-const FIRST_MILLION = 1000000;
-const STARTING_MILESTONE = 200000;
-const POST_MILLION_TARGET = 1000000;
+// Milestone system - USER REQUESTED: Keep $100, withdraw rest, then compound
+const KEEP_FOR_TRADING = 100; // Keep $100 for trading
+const WITHDRAWAL_THRESHOLD = 150; // Withdraw when equity reaches $150 (50% profit)
 
 // Symbol mapping for CoinGecko API - Top 100+ cryptos
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -199,21 +195,11 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   }
   const totalEquity = cashBalance + totalPositionValue;
 
-  // Check milestone
-  const isPostMillionMode = totalEquity >= POST_MILLION_TARGET || cashBalance >= KEEP_FOR_TRADING_LATE;
-  let currentTarget: number;
-  let keepAmount: number;
-  
-  if (isPostMillionMode) {
-    currentTarget = POST_MILLION_TARGET;
-    keepAmount = KEEP_FOR_TRADING_LATE;
-  } else {
-    const nextMilestone = Math.ceil(totalEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT;
-    currentTarget = Math.max(STARTING_MILESTONE, nextMilestone);
-    keepAmount = KEEP_FOR_TRADING_EARLY;
-  }
+  // Simple milestone: Withdraw profits above $100
+  const currentTarget = WITHDRAWAL_THRESHOLD;
+  const keepAmount = KEEP_FOR_TRADING;
 
-  // Handle milestone reached
+  // Handle milestone reached - withdraw profits when equity > threshold
   if (totalEquity >= currentTarget) {
     const withdrawalAmount = totalEquity - keepAmount;
     console.log(`🎉 MILESTONE for user ${userId}! Equity: $${totalEquity.toFixed(2)}, withdrawing $${withdrawalAmount.toFixed(2)}`);
