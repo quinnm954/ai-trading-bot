@@ -1078,22 +1078,9 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // ANTI-DUST + SPEED: Safe coins only, good position sizes for fast trades
-      const MIN_TRADE_VALUE = 15.00; // Higher minimum = definitely sellable
-      const MAX_TRADE_VALUE = 30.00; // Bigger positions = bigger absolute gains per 0.15% move
-      
-      // SAFE COIN LIST: High-volume coins with good precision and liquidity
-      // Expanded to include more trading opportunities while avoiding dust-prone memecoins
-      const SAFE_COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'AVAX', 'DOT', 'LINK', 
-                          'NEAR', 'LTC', 'APT', 'UNI', 'ATOM', 'ARB', 'OP', 'INJ', 
-                          'SEI', 'SUI', 'FIL', 'RENDER', 'AAVE', 'BCH', 'ETC', 'XLM',
-                          'TRX', 'ALGO', 'HBAR', 'ICP', 'FTM', 'GRT', 'ENJ', 'SAND',
-                          'MANA', 'CRV', 'EGLD', 'IMX', 'FLOW', 'LDO', 'COMP', 'SNX'];
-      
-      if (!SAFE_COINS.includes(decision.symbol.toUpperCase())) {
-        console.log(`⚠️ Skipping ${decision.symbol} - not in safe coin list (dust risk)`);
-        continue;
-      }
+      // ORIGINAL FAST SETTINGS - smaller trades = more cycles = faster compounding
+      const MIN_TRADE_VALUE = 5.00; // Lower minimum for more trades
+      const MAX_TRADE_VALUE = 10.00; // Smaller positions, more diversification
       
       const maxValue = Math.min(balance * (settings.max_position_size / 100), MAX_TRADE_VALUE);
       const tradeValue = Math.max(Math.min(maxValue * decision.confidence, maxValue), MIN_TRADE_VALUE);
