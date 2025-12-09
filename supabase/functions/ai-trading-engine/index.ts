@@ -34,16 +34,27 @@ interface TrendAnalysis {
 
 // Fetch current crypto prices from CoinGecko with retry logic
 async function fetchMarketData(): Promise<MarketData[]> {
-  // Top 50 cryptocurrencies by market cap
+  // Top 100+ cryptocurrencies by market cap for maximum scalping opportunities
   const cryptos = [
+    // Top 50
     'bitcoin', 'ethereum', 'tether', 'xrp', 'bnb', 'solana', 'usdc', 'dogecoin',
     'cardano', 'tron', 'avalanche-2', 'chainlink', 'shiba-inu', 'stellar', 'polkadot',
     'hedera', 'bitcoin-cash', 'uniswap', 'sui', 'litecoin', 'pepe', 'near', 'aptos',
     'internet-computer', 'ethereum-classic', 'render-token', 'cronos', 'kaspa',
-    'aave', 'vechain', 'polygon', 'algorand', 'cosmos', 'fantom', 'filecoin',
-    'arbitrum', 'optimism', 'injective', 'immutable-x', 'theta-token', 'sei',
-    'celestia', 'bonk', 'floki', 'jupiter', 'ondo-finance', 'fetch-ai', 'worldcoin',
-    'pyth-network', 'jito-governance-token'
+    'aave', 'vechain', 'matic-network', 'algorand', 'cosmos', 'fantom', 'filecoin',
+    'arbitrum', 'optimism', 'injective-protocol', 'immutable-x', 'theta-token', 'sei-network',
+    'celestia', 'bonk', 'floki', 'jupiter-exchange-solana', 'ondo-finance', 'fetch-ai', 'worldcoin-wld',
+    'pyth-network', 'bittensor',
+    // 51-100 more assets
+    'the-open-network', 'leo-token', 'dai', 'maker', 'the-graph', 'thorchain',
+    'lido-dao', 'gala', 'the-sandbox', 'decentraland', 'axie-infinity', 'flow',
+    'tezos', 'eos', 'neo', 'elrond-erd-2', 'kava', 'ecash', 'conflux-token', 'iota',
+    'pancakeswap-token', 'dydx', 'havven', 'rocket-pool', 'blur', 'curve-dao-token',
+    'compound-governance-token', 'ethereum-name-service', 'gmx', 'mina-protocol',
+    'apecoin', 'chiliz', '1inch', 'zilliqa', 'enjincoin', 'basic-attention-token',
+    'loopring', 'qtum', 'icon', '0x', 'ankr', 'celo', 'skale', 'storj', 'harmony',
+    'ocean-protocol', 'dogwifcoin', 'mantle', 'okb', 'polygon-ecosystem-token',
+    'blockstack', 'crypto-com-chain'
   ];
   
   for (let attempt = 0; attempt < 3; attempt++) {
