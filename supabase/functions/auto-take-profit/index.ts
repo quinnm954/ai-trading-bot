@@ -93,12 +93,19 @@ serve(async (req) => {
       const parts = token.split('.');
       if (parts.length !== 3) throw new Error('Invalid JWT format');
       
-      // Decode base64url payload
-      const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      // Decode base64url payload with proper padding
+      let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      // Add padding if needed
+      while (payload.length % 4) {
+        payload += '=';
+      }
       const decoded = JSON.parse(atob(payload));
+      
+      console.log('JWT decoded, user:', decoded.sub, 'exp:', decoded.exp);
       
       // Check expiration
       if (decoded.exp && decoded.exp < Date.now() / 1000) {
+        console.log('Token expired at:', decoded.exp, 'now:', Date.now() / 1000);
         throw new Error('Token expired');
       }
       
@@ -106,7 +113,7 @@ serve(async (req) => {
       if (!userId) throw new Error('No user ID in token');
     } catch (e) {
       console.error('JWT decode error:', e);
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+      return new Response(JSON.stringify({ error: 'Invalid token', details: String(e) }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
