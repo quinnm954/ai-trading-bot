@@ -7,8 +7,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Take-profit at 0.1% for balanced scalping
-const BASE_TAKE_PROFIT_PERCENT = 0.1;
+// Take-profit at 0.5% for bigger gains per trade
+const BASE_TAKE_PROFIT_PERCENT = 0.5;
 // Ultra-tight stop loss to cut losses immediately
 const BASE_STOP_LOSS_PERCENT = -0.05;
 // Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
