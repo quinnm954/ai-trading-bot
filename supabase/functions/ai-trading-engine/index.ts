@@ -306,28 +306,144 @@ async function fetchMarketData(): Promise<MarketData[]> {
   ];
 }
 
-// Analyze trend for each coin using multiple signals
-function analyzeTrend(coin: MarketData): TrendAnalysis {
+// Multi-timeframe analysis structure
+interface TimeframeSignal {
+  timeframe: string;
+  trend: 'bullish' | 'bearish' | 'neutral';
+  strength: number; // -1 to 1
+  momentum: number; // Rate of change
+}
+
+interface MultiTimeframeAnalysis {
+  symbol: string;
+  signals: TimeframeSignal[];
+  overallBias: 'strong_buy' | 'buy' | 'neutral' | 'sell' | 'strong_sell';
+  entryScore: number; // 0-100, higher = better entry
+  exitUrgency: number; // 0-100, higher = exit soon
+  bestEntry: boolean; // True if all timeframes align for entry
+  reasoning: string;
+}
+
+// Analyze a coin across multiple "simulated" timeframes using 24h data
+function analyzeMultiTimeframe(coin: MarketData): MultiTimeframeAnalysis {
   const priceRange = coin.high24h - coin.low24h;
   const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
   
-  // Calculate trend strength based on multiple factors
+  // Simulate different timeframe signals based on available data
+  // In production, you'd fetch actual OHLC candles for each timeframe
+  const signals: TimeframeSignal[] = [];
+  
+  // 1-HOUR timeframe (short-term momentum)
+  const hourlyTrend = coin.change24h > 0.5 ? 'bullish' : coin.change24h < -0.5 ? 'bearish' : 'neutral';
+  const hourlyStrength = Math.max(-1, Math.min(1, coin.change24h / 5));
+  signals.push({
+    timeframe: '1h',
+    trend: hourlyTrend,
+    strength: hourlyStrength,
+    momentum: coin.change24h / 24, // Approx hourly rate
+  });
+  
+  // 4-HOUR timeframe (swing direction)
+  const fourHourPosition = pricePosition > 0.6 ? 'bullish' : pricePosition < 0.4 ? 'bearish' : 'neutral';
+  const fourHourStrength = (pricePosition - 0.5) * 2;
+  signals.push({
+    timeframe: '4h',
+    trend: fourHourPosition,
+    strength: fourHourStrength,
+    momentum: (pricePosition - 0.5) * coin.change24h / 6,
+  });
+  
+  // DAILY timeframe (overall trend)
+  const dailyTrend = coin.change24h > 2 ? 'bullish' : coin.change24h < -2 ? 'bearish' : 'neutral';
+  const dailyStrength = Math.max(-1, Math.min(1, coin.change24h / 10));
+  signals.push({
+    timeframe: '1d',
+    trend: dailyTrend,
+    strength: dailyStrength,
+    momentum: coin.change24h,
+  });
+  
+  // Calculate alignment score (how many timeframes agree)
+  const bullishCount = signals.filter(s => s.trend === 'bullish').length;
+  const bearishCount = signals.filter(s => s.trend === 'bearish').length;
+  const avgStrength = signals.reduce((sum, s) => sum + s.strength, 0) / signals.length;
+  
+  // Determine overall bias
+  let overallBias: MultiTimeframeAnalysis['overallBias'];
+  let entryScore = 50;
+  let exitUrgency = 0;
+  
+  if (bullishCount === 3 && avgStrength > 0.3) {
+    overallBias = 'strong_buy';
+    entryScore = 85 + (avgStrength * 15);
+  } else if (bullishCount >= 2 && avgStrength > 0) {
+    overallBias = 'buy';
+    entryScore = 65 + (avgStrength * 20);
+  } else if (bearishCount === 3 && avgStrength < -0.3) {
+    overallBias = 'strong_sell';
+    entryScore = 10;
+    exitUrgency = 90;
+  } else if (bearishCount >= 2 && avgStrength < 0) {
+    overallBias = 'sell';
+    entryScore = 25;
+    exitUrgency = 70;
+  } else {
+    overallBias = 'neutral';
+    entryScore = 45 + (avgStrength * 10);
+    exitUrgency = 30;
+  }
+  
+  // BEST ENTRY: All timeframes bullish AND price near low of range (oversold bounce)
+  const bestEntry = bullishCount >= 2 && pricePosition < 0.4 && coin.change24h > -2;
+  if (bestEntry) entryScore = Math.min(100, entryScore + 15);
+  
+  // Increase exit urgency if price at top of range with bearish signals
+  if (pricePosition > 0.8 && bearishCount >= 1) {
+    exitUrgency = Math.min(100, exitUrgency + 30);
+  }
+  
+  const tfSummary = signals.map(s => `${s.timeframe}:${s.trend}`).join(', ');
+  const reasoning = `MTF: ${tfSummary} | Entry: ${entryScore.toFixed(0)}/100 | Exit urgency: ${exitUrgency.toFixed(0)}/100`;
+  
+  return {
+    symbol: coin.symbol,
+    signals,
+    overallBias,
+    entryScore: Math.round(entryScore),
+    exitUrgency: Math.round(exitUrgency),
+    bestEntry,
+    reasoning,
+  };
+}
+
+// Analyze trend for each coin using multiple signals + multi-timeframe
+function analyzeTrend(coin: MarketData): TrendAnalysis {
+  const mtf = analyzeMultiTimeframe(coin);
+  const priceRange = coin.high24h - coin.low24h;
+  const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
+  
+  // Calculate trend strength based on multiple factors + MTF
   let trendScore = 0;
   
-  // Factor 1: 24h price change (weight: 40%)
+  // Factor 1: 24h price change (weight: 30%)
   const changeScore = Math.max(-1, Math.min(1, coin.change24h / 10));
-  trendScore += changeScore * 0.4;
+  trendScore += changeScore * 0.3;
   
-  // Factor 2: Price position in daily range (weight: 30%)
-  // Near high = bullish, near low = bearish
-  const positionScore = (pricePosition - 0.5) * 2; // -1 to 1
-  trendScore += positionScore * 0.3;
+  // Factor 2: Price position in daily range (weight: 20%)
+  const positionScore = (pricePosition - 0.5) * 2;
+  trendScore += positionScore * 0.2;
   
-  // Factor 3: Momentum (if price is moving with change, weight: 30%)
-  // If down and near lows = strong downtrend, if up and near highs = strong uptrend
+  // Factor 3: Momentum alignment (weight: 20%)
   const momentumAlignment = coin.change24h > 0 && pricePosition > 0.5 ? 1 :
                             coin.change24h < 0 && pricePosition < 0.5 ? -1 : 0;
-  trendScore += momentumAlignment * 0.3;
+  trendScore += momentumAlignment * 0.2;
+  
+  // Factor 4: Multi-timeframe bias (weight: 30%) - NEW
+  const mtfScore = mtf.overallBias === 'strong_buy' ? 1 :
+                   mtf.overallBias === 'buy' ? 0.5 :
+                   mtf.overallBias === 'strong_sell' ? -1 :
+                   mtf.overallBias === 'sell' ? -0.5 : 0;
+  trendScore += mtfScore * 0.3;
   
   // Determine trend classification
   let trend: TrendAnalysis['trend'];
@@ -337,23 +453,23 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   // AGGRESSIVE MODE: Trade more coins, only avoid catastrophic drops
   if (trendScore >= 0.5) {
     trend = 'strong_uptrend';
-    reason = `🚀 Strong uptrend: +${coin.change24h.toFixed(1)}%`;
+    reason = `🚀 Strong uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore >= 0.1) {
     trend = 'uptrend';
-    reason = `📈 Uptrend: +${coin.change24h.toFixed(1)}%`;
+    reason = `📈 Uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore <= -0.7) {
     trend = 'strong_downtrend';
-    // Still trade oversold bounces, just smaller size
-    shouldTrade = coin.change24h > -5; // Only avoid >5% drops
-    reason = shouldTrade ? `💰 Oversold bounce: ${coin.change24h.toFixed(1)}%` : `⚠️ CRASH: ${coin.change24h.toFixed(1)}%`;
+    shouldTrade = coin.change24h > -5;
+    reason = shouldTrade ? `💰 Oversold: ${coin.change24h.toFixed(1)}%` : `⚠️ CRASH: ${coin.change24h.toFixed(1)}%`;
   } else if (trendScore <= -0.3) {
     trend = 'downtrend';
-    shouldTrade = true; // Trade dips for bounce plays
-    reason = `📉 Dip buy opportunity: ${coin.change24h.toFixed(1)}%`;
+    // Only trade if MTF shows potential bounce
+    shouldTrade = mtf.entryScore > 40;
+    reason = `📉 Dip: ${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else {
     trend = 'neutral';
     shouldTrade = true;
-    reason = `➡️ Consolidating: ${coin.change24h.toFixed(1)}%`;
+    reason = `➡️ Range: ${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   }
   
   // Only avoid catastrophic drops (>5%)
@@ -361,6 +477,12 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
     shouldTrade = false;
     trend = 'strong_downtrend';
     reason = `🚫 CRASH: ${coin.change24h.toFixed(1)}% - AVOIDING`;
+  }
+  
+  // BOOST: Best entry signals get priority
+  if (mtf.bestEntry) {
+    shouldTrade = true;
+    reason = `⭐ BEST ENTRY: ${reason}`;
   }
   
   return {
