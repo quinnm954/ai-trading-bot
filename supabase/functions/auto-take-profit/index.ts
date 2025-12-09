@@ -549,25 +549,26 @@ async function executeCoinbaseSellAggressive(symbol: string, quantity: number): 
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    // Use maximum precision available
+    // Coinbase precision requirements - use CONSERVATIVE (fewer) decimals for dust sells
+    // Many coins only accept 0-2 decimal places for small amounts
     const precisionMap: Record<string, number> = {
-      'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'BNB': 6, 'ADA': 2, 'AVAX': 4,
-      'DOT': 4, 'LINK': 4, 'MATIC': 2, 'POL': 2, 'UNI': 4, 'LTC': 6, 'ATOM': 4,
-      'NEAR': 4, 'APT': 4, 'ARB': 2, 'OP': 4, 'INJ': 4, 'TIA': 4, 'SEI': 2,
-      'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4, 'RENDER': 4, 'FET': 2, 'TAO': 6,
-      'AAVE': 6, 'MKR': 6, 'GRT': 2, 'LDO': 4, 'CRV': 2, 'IMX': 2, 'STX': 2,
-      'HBAR': 2, 'XLM': 2, 'ALGO': 2, 'VET': 2, 'ETC': 6, 'BCH': 6, 'TRX': 2,
-      'DOGE': 2, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 4, 'MEME': 0,
-      'GALA': 2, 'SAND': 2, 'MANA': 2, 'AXS': 4, 'ENJ': 2, 'CHZ': 2, 'APE': 4,
-      'CAKE': 4, 'COMP': 6, 'SNX': 4, 'DYDX': 4, 'GMX': 6, '1INCH': 2, 'BAT': 2,
-      'ZRX': 2, 'LRC': 2, 'ENS': 6, 'RPL': 6, 'BLUR': 2, 'JUP': 2, 'ONDO': 4,
-      'PYTH': 2, 'WLD': 4, 'THETA': 4, 'FTM': 2, 'RUNE': 4, 'KAVA': 4,
-      'EOS': 4, 'NEO': 4, 'XTZ': 4, 'QTUM': 4, 'ICX': 2, 'ZIL': 2, 'ONE': 2,
-      'CELO': 4, 'ANKR': 2, 'SKL': 2, 'STORJ': 4, 'OCEAN': 2, 'MINA': 4,
-      'EGLD': 6, 'FLOW': 4, 'CFX': 2, 'IOTA': 2, 'XEC': 0, 'KAS': 2, 'MNT': 2,
-      'CRO': 2, 'OKB': 4, 'LEO': 4, 'DAI': 4,
+      'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'BNB': 4, 'ADA': 0, 'AVAX': 2,
+      'DOT': 2, 'LINK': 2, 'MATIC': 0, 'POL': 0, 'UNI': 2, 'LTC': 4, 'ATOM': 2,
+      'NEAR': 2, 'APT': 2, 'ARB': 0, 'OP': 2, 'INJ': 2, 'TIA': 2, 'SEI': 0,
+      'SUI': 2, 'TON': 2, 'ICP': 2, 'FIL': 2, 'RENDER': 2, 'FET': 0, 'TAO': 4,
+      'AAVE': 4, 'MKR': 4, 'GRT': 0, 'LDO': 2, 'CRV': 0, 'IMX': 0, 'STX': 0,
+      'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'VET': 0, 'ETC': 4, 'BCH': 4, 'TRX': 0,
+      'DOGE': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 2, 'MEME': 0,
+      'GALA': 0, 'SAND': 0, 'MANA': 0, 'AXS': 2, 'ENJ': 0, 'CHZ': 0, 'APE': 2,
+      'CAKE': 2, 'COMP': 4, 'SNX': 2, 'DYDX': 2, 'GMX': 4, '1INCH': 0, 'BAT': 0,
+      'ZRX': 0, 'LRC': 0, 'ENS': 4, 'RPL': 4, 'BLUR': 0, 'JUP': 0, 'ONDO': 2,
+      'PYTH': 0, 'WLD': 2, 'THETA': 2, 'FTM': 0, 'RUNE': 2, 'KAVA': 2,
+      'EOS': 2, 'NEO': 2, 'XTZ': 2, 'QTUM': 2, 'ICX': 0, 'ZIL': 0, 'ONE': 0,
+      'CELO': 2, 'ANKR': 0, 'SKL': 0, 'STORJ': 2, 'OCEAN': 0, 'MINA': 2,
+      'EGLD': 4, 'FLOW': 2, 'CFX': 0, 'IOTA': 0, 'XEC': 0, 'KAS': 0, 'MNT': 0,
+      'CRO': 0, 'OKB': 2, 'LEO': 2, 'DAI': 2,
     };
-    const precision = precisionMap[symbol.toUpperCase()] ?? 8;
+    const precision = precisionMap[symbol.toUpperCase()] ?? 2; // Default to 2 for unknown
     const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
     
     if (roundedQty <= 0) {
