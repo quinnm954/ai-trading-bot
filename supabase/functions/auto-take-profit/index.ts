@@ -657,6 +657,128 @@ serve(async (req) => {
     const action = url.searchParams.get('action');
     const positionId = url.searchParams.get('position_id');
 
+    // WITHDRAW TO TARGET - Sell holdings until wallet reaches target amount
+    if (action === 'withdraw-to-target') {
+      const targetBalance = parseFloat(url.searchParams.get('target') || '100');
+      console.log(`🎯 WITHDRAW TO TARGET: Selling until wallet has $${targetBalance}`);
+      
+      // Get current USDC balance from Coinbase
+      const holdings = await fetchCoinbaseHoldings();
+      
+      // Get current balance from API
+      const apiKey = Deno.env.get('COINBASE_API_KEY');
+      const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+      
+      let currentBalance = 0;
+      if (apiKey && apiSecret) {
+        try {
+          const uri = `GET api.coinbase.com/api/v3/brokerage/accounts`;
+          const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+          
+          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${jwt}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            for (const account of data.accounts || []) {
+              if (account.currency === 'USDC' || account.currency === 'USD') {
+                currentBalance += parseFloat(account.available_balance?.value || '0');
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error getting balance:', e);
+        }
+      }
+      
+      console.log(`💵 Current USDC balance: $${currentBalance.toFixed(2)}, Target: $${targetBalance}`);
+      
+      if (currentBalance >= targetBalance) {
+        return new Response(JSON.stringify({
+          status: 'success',
+          action: 'withdraw-to-target',
+          message: `Already at target! Current balance: $${currentBalance.toFixed(2)}`,
+          currentBalance,
+          targetBalance,
+          sold: [],
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const amountNeeded = targetBalance - currentBalance;
+      console.log(`📊 Need to sell $${amountNeeded.toFixed(2)} worth of crypto`);
+      
+      // Fetch live prices for holdings
+      const symbols = holdings.map(h => h.symbol);
+      const livePrices = await fetchLivePrices(symbols);
+      
+      // Calculate holding values and sort by value (sell largest first)
+      const holdingsWithValue = holdings.map(h => ({
+        ...h,
+        price: livePrices[h.symbol.toUpperCase()] || 0,
+        value: (livePrices[h.symbol.toUpperCase()] || 0) * h.quantity,
+      })).filter(h => h.value > 0).sort((a, b) => b.value - a.value);
+      
+      console.log(`📊 Holdings with values:`, holdingsWithValue.map(h => `${h.symbol}: $${h.value.toFixed(2)}`));
+      
+      const sold: Array<{ symbol: string; quantity: number; usdValue: number }> = [];
+      const errors: string[] = [];
+      let totalSoldValue = 0;
+      
+      for (const holding of holdingsWithValue) {
+        if (totalSoldValue >= amountNeeded) {
+          console.log(`✅ Reached target, stopping sells`);
+          break;
+        }
+        
+        const remainingNeeded = amountNeeded - totalSoldValue;
+        let quantityToSell = holding.quantity;
+        
+        // If we only need part of this holding, calculate how much
+        if (holding.value > remainingNeeded) {
+          quantityToSell = remainingNeeded / holding.price;
+          console.log(`📐 Partial sell: ${quantityToSell.toFixed(6)} of ${holding.quantity} ${holding.symbol}`);
+        }
+        
+        console.log(`💰 Selling ${quantityToSell.toFixed(6)} ${holding.symbol} (value: ~$${(quantityToSell * holding.price).toFixed(2)})`);
+        
+        const result = await executeCoinbaseSell(holding.symbol, quantityToSell);
+        
+        if (result.success && result.usdValue) {
+          sold.push({
+            symbol: holding.symbol,
+            quantity: quantityToSell,
+            usdValue: result.usdValue,
+          });
+          totalSoldValue += result.usdValue;
+          console.log(`✅ Sold ${holding.symbol} for $${result.usdValue.toFixed(2)}, total: $${totalSoldValue.toFixed(2)}`);
+        } else {
+          errors.push(`${holding.symbol}: ${result.error}`);
+          console.error(`❌ Failed to sell ${holding.symbol}: ${result.error}`);
+        }
+      }
+      
+      return new Response(JSON.stringify({
+        status: 'success',
+        action: 'withdraw-to-target',
+        startingBalance: currentBalance,
+        targetBalance,
+        amountNeeded,
+        totalSold: totalSoldValue,
+        estimatedFinalBalance: currentBalance + totalSoldValue,
+        sold,
+        errors,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // SELL ALL - Liquidate all Coinbase crypto holdings to USDC
     if (action === 'sell-all') {
       console.log('🔴 SELL ALL COINBASE HOLDINGS requested');
