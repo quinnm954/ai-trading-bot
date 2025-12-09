@@ -14,6 +14,7 @@ import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
+import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -136,6 +137,7 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+          <MilestoneProgressCard />
           <EquityChart />
           <PositionsTable />
         </div>
