@@ -12,9 +12,12 @@ const TAKE_PROFIT_PERCENT = 0.03;
 // Tight stop loss to cut losses quick
 const STOP_LOSS_PERCENT = -0.15;
 
-// Milestone system - USER REQUESTED: Keep $100, withdraw rest, then compound
-const KEEP_FOR_TRADING = 100; // Keep $100 for trading
-const WITHDRAWAL_THRESHOLD = 150; // Withdraw when equity reaches $150 (50% profit)
+// Milestone system - USER REQUESTED: Accumulate $200 USDC, then reinvest half
+// Phase 1: Keep converting profits to USDC until $200 is reached
+// Phase 2: At $200, keep $100 for trading, withdraw $100 as profit, then repeat
+const PHASE_1_TARGET = 200; // Target USDC balance before splitting
+const KEEP_FOR_TRADING = 100; // After target, keep half for trading
+const WITHDRAWAL_AMOUNT = 100; // After target, withdraw half as profit
 
 // Symbol mapping for CoinGecko API - Top 100+ cryptos
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -502,14 +505,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   }
   const totalEquity = cashBalance + totalPositionValue;
 
-  // Simple milestone: Withdraw profits above $100
-  const currentTarget = WITHDRAWAL_THRESHOLD;
-  const keepAmount = KEEP_FOR_TRADING;
+  // Phase-based milestone system:
+  // Phase 1: Accumulate USDC until $200 is reached
+  // Phase 2: At $200, split: keep $100 for trading, mark $100 as profit
+  const hasReachedTarget = totalEquity >= PHASE_1_TARGET;
 
-  // Handle milestone reached - withdraw profits when equity > threshold
-  if (totalEquity >= currentTarget) {
-    const withdrawalAmount = totalEquity - keepAmount;
-    console.log(`🎉 MILESTONE for user ${userId}! Equity: $${totalEquity.toFixed(2)}, withdrawing $${withdrawalAmount.toFixed(2)}`);
+  // Handle milestone reached - when equity >= $200, split it
+  if (hasReachedTarget) {
+    console.log(`🎉 MILESTONE for user ${userId}! Equity: $${totalEquity.toFixed(2)} >= $${PHASE_1_TARGET}`);
+    console.log(`💰 Splitting: Keep $${KEEP_FOR_TRADING} for trading, withdraw $${WITHDRAWAL_AMOUNT} as profit`);
     
     // Close all positions - EXECUTE REAL SELLS ON COINBASE
     for (const position of positions) {
@@ -549,18 +553,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       await supabase.from('positions').delete().eq('id', position.id);
     }
 
-    // Update balance
+    // Update balance to keep $100 for trading (the rest is "withdrawn")
     if (isPaperMode) {
-      await supabase.from('paper_account').update({ balance: keepAmount, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      await supabase.from('paper_account').update({ balance: KEEP_FOR_TRADING, updated_at: new Date().toISOString() }).eq('user_id', userId);
     } else {
-      await supabase.from('live_account').update({ balance: keepAmount, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      await supabase.from('live_account').update({ balance: KEEP_FOR_TRADING, updated_at: new Date().toISOString() }).eq('user_id', userId);
     }
 
     await supabase.from('ai_decisions').insert({
       user_id: userId,
       decision_type: 'milestone_reached',
-      action: 'withdraw',
-      reasoning: `Milestone! Equity: $${totalEquity.toFixed(2)}, withdrew $${withdrawalAmount.toFixed(2)}`,
+      action: 'withdraw_and_reinvest',
+      reasoning: `🎉 Reached $${totalEquity.toFixed(2)}! Withdrew $${WITHDRAWAL_AMOUNT}, kept $${KEEP_FOR_TRADING} for trading. Cycle restarts.`,
     });
 
     return { takeProfitCount: positions.length, stopLossCount: 0, milestone: true };
