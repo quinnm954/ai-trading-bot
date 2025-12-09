@@ -42,7 +42,8 @@ async function testAlpacaConnection(apiKey: string, secretKey: string) {
 }
 
 // Generate JWT for CDP API authentication using jose library
-async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<string> {
+// uri format: "METHOD api.coinbase.com/path" e.g. "GET api.coinbase.com/api/v3/brokerage/accounts"
+async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
   // Clean up the private key - handle various formats and escape sequences
   let cleanKey = privateKeyPem.trim();
   
@@ -191,10 +192,11 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
     throw new Error(`Failed to import private key: ${e.message}`);
   }
   
-  // Build and sign the JWT
+  // Build and sign the JWT with the uri claim
   const jwt = await new jose.SignJWT({
     iss: "cdp",
     sub: apiKey,
+    uri: uri,
   })
     .setProtectedHeader({ 
       alg: "ES256", 
@@ -207,7 +209,7 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
     .setExpirationTime("2m")
     .sign(privateKey);
   
-  console.log("JWT generated successfully, length:", jwt.length);
+  console.log("JWT generated successfully for URI:", uri, "length:", jwt.length);
   return jwt;
 }
 
@@ -226,9 +228,11 @@ async function testCoinbaseConnection(apiKey: string, secretKey: string, passphr
     console.log("Using CDP JWT authentication for Coinbase");
     
     try {
-      const jwt = await generateCdpJwt(apiKey, secretKey);
+      const requestPath = "/api/v3/brokerage/accounts";
+      const uri = `GET api.coinbase.com${requestPath}`;
+      const jwt = await generateCdpJwt(apiKey, secretKey, uri);
       
-      const response = await fetch("https://api.coinbase.com/api/v3/brokerage/accounts", {
+      const response = await fetch(`https://api.coinbase.com${requestPath}`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${jwt}`,
