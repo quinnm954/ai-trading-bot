@@ -11,8 +11,8 @@ const TAKE_PROFIT_PERCENT = 0.15;
 // Stop loss threshold (negative value) - tighter for risk management
 const STOP_LOSS_PERCENT = -0.25;
 
-// Milestone system - withdraw $100k every $100k gain until $1M
-const WITHDRAWAL_AMOUNT = 100000;
+// Milestone system - withdrawal increases each milestone, always keep $100k for trading
+const KEEP_FOR_TRADING = 100000;
 const MILESTONE_INCREMENT = 100000;
 const FINAL_TARGET = 1000000;
 const STARTING_MILESTONE = 200000; // First milestone
@@ -159,8 +159,14 @@ serve(async (req) => {
     // Check if equity target is reached
     if (totalEquity >= currentTarget && isPaperMode && currentTarget <= FINAL_TARGET) {
       const isFinalMilestone = currentTarget >= FINAL_TARGET;
-      console.log(`🎉 MILESTONE REACHED! $${totalEquity.toFixed(2)} >= $${currentTarget.toLocaleString()}`);
-      console.log(`💸 Closing all positions and withdrawing $${WITHDRAWAL_AMOUNT.toLocaleString()}...`);
+      const milestoneNumber = (currentTarget - STARTING_MILESTONE) / MILESTONE_INCREMENT + 1;
+      
+      // Withdrawal amount increases each milestone: $100k, $200k, $300k...
+      // Always keep $100k for trading
+      const withdrawalAmount = totalEquity - KEEP_FOR_TRADING;
+      
+      console.log(`🎉 MILESTONE ${milestoneNumber} REACHED! $${totalEquity.toFixed(2)} >= $${currentTarget.toLocaleString()}`);
+      console.log(`💸 Closing all positions and withdrawing $${withdrawalAmount.toFixed(2)} (keeping $${KEEP_FOR_TRADING.toLocaleString()} for trading)...`);
 
       // Close ALL positions
       for (const position of positions) {
@@ -194,8 +200,8 @@ serve(async (req) => {
           .eq('id', position.id);
       }
 
-      // Set balance to total equity minus withdrawal (simulating $100k "locked")
-      const newBalance = totalEquity - WITHDRAWAL_AMOUNT;
+      // Keep $100k for trading, withdraw the rest
+      const newBalance = KEEP_FOR_TRADING;
       await supabase
         .from('paper_account')
         .update({ 
@@ -204,9 +210,6 @@ serve(async (req) => {
         })
         .eq('user_id', user.id);
 
-      const milestoneNumber = (currentTarget - STARTING_MILESTONE) / MILESTONE_INCREMENT + 1;
-      const totalWithdrawn = milestoneNumber * WITHDRAWAL_AMOUNT;
-
       // Log the milestone
       await supabase
         .from('ai_decisions')
@@ -214,7 +217,7 @@ serve(async (req) => {
           user_id: user.id,
           decision_type: 'milestone_reached',
           action: 'withdraw',
-          reasoning: `🎉 MILESTONE ${milestoneNumber} HIT! ($${currentTarget.toLocaleString()}) Total equity: $${totalEquity.toFixed(2)}. Withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()} (Total withdrawn: $${totalWithdrawn.toLocaleString()}). ${isFinalMilestone ? '🏆 FINAL $1M TARGET REACHED!' : `Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`}`,
+          reasoning: `🎉 MILESTONE ${milestoneNumber} HIT! ($${currentTarget.toLocaleString()}) Total equity: $${totalEquity.toFixed(2)}. Withdrew $${withdrawalAmount.toFixed(2)} (keeping $${KEEP_FOR_TRADING.toLocaleString()} for trading). ${isFinalMilestone ? '🏆 FINAL $1M TARGET REACHED!' : `Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`}`,
         });
 
       // Only disable AI if final target reached
@@ -231,13 +234,13 @@ serve(async (req) => {
         totalEquity: totalEquity.toFixed(2),
         target: currentTarget,
         nextTarget: isFinalMilestone ? null : currentTarget + MILESTONE_INCREMENT,
-        withdrawn: WITHDRAWAL_AMOUNT,
-        totalWithdrawn: totalWithdrawn,
+        withdrawn: withdrawalAmount.toFixed(2),
+        keepForTrading: KEEP_FOR_TRADING,
         remainingBalance: newBalance.toFixed(2),
         isFinalMilestone,
         message: isFinalMilestone 
-          ? `🏆 CONGRATULATIONS! $1 MILLION TARGET REACHED! Total withdrawn: $${totalWithdrawn.toLocaleString()}`
-          : `🎉 Milestone ${milestoneNumber} ($${currentTarget.toLocaleString()}) reached! Withdrew $${WITHDRAWAL_AMOUNT.toLocaleString()}. Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`,
+          ? `🏆 CONGRATULATIONS! $1 MILLION TARGET REACHED! Withdrew $${withdrawalAmount.toFixed(2)}`
+          : `🎉 Milestone ${milestoneNumber} ($${currentTarget.toLocaleString()}) reached! Withdrew $${withdrawalAmount.toFixed(2)}, keeping $${KEEP_FOR_TRADING.toLocaleString()} for trading. Next target: $${(currentTarget + MILESTONE_INCREMENT).toLocaleString()}`,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
