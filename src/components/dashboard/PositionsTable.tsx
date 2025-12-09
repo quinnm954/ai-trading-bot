@@ -4,11 +4,12 @@ import { usePositionsData } from '@/hooks/usePositionsData';
 import { useDashboardData } from '@/hooks/useDashboardData';
 
 export function PositionsTable() {
-  const { stats } = useDashboardData();
+  const { stats, isLoading: dashboardLoading } = useDashboardData();
   const isPaper = stats.tradingMode === 'paper';
-  const { positions, isLoading } = usePositionsData(isPaper);
+  const { positions, isLoading: positionsLoading } = usePositionsData(isPaper);
 
-  if (isLoading) {
+  // Wait for dashboard to load first so we know the correct trading mode
+  if (dashboardLoading || positionsLoading) {
     return (
       <div className="glass-panel p-6">
         <div className="flex items-center justify-between mb-6">

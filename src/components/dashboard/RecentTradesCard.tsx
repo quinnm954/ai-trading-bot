@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
 export function RecentTradesCard() {
-  const { stats } = useDashboardData();
+  const { stats, isLoading: dashboardLoading } = useDashboardData();
   const isPaper = stats.tradingMode === 'paper';
-  const { trades, isLoading } = useRecentTrades(isPaper, 4);
+  const { trades, isLoading: tradesLoading } = useRecentTrades(isPaper, 4);
+  
+  const isLoading = dashboardLoading || tradesLoading;
 
   return (
     <div className="glass-panel p-6">
