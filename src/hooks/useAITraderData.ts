@@ -253,6 +253,43 @@ export function useAITraderData() {
     });
   }, [connectedBrokers.length, updateSettings, toast]);
 
+  // Run auto take-profit checker
+  const runTakeProfitChecker = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      console.log('Running auto take-profit checker...');
+      
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+      console.log('Take-profit result:', result);
+
+      if (result.closedCount > 0) {
+        toast({
+          title: '🎯 Take Profit Hit!',
+          description: `Closed ${result.closedCount} position(s) at +2% profit`,
+        });
+        triggerRealtimeUpdate();
+        fetchData();
+      }
+    } catch (error) {
+      console.error('Take-profit checker error:', error);
+    }
+  }, [user, toast, triggerRealtimeUpdate, fetchData]);
+
   // Run AI trading engine
   const runTradingEngine = useCallback(async () => {
     if (!user || !aiSettings.enabled) return;
@@ -285,12 +322,15 @@ export function useAITraderData() {
         triggerRealtimeUpdate();
         fetchData();
       }
+
+      // Also run take-profit checker after trading engine
+      await runTakeProfitChecker();
     } catch (error) {
       console.error('Trading engine error:', error);
     }
-  }, [user, aiSettings.enabled, toast, triggerRealtimeUpdate, fetchData]);
+  }, [user, aiSettings.enabled, toast, triggerRealtimeUpdate, fetchData, runTakeProfitChecker]);
 
-  // Auto-run trading engine when enabled
+  // Auto-run trading engine and take-profit checker when enabled
   useEffect(() => {
     if (!aiSettings.enabled) return;
 
@@ -302,8 +342,16 @@ export function useAITraderData() {
       runTradingEngine();
     }, 30000);
 
-    return () => clearInterval(tradingInterval);
-  }, [aiSettings.enabled, runTradingEngine]);
+    // Run take-profit checker more frequently (every 10 seconds)
+    const takeProfitInterval = setInterval(() => {
+      runTakeProfitChecker();
+    }, 10000);
+
+    return () => {
+      clearInterval(tradingInterval);
+      clearInterval(takeProfitInterval);
+    };
+  }, [aiSettings.enabled, runTradingEngine, runTakeProfitChecker]);
 
   // Toggle AI enabled
   const toggleEnabled = useCallback(async () => {

@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.ai-strategy-advisor]
 verify_jwt = false
+
+[functions.auto-take-profit]
+verify_jwt = false
