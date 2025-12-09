@@ -121,39 +121,121 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'WLD': 'worldcoin-wld',
 };
 
-// Generate CDP JWT for Coinbase API
+// Generate CDP JWT for Coinbase API - robust key parsing
 async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
-  const keyId = apiKey;
-  let keyData = privateKeyPem.replace(/\\n/g, '\n').trim();
+  // Clean and normalize the key
+  let cleanKey = privateKeyPem.trim()
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
   
-  if (!keyData.includes('-----BEGIN')) {
-    keyData = `-----BEGIN EC PRIVATE KEY-----\n${keyData}\n-----END EC PRIVATE KEY-----`;
+  // If key doesn't have PEM headers, try to add them
+  if (!cleanKey.includes("-----BEGIN")) {
+    if (/^[A-Za-z0-9+/=\s]+$/.test(cleanKey.replace(/\s/g, ''))) {
+      cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
+    }
   }
   
-  const algorithm = 'ES256';
-  const nonce = crypto.randomUUID();
+  let privateKey: jose.KeyLike;
   
-  try {
-    const privateKey = await jose.importPKCS8(keyData, algorithm);
-    const jwt = await new jose.SignJWT({ nonce, uri })
-      .setProtectedHeader({ alg: algorithm, kid: keyId, typ: 'JWT', nonce })
-      .setIssuedAt()
-      .setExpirationTime('2m')
-      .setSubject(keyId)
-      .sign(privateKey);
-    return jwt;
-  } catch {
-    // Try EC format
-    const ecKeyData = keyData.replace('EC PRIVATE KEY', 'PRIVATE KEY');
-    const privateKey = await jose.importPKCS8(ecKeyData, algorithm);
-    const jwt = await new jose.SignJWT({ nonce, uri })
-      .setProtectedHeader({ alg: algorithm, kid: keyId, typ: 'JWT', nonce })
-      .setIssuedAt()
-      .setExpirationTime('2m')
-      .setSubject(keyId)
-      .sign(privateKey);
-    return jwt;
+  // Try multiple import methods
+  const importMethods = [
+    // Method 1: Direct PKCS8 import
+    async () => {
+      return await jose.importPKCS8(cleanKey, "ES256");
+    },
+    // Method 2: Try with reformatted PKCS8 header
+    async () => {
+      const pemContent = cleanKey
+        .replace(/-----BEGIN.*-----/g, "")
+        .replace(/-----END.*-----/g, "")
+        .replace(/\s+/g, "");
+      const reformatted = `-----BEGIN PRIVATE KEY-----\n${pemContent}\n-----END PRIVATE KEY-----`;
+      return await jose.importPKCS8(reformatted, "ES256");
+    },
+    // Method 3: Parse SEC1 EC key manually
+    async () => {
+      const pemContents = cleanKey
+        .replace(/-----BEGIN.*-----/g, "")
+        .replace(/-----END.*-----/g, "")
+        .replace(/\s+/g, "");
+      
+      const binaryString = atob(pemContents);
+      const keyBytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        keyBytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      let dBytes: Uint8Array | null = null;
+      
+      for (let i = 0; i < keyBytes.length - 32; i++) {
+        if (keyBytes[i] === 0x04 && keyBytes[i + 1] === 0x20) {
+          dBytes = keyBytes.slice(i + 2, i + 34);
+          break;
+        }
+      }
+      
+      if (!dBytes) {
+        for (let i = 7; i < keyBytes.length - 32; i++) {
+          if (keyBytes[i - 1] === 0x20 || keyBytes[i - 1] === 0x21) {
+            const candidate = keyBytes.slice(i, i + 32);
+            const unique = new Set(candidate);
+            if (unique.size > 5) {
+              dBytes = candidate;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!dBytes) throw new Error("Could not extract private key bytes");
+      
+      const base64url = (bytes: Uint8Array) => 
+        btoa(String.fromCharCode(...bytes))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=/g, '');
+      
+      const jwk: jose.JWK = {
+        kty: "EC",
+        crv: "P-256",
+        d: base64url(dBytes),
+        x: base64url(new Uint8Array(32)),
+        y: base64url(new Uint8Array(32)),
+      };
+      
+      for (let i = 0; i < keyBytes.length - 65; i++) {
+        if (keyBytes[i] === 0x04 && i + 65 <= keyBytes.length) {
+          const nextBytes = keyBytes.slice(i, i + 65);
+          if (nextBytes[0] === 0x04) {
+            jwk.x = base64url(nextBytes.slice(1, 33));
+            jwk.y = base64url(nextBytes.slice(33, 65));
+            break;
+          }
+        }
+      }
+      
+      return await jose.importJWK(jwk, "ES256") as jose.KeyLike;
+    },
+  ];
+  
+  for (const method of importMethods) {
+    try {
+      privateKey = await method();
+      
+      return await new jose.SignJWT({ iss: "cdp", sub: apiKey, uri })
+        .setProtectedHeader({ alg: "ES256", kid: apiKey, nonce: crypto.randomUUID(), typ: "JWT" })
+        .setIssuedAt()
+        .setNotBefore(Math.floor(Date.now() / 1000))
+        .setExpirationTime("2m")
+        .sign(privateKey);
+    } catch {
+      continue;
+    }
   }
+  
+  throw new Error("All key import methods failed");
 }
 
 // Execute REAL sell on Coinbase - converts crypto back to USDC
