@@ -11,6 +11,8 @@ const corsHeaders = {
 const TAKE_PROFIT_PERCENT = 0.1;
 // Ultra-tight stop loss to cut losses immediately
 const STOP_LOSS_PERCENT = -0.05;
+// Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
+const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
 
 // Milestone system - USER REQUESTED: Accumulate $200 USDC, then reinvest half
 // Phase 1: Keep converting profits to USDC until $200 is reached
@@ -781,32 +783,37 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           
           if (validTargets.length > 0) {
             const bestTarget = validTargets[0];
-            console.log(`📈 Best conversion target: ${bestTarget.symbol} (${bestTarget.change24h > 0 ? '+' : ''}${bestTarget.change24h.toFixed(2)}% 24h)`);
-            console.log(`🔄 Converting ${position.symbol} → ${bestTarget.symbol}...`);
             
-            const swapResult = await executeCryptoToCryptoSwap(position.symbol, bestTarget.symbol, quantity);
-            
-            if (swapResult.success) {
-              console.log(`✅ Converted to best performer: ${position.symbol} → ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
-              didDirectConversion = true;
-              conversionTarget = `${bestTarget.symbol} (${bestTarget.change24h > 0 ? '+' : ''}${bestTarget.change24h.toFixed(1)}%)`;
-              conversions++;
+            // Only convert if momentum exceeds threshold - otherwise sell to USDC is faster
+            if (bestTarget.change24h >= MIN_CONVERSION_MOMENTUM) {
+              console.log(`🚀 Strong momentum target: ${bestTarget.symbol} (+${bestTarget.change24h.toFixed(2)}% 24h) - CONVERTING`);
               
-              // Create new position for the target crypto
-              if (swapResult.receivedQuantity && bestTarget.price > 0) {
-                await supabase.from('positions').insert({
-                  user_id: userId,
-                  symbol: bestTarget.symbol,
-                  side: 'buy',
-                  quantity: swapResult.receivedQuantity,
-                  avg_entry_price: bestTarget.price,
-                  current_price: bestTarget.price,
-                  market_type: 'crypto',
-                  is_paper: false,
-                  unrealized_pnl: 0,
-                });
-                console.log(`📊 New position: ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
+              const swapResult = await executeCryptoToCryptoSwap(position.symbol, bestTarget.symbol, quantity);
+              
+              if (swapResult.success) {
+                console.log(`✅ Converted to momentum winner: ${position.symbol} → ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
+                didDirectConversion = true;
+                conversionTarget = `${bestTarget.symbol} (+${bestTarget.change24h.toFixed(1)}%)`;
+                conversions++;
+                
+                // Create new position for the target crypto
+                if (swapResult.receivedQuantity && bestTarget.price > 0) {
+                  await supabase.from('positions').insert({
+                    user_id: userId,
+                    symbol: bestTarget.symbol,
+                    side: 'buy',
+                    quantity: swapResult.receivedQuantity,
+                    avg_entry_price: bestTarget.price,
+                    current_price: bestTarget.price,
+                    market_type: 'crypto',
+                    is_paper: false,
+                    unrealized_pnl: 0,
+                  });
+                  console.log(`📊 New position: ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
+                }
               }
+            } else {
+              console.log(`📉 Best target ${bestTarget.symbol} only +${bestTarget.change24h.toFixed(2)}% - selling to USDC instead (need >${MIN_CONVERSION_MOMENTUM}%)`);
             }
           }
         }
