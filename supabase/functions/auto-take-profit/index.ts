@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -117,7 +118,97 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'STORJ': 'storj',
   'ONE': 'harmony',
   'OCEAN': 'ocean-protocol',
+  'WLD': 'worldcoin-wld',
 };
+
+// Generate CDP JWT for Coinbase API
+async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
+  const keyId = apiKey;
+  let keyData = privateKeyPem.replace(/\\n/g, '\n').trim();
+  
+  if (!keyData.includes('-----BEGIN')) {
+    keyData = `-----BEGIN EC PRIVATE KEY-----\n${keyData}\n-----END EC PRIVATE KEY-----`;
+  }
+  
+  const algorithm = 'ES256';
+  const nonce = crypto.randomUUID();
+  
+  try {
+    const privateKey = await jose.importPKCS8(keyData, algorithm);
+    const jwt = await new jose.SignJWT({ nonce, uri })
+      .setProtectedHeader({ alg: algorithm, kid: keyId, typ: 'JWT', nonce })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .setSubject(keyId)
+      .sign(privateKey);
+    return jwt;
+  } catch {
+    // Try EC format
+    const ecKeyData = keyData.replace('EC PRIVATE KEY', 'PRIVATE KEY');
+    const privateKey = await jose.importPKCS8(ecKeyData, algorithm);
+    const jwt = await new jose.SignJWT({ nonce, uri })
+      .setProtectedHeader({ alg: algorithm, kid: keyId, typ: 'JWT', nonce })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .setSubject(keyId)
+      .sign(privateKey);
+    return jwt;
+  }
+}
+
+// Execute REAL sell on Coinbase - converts crypto back to USDC
+async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ success: boolean; usdValue?: number; error?: string }> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) {
+    console.log('⚠️ Coinbase API keys not configured, skipping real sell');
+    return { success: false, error: 'API keys not configured' };
+  }
+  
+  try {
+    const productId = `${symbol}-USDC`;
+    const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    const orderId = crypto.randomUUID();
+    const orderBody = {
+      client_order_id: orderId,
+      product_id: productId,
+      side: 'SELL',
+      order_configuration: {
+        market_market_ioc: {
+          base_size: quantity.toFixed(8)
+        }
+      }
+    };
+    
+    console.log(`📤 Selling ${quantity} ${symbol} on Coinbase...`);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderBody),
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok && result.success) {
+      const filledValue = parseFloat(result.order?.filled_value || '0');
+      console.log(`✅ SOLD ${quantity} ${symbol} for $${filledValue.toFixed(2)} USDC`);
+      return { success: true, usdValue: filledValue };
+    } else {
+      console.error(`❌ Coinbase sell failed:`, result);
+      return { success: false, error: result.error || 'Order failed' };
+    }
+  } catch (error) {
+    console.error(`❌ Coinbase sell error:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
@@ -204,20 +295,37 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const withdrawalAmount = totalEquity - keepAmount;
     console.log(`🎉 MILESTONE for user ${userId}! Equity: $${totalEquity.toFixed(2)}, withdrawing $${withdrawalAmount.toFixed(2)}`);
     
-    // Close all positions
+    // Close all positions - EXECUTE REAL SELLS ON COINBASE
     for (const position of positions) {
       const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
       if (!currentPrice) continue;
 
       const entryPrice = Number(position.avg_entry_price);
       const quantity = Number(position.quantity);
-      const pnl = position.side === 'buy' 
+      let pnl = position.side === 'buy' 
         ? (currentPrice - entryPrice) * quantity
         : (entryPrice - currentPrice) * quantity;
+      
+      let actualExitPrice = currentPrice;
+      
+      // Execute REAL sell on Coinbase if in live mode
+      if (!isPaperMode) {
+        console.log(`💰 Executing REAL Coinbase sell: ${quantity} ${position.symbol}`);
+        const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        
+        if (sellResult.success && sellResult.usdValue) {
+          // Use actual USD received from Coinbase
+          actualExitPrice = sellResult.usdValue / quantity;
+          pnl = sellResult.usdValue - (entryPrice * quantity);
+          console.log(`✅ Real sell completed: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)} USDC`);
+        } else {
+          console.error(`❌ Real sell failed for ${position.symbol}: ${sellResult.error}`);
+        }
+      }
 
       await supabase.from('trades').update({
         status: 'closed',
-        exit_price: currentPrice,
+        exit_price: actualExitPrice,
         pnl,
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
@@ -269,11 +377,28 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     if (hitTakeProfit || hitStopLoss) {
       console.log(`${hitTakeProfit ? '🎯' : '🛑'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+      
+      let actualExitPrice = currentPrice;
+      let actualPnl = pnl;
+      
+      // Execute REAL sell on Coinbase if in live mode
+      if (!isPaperMode) {
+        console.log(`💰 Executing REAL Coinbase sell: ${quantity} ${position.symbol}`);
+        const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        
+        if (sellResult.success && sellResult.usdValue) {
+          actualExitPrice = sellResult.usdValue / quantity;
+          actualPnl = sellResult.usdValue - (entryPrice * quantity);
+          console.log(`✅ Real sell completed: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)} USDC`);
+        } else {
+          console.error(`❌ Real sell failed for ${position.symbol}: ${sellResult.error}`);
+        }
+      }
 
       await supabase.from('trades').update({
         status: 'closed',
-        exit_price: currentPrice,
-        pnl,
+        exit_price: actualExitPrice,
+        pnl: actualPnl,
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
 
@@ -284,7 +409,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         if (paperAccount) {
           const originalInvestment = entryPrice * quantity;
           await supabase.from('paper_account').update({ 
-            balance: paperAccount.balance + originalInvestment + pnl,
+            balance: paperAccount.balance + originalInvestment + actualPnl,
             updated_at: new Date().toISOString()
           }).eq('user_id', userId);
         }
