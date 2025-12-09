@@ -241,6 +241,117 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
   throw new Error("All key import methods failed");
 }
 
+// Fetch available trading pairs from Coinbase
+async function fetchAvailablePairs(): Promise<Set<string>> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) return new Set();
+  
+  try {
+    const uri = `GET api.coinbase.com/api/v3/brokerage/products`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/products?product_type=SPOT', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) return new Set();
+    
+    const data = await response.json();
+    const pairs = new Set<string>();
+    
+    if (data.products && Array.isArray(data.products)) {
+      for (const product of data.products) {
+        if (product.product_id && product.status === 'online') {
+          pairs.add(product.product_id);
+        }
+      }
+    }
+    
+    console.log(`📊 Loaded ${pairs.size} available trading pairs`);
+    return pairs;
+  } catch (error) {
+    console.error('Error fetching pairs:', error);
+    return new Set();
+  }
+}
+
+// Execute direct crypto-to-crypto conversion on Coinbase
+async function executeCryptoToCryptoSwap(
+  fromSymbol: string, 
+  toSymbol: string, 
+  quantity: number
+): Promise<{ success: boolean; receivedQuantity?: number; error?: string }> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) {
+    return { success: false, error: 'API keys not configured' };
+  }
+  
+  try {
+    // Check if direct pair exists (e.g., BTC-ETH)
+    const productId = `${fromSymbol}-${toSymbol}`;
+    const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    const precisionMap: Record<string, number> = {
+      'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'DOGE': 2, 'LTC': 6, 'APT': 4,
+      'AVAX': 4, 'LINK': 4, 'UNI': 4, 'ATOM': 4, 'NEAR': 4, 'ARB': 2, 'OP': 4,
+      'INJ': 4, 'SEI': 2, 'SUI': 4, 'FIL': 4, 'RENDER': 4, 'AAVE': 6, 'GRT': 2,
+      'HBAR': 2, 'XLM': 2, 'ALGO': 2, 'CHZ': 2, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
+    };
+    
+    const precision = precisionMap[fromSymbol.toUpperCase()] ?? 4;
+    const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+    
+    if (roundedQty <= 0) {
+      return { success: false, error: 'Quantity zero after rounding' };
+    }
+    
+    const orderId = crypto.randomUUID();
+    const orderBody = {
+      client_order_id: orderId,
+      product_id: productId,
+      side: 'SELL', // Selling fromSymbol to get toSymbol
+      order_configuration: {
+        market_market_ioc: {
+          base_size: roundedQty.toFixed(precision)
+        }
+      }
+    };
+    
+    console.log(`🔄 Converting ${roundedQty} ${fromSymbol} → ${toSymbol}...`);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderBody),
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok && result.success) {
+      const filledValue = parseFloat(result.order?.filled_value || '0');
+      console.log(`✅ Converted ${fromSymbol} → ${filledValue} ${toSymbol}`);
+      return { success: true, receivedQuantity: filledValue };
+    } else {
+      const errorMsg = result.error_response?.message || result.error || 'Swap failed';
+      return { success: false, error: errorMsg };
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 // Execute REAL sell on Coinbase - converts crypto back to USDC
 async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ success: boolean; usdValue?: number; error?: string }> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
@@ -256,41 +367,30 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    // Comprehensive precision map for Coinbase - use appropriate decimals for each coin
-    // Higher precision allows selling smaller amounts
     const precisionMap: Record<string, number> = {
-      // Major coins - higher precision
       'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'BNB': 6, 'ADA': 2, 'AVAX': 4,
       'DOT': 4, 'LINK': 4, 'MATIC': 2, 'POL': 2, 'UNI': 4, 'LTC': 6, 'ATOM': 4,
       'NEAR': 4, 'APT': 4, 'ARB': 2, 'OP': 4, 'INJ': 4, 'TIA': 4, 'SEI': 2,
       'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4, 'RENDER': 4, 'FET': 2, 'TAO': 6,
       'AAVE': 6, 'MKR': 6, 'GRT': 2, 'LDO': 4, 'CRV': 2, 'IMX': 2, 'STX': 2,
       'HBAR': 2, 'XLM': 2, 'ALGO': 2, 'VET': 2, 'ETC': 6, 'BCH': 6, 'TRX': 2,
-      // Meme coins - allow some decimals for selling
       'DOGE': 2, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 4, 'MEME': 0,
-      // Gaming/Metaverse
       'GALA': 2, 'SAND': 2, 'MANA': 2, 'AXS': 4, 'ENJ': 2, 'CHZ': 2, 'APE': 4,
-      // DeFi tokens
       'CAKE': 4, 'COMP': 6, 'SNX': 4, 'DYDX': 4, 'GMX': 6, '1INCH': 2, 'BAT': 2,
       'ZRX': 2, 'LRC': 2, 'ENS': 6, 'RPL': 6, 'BLUR': 2, 'JUP': 2, 'ONDO': 4,
       'PYTH': 2, 'WLD': 4, 'THETA': 4, 'FTM': 2, 'RUNE': 4, 'KAVA': 4,
-      // Others
       'EOS': 4, 'NEO': 4, 'XTZ': 4, 'QTUM': 4, 'ICX': 2, 'ZIL': 2, 'ONE': 2,
       'CELO': 4, 'ANKR': 2, 'SKL': 2, 'STORJ': 4, 'OCEAN': 2, 'MINA': 4,
       'EGLD': 6, 'FLOW': 4, 'CFX': 2, 'IOTA': 2, 'XEC': 0, 'KAS': 2, 'MNT': 2,
       'CRO': 2, 'OKB': 4, 'LEO': 4, 'DAI': 4,
     };
-    // Default to 2 decimals to allow selling small amounts
     const precision = precisionMap[symbol.toUpperCase()] ?? 2;
     const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
     
-    // Check minimum value - Coinbase typically requires ~$1 minimum order
     if (roundedQty <= 0) {
       return { success: false, error: 'Quantity zero after rounding - dust position' };
     }
     
-    // ANTI-DUST: Skip sells that are too small to execute
-    // This prevents "INVALID_SIZE_PRECISION" and "MIN_NOTIONAL" errors
     const MIN_SELL_QUANTITY: Record<string, number> = {
       'BTC': 0.00001, 'ETH': 0.0001, 'SOL': 0.001, 'XRP': 1, 'DOGE': 10,
       'LTC': 0.001, 'APT': 0.1, 'ONDO': 1, 'CHZ': 10, 'FLOKI': 10000,
@@ -328,7 +428,6 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     console.log(`📋 Coinbase sell response for ${symbol}:`, JSON.stringify(result).substring(0, 500));
     
     if (response.ok && result.success) {
-      // filled_value is the total quote value (USDC) received
       const filledValue = parseFloat(result.order?.filled_value || result.order?.total_value_after_fees || '0');
       const filledSize = parseFloat(result.order?.filled_size || '0');
       console.log(`✅ SOLD ${filledSize} ${symbol} for $${filledValue.toFixed(2)} USDC`);
@@ -459,7 +558,7 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
   return prices;
 }
 
-async function processUserPositions(supabase: any, userId: string, isPaperMode: boolean) {
+async function processUserPositions(supabase: any, userId: string, isPaperMode: boolean, availablePairs: Set<string>) {
   console.log(`Processing user: ${userId}, paper mode: ${isPaperMode}`);
   
   // Fetch all open positions for this user
@@ -470,7 +569,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     .eq('is_paper', isPaperMode);
 
   if (posError || !positions || positions.length === 0) {
-    return { takeProfitCount: 0, stopLossCount: 0 };
+    return { takeProfitCount: 0, stopLossCount: 0, conversions: 0 };
   }
 
   // Fetch live prices for all position symbols
@@ -573,6 +672,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   // Process individual take-profit/stop-loss
   let takeProfitCount = 0;
   let stopLossCount = 0;
+  let conversions = 0;
 
   for (const position of positions) {
     const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
@@ -610,18 +710,62 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
+      let didDirectConversion = false;
       
-      // Execute REAL sell on Coinbase if in live mode
+      // Execute trade on Coinbase if in live mode
       if (!isPaperMode) {
-        console.log(`💰 Executing REAL Coinbase sell: ${quantity} ${position.symbol}`);
-        const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        // For TAKE PROFIT: Try direct crypto-to-crypto conversion first
+        if (hitTakeProfit) {
+          // Find best opportunity to convert to (skip current symbol and stablecoins)
+          const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM'];
+          
+          for (const targetSymbol of targetSymbols) {
+            if (targetSymbol === position.symbol) continue;
+            
+            const pairId = `${position.symbol}-${targetSymbol}`;
+            if (availablePairs.has(pairId)) {
+              console.log(`🔄 Trying direct conversion: ${position.symbol} → ${targetSymbol}`);
+              const swapResult = await executeCryptoToCryptoSwap(position.symbol, targetSymbol, quantity);
+              
+              if (swapResult.success) {
+                console.log(`✅ Direct conversion success: ${position.symbol} → ${swapResult.receivedQuantity} ${targetSymbol}`);
+                didDirectConversion = true;
+                conversions++;
+                
+                // Create new position for the target crypto
+                const targetPrice = livePrices[targetSymbol] || 0;
+                if (swapResult.receivedQuantity && targetPrice > 0) {
+                  await supabase.from('positions').insert({
+                    user_id: userId,
+                    symbol: targetSymbol,
+                    side: 'buy',
+                    quantity: swapResult.receivedQuantity,
+                    avg_entry_price: targetPrice,
+                    current_price: targetPrice,
+                    market_type: 'crypto',
+                    is_paper: false,
+                    unrealized_pnl: 0,
+                  });
+                  console.log(`📊 Created new position: ${swapResult.receivedQuantity} ${targetSymbol}`);
+                }
+                break;
+              }
+            }
+          }
+        }
         
-        if (sellResult.success && sellResult.usdValue) {
-          actualExitPrice = sellResult.usdValue / quantity;
-          actualPnl = sellResult.usdValue - (entryPrice * quantity);
-          console.log(`✅ Real sell completed: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)} USDC`);
-        } else {
-          console.error(`❌ Real sell failed for ${position.symbol}: ${sellResult.error}`);
+        // Fall back to USDC sell if no direct conversion (or for stop-loss)
+        if (!didDirectConversion) {
+          console.log(`💰 Selling to USDC: ${quantity} ${position.symbol}`);
+          const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+          
+          if (sellResult.success && sellResult.usdValue) {
+            actualExitPrice = sellResult.usdValue / quantity;
+            actualPnl = sellResult.usdValue - (entryPrice * quantity);
+            console.log(`✅ Sold to USDC: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)}`);
+          } else {
+            console.error(`❌ Sell failed for ${position.symbol}: ${sellResult.error}`);
+          }
         }
       }
 
@@ -649,8 +793,8 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         user_id: userId,
         decision_type: hitTakeProfit ? 'auto_take_profit' : 'auto_stop_loss',
         symbol: position.symbol,
-        action: 'sell',
-        reasoning: `${hitTakeProfit ? '🎯 Take profit' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%`,
+        action: didDirectConversion ? 'convert' : 'sell',
+        reasoning: `${hitTakeProfit ? '🎯 Take profit' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${didDirectConversion ? ' (direct swap)' : ''}`,
       });
 
       if (hitTakeProfit) takeProfitCount++;
@@ -665,7 +809,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     }
   }
 
-  return { takeProfitCount, stopLossCount };
+  return { takeProfitCount, stopLossCount, conversions };
 }
 
 serve(async (req) => {
@@ -955,8 +1099,12 @@ serve(async (req) => {
 
     console.log(`Processing ${userIds.length} user(s)`);
 
+    // Fetch available trading pairs once for all users
+    const availablePairs = await fetchAvailablePairs();
+
     let totalTakeProfit = 0;
     let totalStopLoss = 0;
+    let totalConversions = 0;
 
     for (const userId of userIds) {
       // Get user's trading mode
@@ -967,9 +1115,10 @@ serve(async (req) => {
         .single();
 
       const isPaperMode = settings?.trading_mode === 'paper';
-      const result = await processUserPositions(supabase, userId, isPaperMode);
+      const result = await processUserPositions(supabase, userId, isPaperMode, availablePairs);
       totalTakeProfit += result.takeProfitCount;
       totalStopLoss += result.stopLossCount;
+      totalConversions += result.conversions || 0;
     }
 
     return new Response(JSON.stringify({
@@ -979,6 +1128,7 @@ serve(async (req) => {
       stopLossLimit: `${STOP_LOSS_PERCENT}%`,
       totalTakeProfitClosed: totalTakeProfit,
       totalStopLossClosed: totalStopLoss,
+      totalDirectConversions: totalConversions,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
