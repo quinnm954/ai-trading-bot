@@ -28,6 +28,7 @@ const navItems = [
   { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning', badge: 'NEW' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
+  { path: '/pricing', icon: TrendingUp, label: 'Pricing' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
