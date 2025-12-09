@@ -66,6 +66,7 @@ export function useStrategiesData() {
   const { user } = useAuth();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
+  const [currentRegime, setCurrentRegime] = useState<string>('ranging');
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -75,6 +76,17 @@ export function useStrategiesData() {
     }
 
     try {
+      // Fetch AI settings to get current regime
+      const { data: aiSettings } = await supabase
+        .from('ai_settings')
+        .select('current_regime, enabled')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const regime = aiSettings?.current_regime || 'ranging';
+      const aiEnabled = aiSettings?.enabled || false;
+      setCurrentRegime(regime);
+
       const { data, error } = await supabase
         .from('strategy_performance')
         .select('*')
@@ -97,6 +109,10 @@ export function useStrategiesData() {
           avgProfit: Number(d.avg_profit) || 0,
         })));
 
+        // Find best strategy for current regime
+        const regimeStrategies = data.filter(d => d.market_regime === regime);
+        const bestStrategy = regimeStrategies.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))[0];
+
         // Aggregate strategy data across regimes
         const strategyMap = new Map<string, Strategy>();
         
@@ -110,7 +126,8 @@ export function useStrategiesData() {
               name: meta.name,
               type,
               description: meta.description,
-              isActive: false,
+              // Active if AI is enabled and this is the best strategy for current regime
+              isActive: aiEnabled && bestStrategy?.strategy === type,
               performance: {
                 winRate: 0,
                 totalTrades: 0,
@@ -158,6 +175,7 @@ export function useStrategiesData() {
   return {
     strategies,
     performanceData,
+    currentRegime,
     isLoading,
     toggleStrategy,
     refetch: fetchData,
