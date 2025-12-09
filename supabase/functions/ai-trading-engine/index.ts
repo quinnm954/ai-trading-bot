@@ -871,7 +871,7 @@ serve(async (req) => {
       }
 
       // Create position
-      await supabase.from('positions').insert({
+      const { error: positionError } = await supabase.from('positions').insert({
         user_id: user.id,
         symbol: decision.symbol,
         side: decision.action,
@@ -883,6 +883,12 @@ serve(async (req) => {
         strategy: strategyType,
         unrealized_pnl: 0,
       });
+
+      if (positionError) {
+        console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
+      } else {
+        console.log(`📊 Created ${isPaperMode ? 'PAPER' : 'LIVE'} position: ${quantity} ${decision.symbol}`);
+      }
 
       // Update paper account balance (only for paper mode)
       if (isPaperMode && decision.action === 'buy') {

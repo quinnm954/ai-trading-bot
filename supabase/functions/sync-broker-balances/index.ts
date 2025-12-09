@@ -152,10 +152,11 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
   throw new Error("All key import methods failed. Please check the private key format.");
 }
 
-async function fetchCoinbaseBalance(): Promise<{
+async function fetchCoinbaseBalanceAndHoldings(): Promise<{
   balance: number;
   buying_power: number;
   equity: number;
+  holdings: Array<{ symbol: string; quantity: number; value: number }>;
 }> {
   const apiKey = Deno.env.get("COINBASE_API_KEY");
   const apiSecret = Deno.env.get("COINBASE_API_SECRET");
@@ -164,19 +165,14 @@ async function fetchCoinbaseBalance(): Promise<{
     throw new Error("Coinbase API credentials not configured");
   }
 
-  // Detect if this is CDP format
   const isCdp = apiKey.startsWith("organizations/") || apiSecret.includes("-----BEGIN");
-
   console.log(`Fetching Coinbase accounts using ${isCdp ? "CDP JWT" : "Legacy HMAC"} auth...`);
 
   const requestPath = "/api/v3/brokerage/accounts";
-
   let response: Response;
 
   if (isCdp) {
-    // CDP authentication with JWT
     const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
-    
     response = await fetch(`https://api.coinbase.com${requestPath}`, {
       method: "GET",
       headers: {
@@ -185,7 +181,6 @@ async function fetchCoinbaseBalance(): Promise<{
       },
     });
   } else {
-    // Legacy HMAC authentication
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const method = "GET";
     const message = timestamp + method + requestPath;
@@ -223,11 +218,10 @@ async function fetchCoinbaseBalance(): Promise<{
   }
 
   const data = await response.json();
-  console.log("Coinbase accounts response:", JSON.stringify(data, null, 2));
   
   let cashBalance = 0;
+  const holdings: Array<{ symbol: string; quantity: number; value: number }> = [];
   
-  // Stablecoins that are pegged 1:1 to USD
   const stablecoins = ["USD", "USDC", "USDT", "PYUSD", "USD1", "DAI", "BUSD", "GUSD", "USDP", "TUSD"];
   
   if (data.accounts && Array.isArray(data.accounts)) {
@@ -236,21 +230,31 @@ async function fetchCoinbaseBalance(): Promise<{
         const value = parseFloat(account.available_balance.value);
         const currency = account.currency || account.available_balance.currency;
         
-        // Include USD and all stablecoins as cash (1:1 value)
-        if (value > 0 && stablecoins.includes(currency)) {
-          cashBalance += value;
-          console.log(`${currency} balance: $${value}`);
+        if (value > 0) {
+          if (stablecoins.includes(currency)) {
+            cashBalance += value;
+            console.log(`💵 ${currency} balance: $${value.toFixed(2)}`);
+          } else {
+            // This is a crypto holding
+            holdings.push({
+              symbol: currency,
+              quantity: value,
+              value: 0, // Will be calculated with live prices
+            });
+            console.log(`📊 ${currency} holding: ${value}`);
+          }
         }
       }
     }
   }
 
-  console.log(`Total cash balance (USD + stablecoins): $${cashBalance}`);
+  console.log(`✅ Cash: $${cashBalance.toFixed(2)}, Holdings: ${holdings.length} assets`);
 
   return {
     balance: cashBalance,
     buying_power: cashBalance,
     equity: cashBalance,
+    holdings,
   };
 }
 
@@ -326,9 +330,9 @@ serve(async (req) => {
           console.log(`Syncing ${conn.provider} account for user ${userId}`);
           
           if (conn.provider === "coinbase") {
-            const balanceData = await fetchCoinbaseBalance();
+            const balanceData = await fetchCoinbaseBalanceAndHoldings();
             
-            console.log(`✅ Coinbase balance synced: $${balanceData.balance.toFixed(2)}`);
+            console.log(`✅ Coinbase synced: $${balanceData.balance.toFixed(2)} cash, ${balanceData.holdings.length} holdings`);
             
             // Upsert live account with actual balance
             const { error: upsertError } = await serviceClient
@@ -345,7 +349,6 @@ serve(async (req) => {
               });
 
             if (upsertError) {
-              // Try update instead
               const { error: updateError } = await serviceClient
                 .from("live_account")
                 .update({
@@ -359,11 +362,47 @@ serve(async (req) => {
 
               if (updateError) {
                 console.error("Update error:", updateError);
-                throw updateError;
               }
             }
             
-            allResults[userId] = { provider: conn.provider, ...balanceData };
+            // Sync holdings to positions table
+            if (balanceData.holdings.length > 0) {
+              // First, delete existing live positions for this user to avoid duplicates
+              await serviceClient
+                .from("positions")
+                .delete()
+                .eq("user_id", userId)
+                .eq("is_paper", false);
+              
+              // Insert current holdings as positions
+              for (const holding of balanceData.holdings) {
+                const { error: posError } = await serviceClient
+                  .from("positions")
+                  .insert({
+                    user_id: userId,
+                    symbol: holding.symbol,
+                    side: "buy",
+                    quantity: holding.quantity,
+                    avg_entry_price: 0, // We don't know entry price from Coinbase
+                    current_price: 0,
+                    market_type: "crypto",
+                    is_paper: false,
+                    unrealized_pnl: 0,
+                  });
+                
+                if (posError) {
+                  console.error(`Error syncing position ${holding.symbol}:`, posError.message);
+                } else {
+                  console.log(`📊 Synced position: ${holding.quantity} ${holding.symbol}`);
+                }
+              }
+            }
+            
+            allResults[userId] = { 
+              provider: conn.provider, 
+              balance: balanceData.balance,
+              holdings: balanceData.holdings.length,
+            };
           }
         } catch (err: any) {
           console.error(`Error syncing ${conn.provider} for ${userId}:`, err.message);
