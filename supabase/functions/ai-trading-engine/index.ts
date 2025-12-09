@@ -383,16 +383,25 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   return { tradeable, trendAnalysis };
 }
 
-// Strategy-specific trading logic descriptions
+// Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
 const strategyDescriptions: Record<string, string> = {
-  rsi: 'RSI Mean Reversion: Buy when RSI < 30 (oversold), sell when RSI > 70 (overbought). Best in ranging markets.',
-  ema_crossover: 'EMA Crossover: Buy on golden cross (fast EMA crosses above slow), sell on death cross. Best in trending markets.',
-  macd: 'MACD Momentum: Trade based on MACD histogram crossovers and signal line divergences.',
-  trend_breakout: 'Trend Breakout: Enter when price breaks through key resistance/support with volume confirmation.',
-  volatility_breakout: 'Volatility Breakout: Capitalize on ATR-based entries during range breakouts in volatile markets.',
-  grid: 'Grid Bot: Place buy/sell orders at regular intervals to profit from volatility.',
-  dca: 'DCA Bot: Dollar-cost average into positions over time for long-term accumulation.',
-  custom: 'Custom Strategy: Adaptive trading based on current market conditions.',
+  rsi: 'RSI SCALP: Aggressive oversold bounces. Buy RSI < 35, target 0.5% gain in minutes. Fast in/out.',
+  ema_crossover: 'EMA SCALP: Ride momentum waves. Buy on ANY upward cross, exit at 0.5%+ gain. Speed is key.',
+  macd: 'MACD SCALP: Trade histogram momentum spikes. Enter on rising histogram, exit fast at 0.5%.',
+  trend_breakout: 'BREAKOUT SCALP: Chase breakouts aggressively. Enter on ANY breakout, quick 0.5% target.',
+  volatility_breakout: 'VOLATILITY SCALP: Exploit high volatility for quick gains. Enter low, exit on any spike.',
+  grid: 'GRID SCALP: Rapid range trading. Buy low, sell high within tight ranges for quick profits.',
+  dca: 'DCA SCALP: Accumulate on dips, sell on ANY bounce for quick 0.5%+ gains.',
+  custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
+};
+
+// SPEED SCALPING CONFIG
+const SCALP_CONFIG = {
+  MIN_CONFIDENCE: 0.55,      // Lower threshold = more trades
+  TARGET_PROFIT: 0.5,        // 0.5% target per trade
+  MAX_HOLD_MINUTES: 30,      // Exit if not hit target in 30 min
+  AGGRESSIVE_MULTIPLIER: 1.3, // Boost confidence in good conditions
+  TOP_TRADES_PER_CYCLE: 10,  // Trade top 10 opportunities per cycle
 };
 
 // AI-powered market analysis using Lovable AI
@@ -410,45 +419,47 @@ async function analyzeWithAI(marketData: MarketData[], balance: number, maxPosit
   // Get strategy description
   const strategyDesc = strategyDescriptions[bestStrategy] || strategyDescriptions.custom;
 
-  const prompt = `You are an expert crypto scalp trader using the ${bestStrategy.toUpperCase()} strategy.
+  const prompt = `You are an ULTRA-AGGRESSIVE crypto scalp trader using the ${bestStrategy.toUpperCase()} strategy.
 
-CURRENT STRATEGY (use this approach):
+MISSION: FASTEST PROFIT GENERATION POSSIBLE. Target: 0.5%+ gains in minutes.
+
+CURRENT STRATEGY (${bestStrategy.toUpperCase()}):
 ${strategyDesc}
 
 MARKET REGIME: ${regime.toUpperCase()}
-This affects how aggressively you should trade - in high volatility, be cautious; in trending, follow the trend.
+In ANY regime, find the FASTEST profit opportunities. Speed > Safety.
 
-Analyze this real-time market data and identify the BEST trading opportunities that FIT the ${bestStrategy} strategy.
-
-CRITICAL: TREND ANALYSIS - Read carefully and DO NOT trade against trends!
+TREND ANALYSIS:
 ${trendContext}
 
-MARKET DATA (only tradeable coins with positive/neutral trends):
+LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
-TRADING PARAMETERS:
-- Available Balance: $${(balance || 0).toFixed(2)}
-- Max Position Size: ${maxPositionSize}% of balance per trade
-- Target: Quick 1-2% scalp profits
-- Stop Loss: -0.5%
+TRADING PARAMS:
+- Balance: $${(balance || 0).toFixed(2)}
+- Position Size: ${maxPositionSize}% max per trade
+- TARGET: 0.5% profit per trade (FAST exits)
+- Stop Loss: -0.05%
 
-ANALYZE FOR:
-1. **Momentum plays**: Coins with strong UPWARD directional movement ONLY
-2. **Reversal patterns**: ONLY if coin is not in a downtrend
-3. **Volatility opportunities**: High range = quick profit potential
-4. **Volume confirmation**: High volume validates moves
+SCALPING SIGNALS TO FIND:
+1. **MOMENTUM SURGES**: +0.5% or more in last hour = IMMEDIATE entry
+2. **OVERSOLD BOUNCES**: Low in range + any green = BOUNCE PLAY
+3. **VOLATILITY SPIKES**: High range coins = quick profit potential
+4. **VOLUME BREAKOUTS**: High volume + direction = CHASE IT
 
-CRITICAL RULES:
-- NEVER buy coins in downtrend or strong_downtrend
-- ONLY trade coins showing positive momentum or neutral consolidation
-- If no good opportunities exist, return empty array
+RULES:
+- Find TOP 5-10 opportunities for FASTEST scalping
+- Higher confidence = faster expected profit
+- Skip anything in strong_downtrend
+- AGGRESSIVE entries - we want SPEED
 
-Return ONLY a JSON array (no markdown, no explanation) with your top 3 trade recommendations:
-[{"symbol":"BTC","action":"buy","confidence":0.85,"reason":"Strong momentum breakout with volume confirmation","pattern":"bullish_momentum","size_percent":8}]
+Return ONLY JSON array with your TOP 5 trade picks:
+[{"symbol":"BTC","action":"buy","confidence":0.9,"reason":"Momentum surge +1.5%, high volume","pattern":"momentum_scalp","size_percent":10}]
 
 Rules:
-- confidence: 0.0 to 1.0
-- action: "buy", "sell", or "hold"
+- confidence: 0.55 to 0.99 (lower threshold = more trades)
+- action: "buy" only (we scalp buys)
+- size_percent: 5-15 (aggressive sizing)
 - size_percent: 1-10 (percentage of balance)
 - If market is bearish, return []`;
 
@@ -556,7 +567,7 @@ async function getBestStrategyForRegime(supabase: any, userId: string, regime: s
   return defaults[regime] || 'rsi';
 }
 
-// Strategy-specific rule-based analysis
+// SPEED SCALPING: Strategy-specific rule-based analysis optimized for fastest profits
 function analyzeWithRules(
   marketData: MarketData[],
   regime: string,
@@ -566,7 +577,7 @@ function analyzeWithRules(
 ): AITradingDecision[] {
   const decisions: AITradingDecision[] = [];
   
-  console.log(`📊 Using ${bestStrategy} strategy rules for ${regime} market`);
+  console.log(`⚡ SPEED SCALP: Using ${bestStrategy} for ${regime} market`);
   
   for (const coin of marketData) {
     let action: 'buy' | 'sell' | 'hold' = 'hold';
@@ -576,101 +587,140 @@ function analyzeWithRules(
     
     const priceRange = coin.high24h - coin.low24h;
     const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
+    const volatilityPercent = priceRange / coin.price * 100;
     
-    // STRATEGY-SPECIFIC LOGIC
+    // AGGRESSIVE SCALPING LOGIC - Multiple entry signals per strategy
     switch (bestStrategy) {
       case 'rsi':
-        // RSI Mean Reversion - buy at lows, avoid buying at highs
-        if (pricePosition < 0.3) {
+        // AGGRESSIVE RSI - Multiple entry points
+        if (pricePosition < 0.25) {
           action = 'buy';
-          confidence = 0.9;
-          reason = `📉 RSI: Oversold zone (${(pricePosition * 100).toFixed(0)}%)`;
+          confidence = 0.95;
+          reason = `🔥 RSI SCALP: Deep oversold (${(pricePosition * 100).toFixed(0)}%) - BOUNCE IMMINENT`;
+          pattern = 'rsi_deep_oversold';
+        } else if (pricePosition < 0.4 && coin.change24h < -0.5) {
+          action = 'buy';
+          confidence = 0.85;
+          reason = `📉 RSI SCALP: Oversold dip (${(pricePosition * 100).toFixed(0)}%)`;
           pattern = 'rsi_oversold';
-        } else if (pricePosition < 0.5 && coin.change24h < 0) {
+        } else if (pricePosition < 0.5 && coin.change24h >= 0) {
           action = 'buy';
           confidence = 0.75;
-          reason = `📉 RSI: Dip entry (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'rsi_dip';
+          reason = `📊 RSI SCALP: Mid-range reversal starting`;
+          pattern = 'rsi_reversal';
         }
         break;
         
       case 'ema_crossover':
       case 'macd':
-        // Momentum strategies - follow the trend
-        if (coin.change24h > 0.5 && pricePosition > 0.5) {
+        // AGGRESSIVE MOMENTUM - Any positive signal
+        if (coin.change24h > 1.5) {
           action = 'buy';
-          confidence = 0.85;
-          reason = `📈 EMA: Upward momentum (+${coin.change24h.toFixed(2)}%)`;
-          pattern = 'ema_bullish';
-        } else if (coin.change24h > 1) {
+          confidence = 0.95;
+          reason = `🚀 MOMENTUM SCALP: Strong surge +${coin.change24h.toFixed(2)}%`;
+          pattern = 'momentum_surge';
+        } else if (coin.change24h > 0.5 && pricePosition > 0.5) {
           action = 'buy';
-          confidence = 0.8;
-          reason = `📈 MACD: Strong momentum (+${coin.change24h.toFixed(2)}%)`;
-          pattern = 'macd_bullish';
+          confidence = 0.88;
+          reason = `📈 MOMENTUM SCALP: Uptrend +${coin.change24h.toFixed(2)}%`;
+          pattern = 'momentum_trend';
+        } else if (coin.change24h > 0.1) {
+          action = 'buy';
+          confidence = 0.75;
+          reason = `⬆️ MOMENTUM SCALP: Early move +${coin.change24h.toFixed(2)}%`;
+          pattern = 'momentum_early';
         }
         break;
         
       case 'trend_breakout':
-        // Breakout - price near highs with momentum
-        if (pricePosition > 0.8 && coin.change24h > 0) {
+        // AGGRESSIVE BREAKOUT - Chase any breakout
+        if (pricePosition > 0.85 && coin.change24h > 0.5) {
           action = 'buy';
-          confidence = 0.85;
-          reason = `🚀 Breakout: Near 24h high (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'breakout_high';
+          confidence = 0.92;
+          reason = `💥 BREAKOUT SCALP: Breaking highs (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'breakout_hot';
+        } else if (pricePosition > 0.7 && coin.change24h > 0) {
+          action = 'buy';
+          confidence = 0.82;
+          reason = `🔺 BREAKOUT SCALP: Approaching resistance`;
+          pattern = 'breakout_approach';
         }
         break;
         
       case 'volatility_breakout':
-        // High volatility plays - large range
-        if (priceRange / coin.price > 0.03 && pricePosition < 0.4) {
+        // AGGRESSIVE VOLATILITY - High range = opportunity
+        if (volatilityPercent > 5 && pricePosition < 0.35) {
+          action = 'buy';
+          confidence = 0.9;
+          reason = `⚡ VOLATILITY SCALP: ${volatilityPercent.toFixed(1)}% range, low entry`;
+          pattern = 'volatility_extreme';
+        } else if (volatilityPercent > 3 && pricePosition < 0.45) {
           action = 'buy';
           confidence = 0.8;
-          reason = `⚡ Volatility: Large range, low entry`;
-          pattern = 'volatility_low';
+          reason = `⚡ VOLATILITY SCALP: ${volatilityPercent.toFixed(1)}% range opportunity`;
+          pattern = 'volatility_play';
         }
         break;
         
       case 'grid':
-        // Grid - any position within range
-        if (pricePosition < 0.5) {
+        // AGGRESSIVE GRID - Any lower half entry
+        if (pricePosition < 0.35) {
           action = 'buy';
-          confidence = 0.7;
-          reason = `📊 Grid: Lower half of range (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'grid_low';
+          confidence = 0.85;
+          reason = `📊 GRID SCALP: Low in range (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'grid_deep';
+        } else if (pricePosition < 0.5) {
+          action = 'buy';
+          confidence = 0.75;
+          reason = `📊 GRID SCALP: Below midpoint (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'grid_mid';
         }
         break;
         
       case 'dca':
-        // DCA - always accumulate at reasonable prices
-        if (pricePosition < 0.6) {
+        // AGGRESSIVE DCA - Accumulate on any dip
+        if (coin.change24h < -1) {
           action = 'buy';
-          confidence = 0.65;
-          reason = `💰 DCA: Accumulate at ${(pricePosition * 100).toFixed(0)}%`;
-          pattern = 'dca_accumulate';
+          confidence = 0.88;
+          reason = `💰 DCA SCALP: Dip accumulate (${coin.change24h.toFixed(2)}%)`;
+          pattern = 'dca_dip';
+        } else if (pricePosition < 0.5) {
+          action = 'buy';
+          confidence = 0.75;
+          reason = `💰 DCA SCALP: Below average (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'dca_low';
         }
         break;
         
       default:
-        // Fallback to aggressive momentum
-        if (coin.change24h > 0.1) {
+        // ULTRA-AGGRESSIVE FALLBACK - Find any edge
+        if (coin.change24h > 0.5) {
           action = 'buy';
-          confidence = 0.7 + (coin.change24h / 10);
-          reason = `🎯 Momentum (+${coin.change24h.toFixed(2)}%)`;
-          pattern = 'momentum';
-        } else if (pricePosition < 0.35) {
+          confidence = 0.85;
+          reason = `🎯 SCALP: Momentum +${coin.change24h.toFixed(2)}%`;
+          pattern = 'adaptive_momentum';
+        } else if (pricePosition < 0.3) {
+          action = 'buy';
+          confidence = 0.85;
+          reason = `🎯 SCALP: Deep support (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'adaptive_support';
+        } else if (volatilityPercent > 4) {
           action = 'buy';
           confidence = 0.75;
-          reason = `📍 Support (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'support';
+          reason = `🎯 SCALP: High volatility play`;
+          pattern = 'adaptive_volatility';
         }
     }
     
-    // Regime adjustments
-    if (regime === 'high_volatility') confidence *= 0.9; // More cautious
-    if (regime === 'trending' && (bestStrategy === 'ema_crossover' || bestStrategy === 'macd')) confidence *= 1.15;
-    if (regime === 'ranging' && bestStrategy === 'rsi') confidence *= 1.1;
+    // SPEED BOOST: Regime multipliers
+    if (regime === 'trending') confidence *= SCALP_CONFIG.AGGRESSIVE_MULTIPLIER;
+    if (regime === 'high_volatility' && (bestStrategy === 'volatility_breakout' || bestStrategy === 'grid')) {
+      confidence *= 1.2;
+    }
+    if (regime === 'ranging' && bestStrategy === 'rsi') confidence *= 1.15;
     
-    if (action !== 'hold' && confidence >= 0.5) {
+    // Lower threshold for more trades
+    if (action !== 'hold' && confidence >= SCALP_CONFIG.MIN_CONFIDENCE) {
       const positionValue = balance * (maxPositionSize / 100) * confidence;
       const quantity = positionValue / coin.price;
       
@@ -678,15 +728,15 @@ function analyzeWithRules(
         action,
         symbol: coin.symbol,
         reason: `${reason} [${bestStrategy}]`,
-        confidence: Math.min(confidence, 0.98),
+        confidence: Math.min(confidence, 0.99),
         suggestedSize: quantity,
         pattern,
       });
     }
   }
   
-  // Return top 5 decisions
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+  // Return MORE trades for speed scalping
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, SCALP_CONFIG.TOP_TRADES_PER_CYCLE);
 }
 
 serve(async (req) => {
