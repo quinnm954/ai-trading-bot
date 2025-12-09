@@ -305,6 +305,91 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
   }
 }
 
+// Fetch all Coinbase crypto holdings
+async function fetchCoinbaseHoldings(): Promise<Array<{ symbol: string; quantity: number; value: number }>> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) {
+    console.log('⚠️ Coinbase API keys not configured');
+    return [];
+  }
+  
+  try {
+    const uri = `GET api.coinbase.com/api/v3/brokerage/accounts`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      console.error('Failed to fetch Coinbase accounts:', response.status);
+      return [];
+    }
+    
+    const data = await response.json();
+    const holdings: Array<{ symbol: string; quantity: number; value: number }> = [];
+    
+    const stablecoins = ['USD', 'USDC', 'USDT', 'DAI', 'BUSD'];
+    
+    if (data.accounts && Array.isArray(data.accounts)) {
+      for (const account of data.accounts) {
+        const currency = account.currency || '';
+        const balance = parseFloat(account.available_balance?.value || '0');
+        
+        // Skip stablecoins and zero balances
+        if (balance > 0 && !stablecoins.includes(currency.toUpperCase())) {
+          // Estimate USD value (will be updated with actual market price)
+          holdings.push({
+            symbol: currency.toUpperCase(),
+            quantity: balance,
+            value: 0, // Will calculate later
+          });
+          console.log(`📊 Found holding: ${balance} ${currency}`);
+        }
+      }
+    }
+    
+    return holdings;
+  } catch (error) {
+    console.error('Error fetching Coinbase holdings:', error);
+    return [];
+  }
+}
+
+// Sell all crypto holdings on Coinbase and convert to USDC
+async function sellAllCoinbaseHoldings(): Promise<{ sold: Array<{ symbol: string; quantity: number; usdValue: number }>; errors: string[] }> {
+  const holdings = await fetchCoinbaseHoldings();
+  const sold: Array<{ symbol: string; quantity: number; usdValue: number }> = [];
+  const errors: string[] = [];
+  
+  console.log(`🔄 Found ${holdings.length} crypto holdings to sell`);
+  
+  for (const holding of holdings) {
+    console.log(`💰 Selling ${holding.quantity} ${holding.symbol}...`);
+    const result = await executeCoinbaseSell(holding.symbol, holding.quantity);
+    
+    if (result.success) {
+      sold.push({
+        symbol: holding.symbol,
+        quantity: holding.quantity,
+        usdValue: result.usdValue || 0,
+      });
+      console.log(`✅ Sold ${holding.symbol} for $${result.usdValue?.toFixed(2)}`);
+    } else {
+      errors.push(`${holding.symbol}: ${result.error}`);
+      console.error(`❌ Failed to sell ${holding.symbol}: ${result.error}`);
+    }
+  }
+  
+  return { sold, errors };
+}
+
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
   
@@ -543,10 +628,30 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Check for force-sell action
+    // Check for action parameter
     const url = new URL(req.url);
     const action = url.searchParams.get('action');
     const positionId = url.searchParams.get('position_id');
+
+    // SELL ALL - Liquidate all Coinbase crypto holdings to USDC
+    if (action === 'sell-all') {
+      console.log('🔴 SELL ALL COINBASE HOLDINGS requested');
+      
+      const result = await sellAllCoinbaseHoldings();
+      
+      const totalSold = result.sold.reduce((sum, s) => sum + s.usdValue, 0);
+      
+      return new Response(JSON.stringify({
+        status: 'success',
+        action: 'sell-all',
+        holdingsSold: result.sold.length,
+        totalUsdValue: totalSold,
+        sold: result.sold,
+        errors: result.errors,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     if (action === 'force-sell' && positionId) {
       console.log(`🔴 FORCE SELL requested for position: ${positionId}`);
