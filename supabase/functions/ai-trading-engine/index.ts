@@ -34,11 +34,22 @@ interface TrendAnalysis {
 
 // Fetch current crypto prices from CoinGecko with retry logic
 async function fetchMarketData(): Promise<MarketData[]> {
-  const cryptos = ['bitcoin', 'ethereum', 'solana', 'ripple', 'dogecoin'];
+  // Top 50 cryptocurrencies by market cap
+  const cryptos = [
+    'bitcoin', 'ethereum', 'tether', 'xrp', 'bnb', 'solana', 'usdc', 'dogecoin',
+    'cardano', 'tron', 'avalanche-2', 'chainlink', 'shiba-inu', 'stellar', 'polkadot',
+    'hedera', 'bitcoin-cash', 'uniswap', 'sui', 'litecoin', 'pepe', 'near', 'aptos',
+    'internet-computer', 'ethereum-classic', 'render-token', 'cronos', 'kaspa',
+    'aave', 'vechain', 'polygon', 'algorand', 'cosmos', 'fantom', 'filecoin',
+    'arbitrum', 'optimism', 'injective', 'immutable-x', 'theta-token', 'sei',
+    'celestia', 'bonk', 'floki', 'jupiter', 'ondo-finance', 'fetch-ai', 'worldcoin',
+    'pyth-network', 'jito-governance-token'
+  ];
   
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
+      // CoinGecko allows up to 250 coins per request
+      const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h&per_page=100`;
       const response = await fetch(url);
       
       if (response.status === 429) {
@@ -53,6 +64,8 @@ async function fetchMarketData(): Promise<MarketData[]> {
       }
       
       const data = await response.json();
+      console.log(`📊 Fetched ${data.length} crypto assets from CoinGecko`);
+      
       return data.map((coin: any) => ({
         symbol: coin.symbol.toUpperCase(),
         price: coin.current_price,
@@ -66,14 +79,15 @@ async function fetchMarketData(): Promise<MarketData[]> {
     }
   }
   
-  // Fallback: Try CoinCap API
+  // Fallback: Try CoinCap API with top 50 assets
   console.log('Trying CoinCap API as fallback...');
   try {
-    const coincapIds = ['bitcoin', 'ethereum', 'solana', 'xrp', 'dogecoin'];
-    const response = await fetch(`https://api.coincap.io/v2/assets?ids=${coincapIds.join(',')}`);
+    const response = await fetch('https://api.coincap.io/v2/assets?limit=50');
     
     if (response.ok) {
       const { data } = await response.json();
+      console.log(`📊 Fetched ${data.length} crypto assets from CoinCap`);
+      
       return data.map((coin: any) => ({
         symbol: coin.symbol,
         price: parseFloat(coin.priceUsd),
@@ -87,7 +101,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
     console.error('CoinCap API also failed:', error);
   }
   
-  // Last resort: Return mock data
+  // Last resort: Return mock data for major coins
   console.log('Using fallback mock data');
   return [
     { symbol: 'BTC', price: 90000, change24h: -1.5, volume: 40000000000, high24h: 92000, low24h: 89000 },
