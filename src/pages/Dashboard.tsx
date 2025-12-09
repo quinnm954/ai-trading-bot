@@ -3,7 +3,8 @@ import {
   TrendingUp, 
   Target, 
   Activity,
-  Banknote
+  Banknote,
+  RefreshCw
 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { EquityChart } from '@/components/dashboard/EquityChart';
@@ -14,13 +15,43 @@ import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { Button } from '@/components/ui/button';
+import { useState } from 'react';
 
 export default function Dashboard() {
-  const { stats, liveAccounts, isLoading } = useDashboardData();
+  const { stats, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
   const isLiveMode = stats.tradingMode === 'live';
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refetch();
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Header with Refresh */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          {lastUpdated && (
+            <p className="text-xs text-muted-foreground">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
       {/* Trading Mode Indicator */}
       {isLiveMode && (
         <div className="p-3 rounded-lg bg-loss/10 border border-loss/30 flex items-center gap-3">
