@@ -15,19 +15,19 @@ interface MarketData {
   low24h: number;
 }
 
-interface TradingDecision {
+interface AITradingDecision {
   action: 'buy' | 'sell' | 'hold';
   symbol: string;
   reason: string;
   confidence: number;
   suggestedSize: number;
+  pattern?: string;
 }
 
 // Fetch current crypto prices from CoinGecko with retry logic
 async function fetchMarketData(): Promise<MarketData[]> {
   const cryptos = ['bitcoin', 'ethereum', 'solana', 'ripple', 'dogecoin'];
   
-  // Try CoinGecko first
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
@@ -71,7 +71,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
         price: parseFloat(coin.priceUsd),
         change24h: parseFloat(coin.changePercent24Hr) || 0,
         volume: parseFloat(coin.volumeUsd24Hr),
-        high24h: parseFloat(coin.priceUsd) * 1.02, // Approximate
+        high24h: parseFloat(coin.priceUsd) * 1.02,
         low24h: parseFloat(coin.priceUsd) * 0.98,
       }));
     }
@@ -79,7 +79,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
     console.error('CoinCap API also failed:', error);
   }
   
-  // Last resort: Return mock data to keep the engine running
+  // Last resort: Return mock data
   console.log('Using fallback mock data');
   return [
     { symbol: 'BTC', price: 90000, change24h: -1.5, volume: 40000000000, high24h: 92000, low24h: 89000 },
@@ -88,6 +88,105 @@ async function fetchMarketData(): Promise<MarketData[]> {
     { symbol: 'XRP', price: 2.05, change24h: -0.7, volume: 3000000000, high24h: 2.15, low24h: 2.00 },
     { symbol: 'DOGE', price: 0.14, change24h: 0.5, volume: 1000000000, high24h: 0.145, low24h: 0.138 },
   ];
+}
+
+// AI-powered market analysis using Lovable AI
+async function analyzeWithAI(marketData: MarketData[], balance: number, maxPositionSize: number): Promise<AITradingDecision[]> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  
+  if (!LOVABLE_API_KEY) {
+    console.log('No Lovable API key, falling back to rule-based analysis');
+    return [];
+  }
+
+  const prompt = `You are an expert crypto scalp trader. Analyze this real-time market data and identify the BEST trading opportunities for quick 1-2% profits.
+
+MARKET DATA:
+${marketData.map(m => `${m.symbol}: $${m.price.toFixed(2)} | 24h: ${m.change24h > 0 ? '+' : ''}${m.change24h.toFixed(2)}% | Range: $${m.low24h.toFixed(2)}-$${m.high24h.toFixed(2)} | Vol: $${(m.volume/1e9).toFixed(1)}B`).join('\n')}
+
+TRADING PARAMETERS:
+- Available Balance: $${balance.toFixed(2)}
+- Max Position Size: ${maxPositionSize}% of balance per trade
+- Target: Quick 1-2% scalp profits
+- Stop Loss: -0.5%
+
+ANALYZE FOR:
+1. **Momentum plays**: Coins with strong directional movement
+2. **Reversal patterns**: Oversold bounces or overbought pullbacks
+3. **Volatility opportunities**: High range = quick profit potential
+4. **Volume confirmation**: High volume validates moves
+
+Return ONLY a JSON array (no markdown, no explanation) with your top 3 trade recommendations:
+[{"symbol":"BTC","action":"buy","confidence":0.85,"reason":"Strong momentum breakout with volume confirmation","pattern":"bullish_momentum","size_percent":8}]
+
+Rules:
+- confidence: 0.0 to 1.0
+- action: "buy", "sell", or "hold"
+- size_percent: 1-10 (percentage of balance)
+- Be aggressive - this is scalping, not long-term investing`;
+
+  try {
+    console.log('🤖 Calling AI for market pattern analysis...');
+    
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: 'You are a professional cryptocurrency scalp trader. Respond ONLY with valid JSON arrays, no markdown or explanations.' },
+          { role: 'user', content: prompt }
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('AI Gateway error:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    
+    console.log('🧠 AI Response:', content);
+    
+    // Parse AI response
+    let aiDecisions: any[] = [];
+    try {
+      // Clean the response - remove markdown if present
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/```json?\n?/g, '').replace(/```/g, '');
+      }
+      aiDecisions = JSON.parse(cleanContent);
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', parseError);
+      return [];
+    }
+
+    // Convert AI decisions to our format
+    return aiDecisions.map((d: any) => {
+      const coinData = marketData.find(m => m.symbol === d.symbol);
+      const positionValue = balance * (d.size_percent || maxPositionSize) / 100;
+      const quantity = coinData ? positionValue / coinData.price : 0;
+      
+      return {
+        action: d.action as 'buy' | 'sell' | 'hold',
+        symbol: d.symbol,
+        reason: `🤖 AI: ${d.reason}`,
+        confidence: d.confidence || 0.7,
+        suggestedSize: quantity,
+        pattern: d.pattern,
+      };
+    }).filter((d: AITradingDecision) => d.action !== 'hold' && d.suggestedSize > 0);
+    
+  } catch (error) {
+    console.error('AI analysis error:', error);
+    return [];
+  }
 }
 
 // Detect market regime based on price action
@@ -104,83 +203,66 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
-// SCALPING STRATEGY - Fast in, fast out, no holding
-function analyzeForTrades(
+// Rule-based fallback analysis (if AI fails)
+function analyzeWithRules(
   marketData: MarketData[],
   regime: string,
   maxPositionSize: number,
   balance: number
-): TradingDecision[] {
-  const decisions: TradingDecision[] = [];
-  
-  // SCALPING MODE: Ultra-low thresholds, quick trades
-  const CONFIDENCE_THRESHOLD = 0.10; // Very low - trade often
-  const POSITION_MULTIPLIER = 3.0; // Big positions for quick profits
+): AITradingDecision[] {
+  const decisions: AITradingDecision[] = [];
   
   for (const coin of marketData) {
     let action: 'buy' | 'sell' | 'hold' = 'hold';
     let confidence = 0;
     let reason = '';
+    let pattern = '';
     
-    // Price relative to daily range
     const priceRange = coin.high24h - coin.low24h;
     const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
     
-    // SCALPING: Any momentum = trade opportunity
     if (coin.change24h > 0.5) {
-      // Riding momentum up
       action = 'buy';
       confidence = Math.min(0.95, 0.5 + (coin.change24h / 10));
-      reason = `🚀 SCALP: Momentum ride (+${coin.change24h.toFixed(2)}%)`;
+      reason = `Momentum ride (+${coin.change24h.toFixed(2)}%)`;
+      pattern = 'momentum_breakout';
     } else if (coin.change24h < -0.5 && pricePosition < 0.4) {
-      // Quick bounce play near bottom
       action = 'buy';
       confidence = 0.7;
-      reason = `⚡ SCALP: Bounce play at ${(pricePosition * 100).toFixed(0)}% range`;
-    } else if (coin.change24h < -0.5 && pricePosition > 0.6) {
-      // Short the downtrend
-      action = 'sell';
-      confidence = 0.65;
-      reason = `📉 SCALP: Short downtrend (${coin.change24h.toFixed(2)}%)`;
+      reason = `Bounce play at ${(pricePosition * 100).toFixed(0)}% range`;
+      pattern = 'oversold_bounce';
     } else if (pricePosition < 0.25) {
-      // Near daily low - quick scalp buy
       action = 'buy';
       confidence = 0.8;
-      reason = `💰 SCALP: Near daily low (${(pricePosition * 100).toFixed(0)}%)`;
+      reason = `Near daily low (${(pricePosition * 100).toFixed(0)}%)`;
+      pattern = 'support_bounce';
     } else if (pricePosition > 0.75) {
-      // Near daily high - take profit / short
       action = 'sell';
       confidence = 0.75;
-      reason = `🎯 SCALP: Near daily high (${(pricePosition * 100).toFixed(0)}%)`;
+      reason = `Near daily high (${(pricePosition * 100).toFixed(0)}%)`;
+      pattern = 'resistance_rejection';
     }
     
-    // High volatility = more opportunities
     if (regime === 'high_volatility') {
-      confidence *= 1.2; // Boost confidence in volatile markets
-      if (coin.change24h > 2) {
-        action = 'buy';
-        confidence = 0.85;
-        reason = `🔥 SCALP: Vol breakout (+${coin.change24h.toFixed(2)}%)`;
-      }
+      confidence *= 1.2;
     }
     
-    if (action !== 'hold' && confidence >= CONFIDENCE_THRESHOLD) {
-      // SCALPING: Bigger positions for quick % gains
-      const positionValue = balance * (maxPositionSize / 100) * confidence * POSITION_MULTIPLIER;
+    if (action !== 'hold' && confidence >= 0.10) {
+      const positionValue = balance * (maxPositionSize / 100) * confidence * 3;
       const quantity = positionValue / coin.price;
       
       decisions.push({
         action,
         symbol: coin.symbol,
-        reason,
+        reason: `📊 Rules: ${reason}`,
         confidence: Math.min(confidence, 0.95),
         suggestedSize: quantity,
+        pattern,
       });
     }
   }
   
-  // Return more trades - scalping means high frequency
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
 }
 
 serve(async (req) => {
@@ -193,7 +275,6 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get authorization header to identify user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -202,7 +283,6 @@ serve(async (req) => {
       });
     }
 
-    // Verify user
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
@@ -213,7 +293,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`AI Trading Engine triggered for user: ${user.id}`);
+    console.log(`🤖 AI Trading Engine triggered for user: ${user.id}`);
 
     // Fetch user's AI settings
     const { data: settings, error: settingsError } = await supabase
@@ -229,12 +309,8 @@ serve(async (req) => {
       });
     }
 
-    // Check if AI trading is enabled
     if (!settings.enabled) {
-      return new Response(JSON.stringify({ 
-        message: 'AI trading is disabled',
-        status: 'idle'
-      }), {
+      return new Response(JSON.stringify({ message: 'AI trading is disabled', status: 'idle' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -281,10 +357,7 @@ serve(async (req) => {
     // Fetch market data
     const marketData = await fetchMarketData();
     if (marketData.length === 0) {
-      return new Response(JSON.stringify({ 
-        error: 'Could not fetch market data',
-        status: 'error'
-      }), {
+      return new Response(JSON.stringify({ error: 'Could not fetch market data', status: 'error' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -292,7 +365,7 @@ serve(async (req) => {
 
     // Detect market regime
     const regime = detectMarketRegime(marketData);
-    console.log(`Detected market regime: ${regime}`);
+    console.log(`📊 Detected market regime: ${regime}`);
 
     // Update AI settings with current regime
     await supabase
@@ -304,33 +377,37 @@ serve(async (req) => {
       })
       .eq('user_id', user.id);
 
-    // Analyze market for trading opportunities
-    const decisions = analyzeForTrades(
-      marketData,
-      regime,
-      settings.max_position_size,
-      balance
-    );
+    // 🧠 AI-POWERED ANALYSIS - Primary strategy
+    console.log('🧠 Running AI pattern recognition...');
+    let decisions = await analyzeWithAI(marketData, balance, settings.max_position_size);
+    
+    // Fallback to rule-based if AI returns nothing
+    if (decisions.length === 0) {
+      console.log('📊 AI returned no decisions, using rule-based fallback');
+      decisions = analyzeWithRules(marketData, regime, settings.max_position_size, balance);
+    }
 
-    console.log(`Generated ${decisions.length} trading decisions`);
+    console.log(`✅ Generated ${decisions.length} trading decisions`);
 
     const executedTrades: any[] = [];
 
-    // Execute trades (paper mode only for now)
+    // Execute trades
     for (const decision of decisions) {
       if (decision.action === 'hold') continue;
       
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // SCALPING: Maximum position sizes for quick profits
-      const maxValue = balance * (settings.max_position_size / 100) * 3; // Triple max position
+      const maxValue = balance * (settings.max_position_size / 100) * 3;
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
       const quantity = tradeValue / coinData.price;
 
-      if (tradeValue < 0.5) continue; // Ultra-low minimum for more trades
+      if (tradeValue < 0.5) continue;
 
-      // Record the trade
+      const strategyType = decision.pattern?.includes('momentum') ? 'trend_breakout' :
+                          decision.pattern?.includes('bounce') ? 'rsi' :
+                          regime === 'high_volatility' ? 'volatility_breakout' : 'dca';
+
       const tradeData = {
         user_id: user.id,
         symbol: decision.symbol,
@@ -340,9 +417,7 @@ serve(async (req) => {
         market_type: 'crypto' as const,
         is_paper: isPaperMode,
         status: 'open' as const,
-        strategy: regime === 'trending' ? 'trend_breakout' : 
-                  regime === 'ranging' ? 'rsi' : 
-                  regime === 'high_volatility' ? 'volatility_breakout' : 'dca',
+        strategy: strategyType,
         ai_reasoning: decision.reason,
       };
 
@@ -358,62 +433,53 @@ serve(async (req) => {
       }
 
       // Create position
-      const { error: posError } = await supabase
-        .from('positions')
-        .insert({
-          user_id: user.id,
-          symbol: decision.symbol,
-          side: decision.action,
-          quantity,
-          avg_entry_price: coinData.price,
-          current_price: coinData.price,
-          market_type: 'crypto',
-          is_paper: isPaperMode,
-          strategy: tradeData.strategy,
-          unrealized_pnl: 0,
-        });
-
-      if (posError) {
-        console.error('Error inserting position:', posError);
-      }
+      await supabase.from('positions').insert({
+        user_id: user.id,
+        symbol: decision.symbol,
+        side: decision.action,
+        quantity,
+        avg_entry_price: coinData.price,
+        current_price: coinData.price,
+        market_type: 'crypto',
+        is_paper: isPaperMode,
+        strategy: strategyType,
+        unrealized_pnl: 0,
+      });
 
       // Update paper account balance
       if (isPaperMode && decision.action === 'buy') {
         await supabase
           .from('paper_account')
-          .update({ 
-            balance: balance - tradeValue,
-            updated_at: new Date().toISOString()
-          })
+          .update({ balance: balance - tradeValue, updated_at: new Date().toISOString() })
           .eq('user_id', user.id);
         balance -= tradeValue;
       }
 
-      // Log AI decision
-      await supabase
-        .from('ai_decisions')
-        .insert({
-          user_id: user.id,
-          decision_type: 'trade_execution',
-          symbol: decision.symbol,
-          action: decision.action,
-          reasoning: `${decision.reason} | Confidence: ${(decision.confidence * 100).toFixed(0)}%`,
-          market_regime: regime,
-          strategy: tradeData.strategy,
-        });
+      // Log AI decision with pattern info
+      await supabase.from('ai_decisions').insert({
+        user_id: user.id,
+        decision_type: 'ai_trade_execution',
+        symbol: decision.symbol,
+        action: decision.action,
+        reasoning: `${decision.reason} | Pattern: ${decision.pattern || 'N/A'} | Confidence: ${(decision.confidence * 100).toFixed(0)}%`,
+        market_regime: regime,
+        strategy: strategyType,
+      });
 
       executedTrades.push({
         ...trade,
         confidence: decision.confidence,
         reason: decision.reason,
+        pattern: decision.pattern,
       });
 
-      console.log(`Executed ${decision.action} for ${decision.symbol}: ${quantity.toFixed(6)} @ $${coinData.price}`);
+      console.log(`🎯 Executed ${decision.action} for ${decision.symbol}: ${quantity.toFixed(6)} @ $${coinData.price} | Pattern: ${decision.pattern}`);
     }
 
     return new Response(JSON.stringify({
       status: 'success',
       regime,
+      aiPowered: decisions.some(d => d.reason.includes('🤖')),
       marketData: marketData.slice(0, 5),
       decisions,
       executedTrades,
