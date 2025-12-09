@@ -1,10 +1,100 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Generate CDP JWT for Coinbase API
+async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
+  const keyId = apiKey;
+  let keyData = privateKeyPem.replace(/\\n/g, '\n').trim();
+  
+  if (!keyData.includes('-----BEGIN')) {
+    keyData = `-----BEGIN EC PRIVATE KEY-----\n${keyData}\n-----END EC PRIVATE KEY-----`;
+  }
+  
+  const algorithm = 'ES256';
+  const nonce = crypto.randomUUID();
+  
+  try {
+    const privateKey = await jose.importPKCS8(keyData, algorithm);
+    const jwt = await new jose.SignJWT({ nonce, uri })
+      .setProtectedHeader({ alg: algorithm, kid: keyId, typ: 'JWT', nonce })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .setSubject(keyId)
+      .sign(privateKey);
+    return jwt;
+  } catch {
+    const ecKeyData = keyData.replace('EC PRIVATE KEY', 'PRIVATE KEY');
+    const privateKey = await jose.importPKCS8(ecKeyData, algorithm);
+    const jwt = await new jose.SignJWT({ nonce, uri })
+      .setProtectedHeader({ alg: algorithm, kid: keyId, typ: 'JWT', nonce })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .setSubject(keyId)
+      .sign(privateKey);
+    return jwt;
+  }
+}
+
+// Execute REAL buy on Coinbase - uses USDC to buy crypto
+async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ success: boolean; quantity?: number; price?: number; error?: string }> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) {
+    console.log('⚠️ Coinbase API keys not configured, simulating buy');
+    return { success: false, error: 'API keys not configured' };
+  }
+  
+  try {
+    const productId = `${symbol}-USDC`;
+    const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    const orderId = crypto.randomUUID();
+    const orderBody = {
+      client_order_id: orderId,
+      product_id: productId,
+      side: 'BUY',
+      order_configuration: {
+        market_market_ioc: {
+          quote_size: usdAmount.toFixed(2) // Amount in USDC to spend
+        }
+      }
+    };
+    
+    console.log(`📤 REAL Coinbase BUY: $${usdAmount.toFixed(2)} of ${symbol}...`);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderBody),
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok && result.success) {
+      const filledSize = parseFloat(result.order?.filled_size || '0');
+      const avgPrice = parseFloat(result.order?.average_filled_price || '0');
+      console.log(`✅ REAL BUY: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
+      return { success: true, quantity: filledSize, price: avgPrice };
+    } else {
+      console.error(`❌ Coinbase buy failed:`, result);
+      return { success: false, error: result.error || JSON.stringify(result) };
+    }
+  } catch (error) {
+    console.error(`❌ Coinbase buy error:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
 
 interface MarketData {
   symbol: string;
@@ -632,9 +722,26 @@ serve(async (req) => {
       // AGGRESSIVE: Larger positions for faster compounding
       const maxValue = balance * (settings.max_position_size / 100) * 5;
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
-      const quantity = tradeValue / coinData.price;
+      let quantity = tradeValue / coinData.price;
+      let actualEntryPrice = coinData.price;
 
       if (tradeValue < 0.10) continue; // Trade with any balance, even tiny amounts
+
+      // 💰 EXECUTE REAL COINBASE BUY if in LIVE mode
+      if (!isPaperMode && decision.action === 'buy') {
+        console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
+        const buyResult = await executeCoinbaseBuy(decision.symbol, tradeValue);
+        
+        if (buyResult.success && buyResult.quantity && buyResult.price) {
+          quantity = buyResult.quantity;
+          actualEntryPrice = buyResult.price;
+          console.log(`✅ REAL TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice}`);
+        } else {
+          console.error(`❌ REAL BUY FAILED for ${decision.symbol}: ${buyResult.error}`);
+          // Skip this trade if real buy failed
+          continue;
+        }
+      }
 
       // Get best strategy from performance data for current regime
       const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
@@ -645,7 +752,7 @@ serve(async (req) => {
         symbol: decision.symbol,
         side: decision.action as 'buy' | 'sell',
         quantity,
-        entry_price: coinData.price,
+        entry_price: actualEntryPrice,
         market_type: 'crypto' as const,
         is_paper: isPaperMode,
         status: 'open' as const,
@@ -670,7 +777,7 @@ serve(async (req) => {
         symbol: decision.symbol,
         side: decision.action,
         quantity,
-        avg_entry_price: coinData.price,
+        avg_entry_price: actualEntryPrice,
         current_price: coinData.price,
         market_type: 'crypto',
         is_paper: isPaperMode,
@@ -678,7 +785,7 @@ serve(async (req) => {
         unrealized_pnl: 0,
       });
 
-      // Update paper account balance
+      // Update paper account balance (only for paper mode)
       if (isPaperMode && decision.action === 'buy') {
         await supabase
           .from('paper_account')
