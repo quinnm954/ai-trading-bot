@@ -45,10 +45,9 @@ export function PositionsTable() {
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Symbol</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Side</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Qty</th>
-                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Entry</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Current</th>
+                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Value</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">P&L</th>
-                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Strategy</th>
               </tr>
             </thead>
             <tbody>
@@ -56,6 +55,7 @@ export function PositionsTable() {
                 const pnl = position.unrealizedPnl || 0;
                 const pnlPercent = position.pnlPercent || 0;
                 const displaySide = position.side === 'buy' ? 'long' : 'short';
+                const positionValue = (position.currentPrice || 0) * position.quantity;
                 
                 return (
                   <tr 
@@ -78,12 +78,12 @@ export function PositionsTable() {
                         {displaySide}
                       </span>
                     </td>
-                    <td className="py-4 px-4 text-right font-mono text-sm">{position.quantity}</td>
-                    <td className="py-4 px-4 text-right font-mono text-sm text-muted-foreground">
-                      ${position.avgEntryPrice.toLocaleString()}
-                    </td>
+                    <td className="py-4 px-4 text-right font-mono text-sm">{position.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                     <td className="py-4 px-4 text-right font-mono text-sm">
-                      ${position.currentPrice?.toLocaleString() || '-'}
+                      ${position.currentPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) || '-'}
+                    </td>
+                    <td className="py-4 px-4 text-right font-mono text-sm font-medium text-foreground">
+                      ${positionValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="py-4 px-4 text-right">
                       <div className={cn(
@@ -98,11 +98,6 @@ export function PositionsTable() {
                           ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
                         </span>
                       </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="px-2 py-1 rounded text-xs bg-secondary text-muted-foreground">
-                        {position.strategy || 'manual'}
-                      </span>
                     </td>
                   </tr>
                 );
