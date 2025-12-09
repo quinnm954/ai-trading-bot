@@ -52,6 +52,7 @@ export type Database = {
       }
       ai_settings: {
         Row: {
+          ai_autonomous_mode: boolean | null
           allowed_markets: string[] | null
           bot_status: Database["public"]["Enums"]["bot_status"] | null
           created_at: string | null
@@ -61,12 +62,16 @@ export type Database = {
           max_capital_usage: number | null
           max_concurrent_trades: number | null
           max_daily_loss: number | null
+          max_leverage: number | null
           max_position_size: number | null
+          risk_tolerance: string | null
+          target_equity: number | null
           trading_mode: string
           updated_at: string | null
           user_id: string | null
         }
         Insert: {
+          ai_autonomous_mode?: boolean | null
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           created_at?: string | null
@@ -76,12 +81,16 @@ export type Database = {
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
+          max_leverage?: number | null
           max_position_size?: number | null
+          risk_tolerance?: string | null
+          target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
           user_id?: string | null
         }
         Update: {
+          ai_autonomous_mode?: boolean | null
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           created_at?: string | null
@@ -91,7 +100,10 @@ export type Database = {
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
+          max_leverage?: number | null
           max_position_size?: number | null
+          risk_tolerance?: string | null
+          target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
           user_id?: string | null
