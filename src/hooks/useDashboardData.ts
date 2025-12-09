@@ -235,7 +235,16 @@ export function useDashboardData() {
       // Calculate percentages based on total equity
       const dailyPnlPercent = totalEquity > 0 ? (dailyPnl / totalEquity) * 100 : 0;
       const weeklyPnlPercent = totalEquity > 0 ? (weeklyPnl / totalEquity) * 100 : 0;
-      const totalPnlPercent = initialBalance > 0 ? ((totalEquity - initialBalance) / initialBalance) * 100 : 0;
+      
+      // For paper mode: use initial balance as baseline
+      // For live mode: use realized P&L as percentage of current equity (no initial deposit tracked)
+      let totalPnlPercent = 0;
+      if (tradingMode === 'paper') {
+        totalPnlPercent = initialBalance > 0 ? ((totalEquity - initialBalance) / initialBalance) * 100 : 0;
+      } else {
+        // Live mode: show P&L percent relative to total equity
+        totalPnlPercent = totalEquity > 0 ? (totalPnl / totalEquity) * 100 : 0;
+      }
 
       setStats({
         cashBalance,
