@@ -253,13 +253,31 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    // Round quantity to appropriate precision based on coin
-    // Most coins accept 2-6 decimals, use 2 for safety (Coinbase will reject too many decimals)
+    // Comprehensive precision map for Coinbase - 0 decimals for meme/small coins, higher for majors
     const precisionMap: Record<string, number> = {
-      'BTC': 6, 'ETH': 5, 'SOL': 3, 'DOGE': 0, 'SHIB': 0, 'PEPE': 0,
-      'FLOKI': 0, 'BONK': 0, 'WIF': 2, 'WLD': 2, 'CHZ': 0,
+      // Major coins - higher precision
+      'BTC': 6, 'ETH': 5, 'SOL': 4, 'XRP': 0, 'BNB': 4, 'ADA': 0, 'AVAX': 3,
+      'DOT': 2, 'LINK': 2, 'MATIC': 0, 'POL': 0, 'UNI': 2, 'LTC': 4, 'ATOM': 2,
+      'NEAR': 2, 'APT': 2, 'ARB': 0, 'OP': 2, 'INJ': 2, 'TIA': 2, 'SEI': 0,
+      'SUI': 2, 'TON': 2, 'ICP': 2, 'FIL': 2, 'RENDER': 2, 'FET': 0, 'TAO': 3,
+      'AAVE': 3, 'MKR': 4, 'GRT': 0, 'LDO': 2, 'CRV': 0, 'IMX': 0, 'STX': 0,
+      'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'VET': 0, 'ETC': 3, 'BCH': 4, 'TRX': 0,
+      // Meme coins - 0 decimals (whole numbers only)
+      'DOGE': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 2, 'MEME': 0,
+      // Gaming/Metaverse - usually 0-2 decimals
+      'GALA': 0, 'SAND': 0, 'MANA': 0, 'AXS': 2, 'ENJ': 0, 'CHZ': 0, 'APE': 2,
+      // DeFi tokens
+      'CAKE': 2, 'COMP': 3, 'SNX': 2, 'DYDX': 2, 'GMX': 3, '1INCH': 0, 'BAT': 0,
+      'ZRX': 0, 'LRC': 0, 'ENS': 3, 'RPL': 3, 'BLUR': 0, 'JUP': 0, 'ONDO': 2,
+      'PYTH': 0, 'WLD': 2, 'THETA': 2, 'FTM': 0, 'RUNE': 2, 'KAVA': 2,
+      // Others
+      'EOS': 2, 'NEO': 2, 'XTZ': 2, 'QTUM': 2, 'ICX': 0, 'ZIL': 0, 'ONE': 0,
+      'CELO': 2, 'ANKR': 0, 'SKL': 0, 'STORJ': 2, 'OCEAN': 0, 'MINA': 2,
+      'EGLD': 3, 'FLOW': 2, 'CFX': 0, 'IOTA': 0, 'XEC': 0, 'KAS': 0, 'MNT': 0,
+      'CRO': 0, 'OKB': 2, 'LEO': 2, 'DAI': 2,
     };
-    const precision = precisionMap[symbol] ?? 2;
+    // Default to 0 decimals (whole numbers) to be safe - Coinbase rejects excess precision
+    const precision = precisionMap[symbol.toUpperCase()] ?? 0;
     const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
     
     if (roundedQty <= 0) {
