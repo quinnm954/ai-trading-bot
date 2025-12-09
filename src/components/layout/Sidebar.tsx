@@ -9,9 +9,14 @@ import {
   Settings,
   TrendingUp,
   Zap,
-  GraduationCap
+  GraduationCap,
+  Wallet,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -24,8 +29,79 @@ const navItems = [
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
+interface LiveAccount {
+  provider: string;
+  balance: number;
+  equity: number;
+  lastSynced: string | null;
+}
+
 export function Sidebar() {
   const location = useLocation();
+  const { user } = useAuth();
+  const [liveAccount, setLiveAccount] = useState<LiveAccount | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchLiveAccount = async () => {
+      const { data } = await supabase
+        .from('live_account')
+        .select('provider, balance, equity, last_synced_at')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (data) {
+        setLiveAccount({
+          provider: data.provider,
+          balance: data.balance,
+          equity: data.equity,
+          lastSynced: data.last_synced_at,
+        });
+      }
+      setIsLoading(false);
+    };
+
+    fetchLiveAccount();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel('sidebar-live-account')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_account',
+        },
+        () => fetchLiveAccount()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  const getTimeSinceSync = () => {
+    if (!liveAccount?.lastSynced) return 'Never';
+    const diff = Date.now() - new Date(liveAccount.lastSynced).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h ago`;
+  };
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
@@ -75,6 +151,31 @@ export function Sidebar() {
           })}
         </nav>
 
+        {/* Live Account Balance */}
+        {liveAccount && (
+          <div className="p-4 border-t border-sidebar-border">
+            <div className="glass-panel p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-medium text-foreground capitalize">
+                    {liveAccount.provider}
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 text-xs rounded-full bg-success/20 text-success">
+                  Connected
+                </span>
+              </div>
+              <div className="text-lg font-bold text-foreground">
+                {formatCurrency(liveAccount.equity)}
+              </div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                <RefreshCw className="w-3 h-3" />
+                <span>Synced {getTimeSinceSync()}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );
