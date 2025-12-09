@@ -39,7 +39,7 @@ export default function Auth() {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && mode !== 'reset') {
-      navigate('/', { replace: true });
+      navigate('/dashboard', { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, mode]);
 
@@ -110,7 +110,7 @@ export default function Auth() {
             title: 'Password updated!',
             description: 'You can now log in with your new password.',
           });
-          navigate('/', { replace: true });
+          navigate('/dashboard', { replace: true });
         }
       } else if (mode === 'login') {
         const { error } = await signIn(email, password);
