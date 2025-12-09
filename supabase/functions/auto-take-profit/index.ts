@@ -8,11 +8,62 @@ const corsHeaders = {
 };
 
 // Take-profit at 0.1% for balanced scalping
-const TAKE_PROFIT_PERCENT = 0.1;
+const BASE_TAKE_PROFIT_PERCENT = 0.1;
 // Ultra-tight stop loss to cut losses immediately
-const STOP_LOSS_PERCENT = -0.05;
+const BASE_STOP_LOSS_PERCENT = -0.05;
 // Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
 const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
+
+// Latency tracking for dynamic threshold adjustment
+interface LatencyMetrics {
+  avgLatencyMs: number;
+  maxLatencyMs: number;
+  recentLatencies: number[];
+  slippageBuffer: number; // Percentage buffer to add based on latency
+}
+
+const latencyTracker: LatencyMetrics = {
+  avgLatencyMs: 0,
+  maxLatencyMs: 0,
+  recentLatencies: [],
+  slippageBuffer: 0,
+};
+
+// Measure execution latency and update metrics
+function trackLatency(startTime: number): number {
+  const latencyMs = Date.now() - startTime;
+  latencyTracker.recentLatencies.push(latencyMs);
+  
+  // Keep only last 20 measurements
+  if (latencyTracker.recentLatencies.length > 20) {
+    latencyTracker.recentLatencies.shift();
+  }
+  
+  // Calculate rolling average
+  latencyTracker.avgLatencyMs = latencyTracker.recentLatencies.reduce((a, b) => a + b, 0) / latencyTracker.recentLatencies.length;
+  latencyTracker.maxLatencyMs = Math.max(...latencyTracker.recentLatencies);
+  
+  // Calculate slippage buffer: ~0.01% per 100ms of latency (crypto moves fast)
+  // Max 0.05% buffer to prevent over-adjustment
+  latencyTracker.slippageBuffer = Math.min(0.05, (latencyTracker.avgLatencyMs / 100) * 0.01);
+  
+  console.log(`⏱️ Latency: ${latencyMs}ms (avg: ${latencyTracker.avgLatencyMs.toFixed(0)}ms, buffer: +${(latencyTracker.slippageBuffer * 100).toFixed(3)}%)`);
+  
+  return latencyMs;
+}
+
+// Get adjusted take-profit threshold accounting for latency slippage
+function getAdjustedTakeProfit(): number {
+  const adjusted = BASE_TAKE_PROFIT_PERCENT + latencyTracker.slippageBuffer;
+  return adjusted;
+}
+
+// Get adjusted stop-loss threshold accounting for latency slippage
+function getAdjustedStopLoss(): number {
+  // Widen stop-loss slightly during high latency to avoid false triggers
+  const adjusted = BASE_STOP_LOSS_PERCENT - latencyTracker.slippageBuffer;
+  return adjusted;
+}
 
 // Milestone system - USER REQUESTED: Accumulate $200 USDC, then reinvest half
 // Phase 1: Keep converting profits to USDC until $200 is reached
@@ -364,6 +415,7 @@ async function executeCryptoToCryptoSwap(
     
     console.log(`🔄 Converting ${roundedQty} ${fromSymbol} → ${toSymbol}...`);
     
+    const execStart = Date.now();
     const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
       method: 'POST',
       headers: {
@@ -374,10 +426,11 @@ async function executeCryptoToCryptoSwap(
     });
     
     const result = await response.json();
+    const latencyMs = trackLatency(execStart);
     
     if (response.ok && result.success) {
       const filledValue = parseFloat(result.order?.filled_value || '0');
-      console.log(`✅ Converted ${fromSymbol} → ${filledValue} ${toSymbol}`);
+      console.log(`✅ Converted ${fromSymbol} → ${filledValue} ${toSymbol} (${latencyMs}ms)`);
       return { success: true, receivedQuantity: filledValue };
     } else {
       const errorMsg = result.error_response?.message || result.error || 'Swap failed';
@@ -451,6 +504,7 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     
     console.log(`📤 Selling ${roundedQty} ${symbol} on Coinbase (precision: ${precision})...`);
     
+    const execStart = Date.now();
     const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
       method: 'POST',
       headers: {
@@ -461,12 +515,13 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
     });
     
     const result = await response.json();
-    console.log(`📋 Coinbase sell response for ${symbol}:`, JSON.stringify(result).substring(0, 500));
+    const latencyMs = trackLatency(execStart);
+    console.log(`📋 Coinbase sell response for ${symbol} (${latencyMs}ms):`, JSON.stringify(result).substring(0, 500));
     
     if (response.ok && result.success) {
       const filledValue = parseFloat(result.order?.filled_value || result.order?.total_value_after_fees || '0');
       const filledSize = parseFloat(result.order?.filled_size || '0');
-      console.log(`✅ SOLD ${filledSize} ${symbol} for $${filledValue.toFixed(2)} USDC`);
+      console.log(`✅ SOLD ${filledSize} ${symbol} for $${filledValue.toFixed(2)} USDC (${latencyMs}ms)`);
       return { success: true, usdValue: filledValue };
     } else {
       const errorMsg = result.error_response?.message || result.error_response?.preview_failure_reason || result.error || 'Order failed';
@@ -738,8 +793,11 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       pnl = (entryPrice - currentPrice) * quantity;
     }
 
-    const hitTakeProfit = pnlPercent >= TAKE_PROFIT_PERCENT;
-    const hitStopLoss = pnlPercent <= STOP_LOSS_PERCENT;
+    // Use latency-adjusted thresholds
+    const adjustedTakeProfit = getAdjustedTakeProfit();
+    const adjustedStopLoss = getAdjustedStopLoss();
+    const hitTakeProfit = pnlPercent >= adjustedTakeProfit;
+    const hitStopLoss = pnlPercent <= adjustedStopLoss;
 
     if (hitTakeProfit || hitStopLoss) {
       console.log(`${hitTakeProfit ? '🎯' : '🛑'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
@@ -1189,8 +1247,13 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       status: 'success',
       usersProcessed: userIds.length,
-      takeProfitTarget: `+${TAKE_PROFIT_PERCENT}%`,
-      stopLossLimit: `${STOP_LOSS_PERCENT}%`,
+      takeProfitTarget: `+${getAdjustedTakeProfit().toFixed(3)}%`,
+      stopLossLimit: `${getAdjustedStopLoss().toFixed(3)}%`,
+      latencyMetrics: {
+        avgMs: latencyTracker.avgLatencyMs.toFixed(0),
+        maxMs: latencyTracker.maxLatencyMs.toFixed(0),
+        slippageBuffer: `${(latencyTracker.slippageBuffer * 100).toFixed(3)}%`,
+      },
       totalTakeProfitClosed: totalTakeProfit,
       totalStopLossClosed: totalStopLoss,
       totalDirectConversions: totalConversions,
