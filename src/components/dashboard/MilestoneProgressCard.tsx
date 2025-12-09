@@ -40,6 +40,7 @@ export function MilestoneProgressCard() {
           .single();
         
         const isLiveMode = aiSettings?.trading_mode === 'live';
+        console.log('MilestoneProgress: trading_mode =', aiSettings?.trading_mode, 'isLiveMode =', isLiveMode);
         
         let cashBalance = 0;
         let startingBalance = 100000;
@@ -47,14 +48,16 @@ export function MilestoneProgressCard() {
 
         if (isLiveMode) {
           // Get live account balance
-          const { data: liveAccount } = await supabase
+          const { data: liveAccount, error: liveError } = await supabase
             .from('live_account')
             .select('balance, equity, created_at')
             .eq('user_id', user.id)
             .single();
           
+          console.log('MilestoneProgress LIVE:', liveAccount, 'error:', liveError);
+          
           cashBalance = liveAccount?.balance || 0;
-          startingBalance = liveAccount?.balance || 0; // For live, starting = current deposited
+          startingBalance = 50; // Initial deposit for live
           tradingStartTime = liveAccount?.created_at ? new Date(liveAccount.created_at) : null;
         } else {
           // Get paper account balance
