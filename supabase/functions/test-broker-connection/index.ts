@@ -7,122 +7,208 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface BrokerCredentials {
-  provider: 'alpaca' | 'coinbase';
+// Exchange configurations with key detection patterns
+const EXCHANGES = {
+  coinbase: {
+    name: "Coinbase",
+    keyPatterns: [
+      { pattern: /^organizations\//, type: "cdp" },
+      { pattern: /-----BEGIN.*PRIVATE KEY-----/, field: "secret", type: "cdp" },
+    ],
+    endpoints: {
+      accounts: "https://api.coinbase.com/api/v3/brokerage/accounts",
+    },
+  },
+  binance: {
+    name: "Binance",
+    keyPatterns: [
+      { pattern: /^[A-Za-z0-9]{64}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://api.binance.com/api/v3/account",
+    },
+  },
+  kraken: {
+    name: "Kraken",
+    keyPatterns: [
+      { pattern: /^[A-Za-z0-9+/=]{56}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://api.kraken.com/0/private/Balance",
+    },
+  },
+  kucoin: {
+    name: "KuCoin",
+    keyPatterns: [
+      { pattern: /^[a-f0-9]{24}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://api.kucoin.com/api/v1/accounts",
+    },
+  },
+  bybit: {
+    name: "Bybit",
+    keyPatterns: [
+      { pattern: /^[A-Za-z0-9]{18}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://api.bybit.com/v5/account/wallet-balance",
+    },
+  },
+  okx: {
+    name: "OKX",
+    keyPatterns: [
+      { pattern: /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://www.okx.com/api/v5/account/balance",
+    },
+  },
+  gateio: {
+    name: "Gate.io",
+    keyPatterns: [
+      { pattern: /^[a-f0-9]{32}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://api.gateio.ws/api/v4/spot/accounts",
+    },
+  },
+  bitget: {
+    name: "Bitget",
+    keyPatterns: [
+      { pattern: /^bg_[a-f0-9]{32}$/, type: "hmac" },
+    ],
+    endpoints: {
+      accounts: "https://api.bitget.com/api/spot/v1/account/assets",
+    },
+  },
+};
+
+type ExchangeType = keyof typeof EXCHANGES;
+
+interface ExchangeCredentials {
+  provider?: string;
   apiKey: string;
   secretKey: string;
   passphrase?: string;
 }
 
-async function testAlpacaConnection(apiKey: string, secretKey: string) {
-  // Test with Alpaca paper trading API
-  const response = await fetch("https://paper-api.alpaca.markets/v2/account", {
-    method: "GET",
-    headers: {
-      "APCA-API-KEY-ID": apiKey,
-      "APCA-API-SECRET-KEY": secretKey,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Alpaca API error: ${error}`);
-  }
-
-  const account = await response.json();
-  
-  return {
-    success: true,
-    accountInfo: {
-      balance: parseFloat(account.cash || 0),
-      buying_power: parseFloat(account.buying_power || 0),
-      equity: parseFloat(account.equity || 0),
-    },
-  };
+interface DetectionResult {
+  exchange: ExchangeType;
+  authType: string;
+  confidence: number;
 }
 
-// Generate JWT for CDP API authentication using jose library
-// uri format: "METHOD api.coinbase.com/path" e.g. "GET api.coinbase.com/api/v3/brokerage/accounts"
+// Auto-detect exchange from API key format
+function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
+  console.log("Detecting exchange from key format...");
+  
+  // Check for Coinbase CDP (most distinctive)
+  if (apiKey.startsWith("organizations/") || 
+      secretKey.includes("-----BEGIN") || 
+      secretKey.includes("PRIVATE KEY")) {
+    console.log("Detected: Coinbase CDP");
+    return { exchange: "coinbase", authType: "cdp", confidence: 1.0 };
+  }
+  
+  // Check Bitget (has distinctive prefix)
+  if (apiKey.startsWith("bg_")) {
+    console.log("Detected: Bitget");
+    return { exchange: "bitget", authType: "hmac", confidence: 0.95 };
+  }
+  
+  // Check OKX (UUID format)
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(apiKey)) {
+    console.log("Detected: OKX");
+    return { exchange: "okx", authType: "hmac", confidence: 0.9 };
+  }
+  
+  // Check Binance (64 char alphanumeric)
+  if (/^[A-Za-z0-9]{64}$/.test(apiKey)) {
+    console.log("Detected: Binance");
+    return { exchange: "binance", authType: "hmac", confidence: 0.85 };
+  }
+  
+  // Check Kraken (56 char base64-ish)
+  if (/^[A-Za-z0-9+/=]{50,60}$/.test(apiKey)) {
+    console.log("Detected: Kraken");
+    return { exchange: "kraken", authType: "hmac", confidence: 0.7 };
+  }
+  
+  // Check KuCoin (24 char hex)
+  if (/^[a-f0-9]{24}$/i.test(apiKey)) {
+    console.log("Detected: KuCoin");
+    return { exchange: "kucoin", authType: "hmac", confidence: 0.8 };
+  }
+  
+  // Check Bybit (18 char alphanumeric)
+  if (/^[A-Za-z0-9]{18}$/.test(apiKey)) {
+    console.log("Detected: Bybit");
+    return { exchange: "bybit", authType: "hmac", confidence: 0.75 };
+  }
+  
+  // Check Gate.io (32 char hex)
+  if (/^[a-f0-9]{32}$/i.test(apiKey) && /^[a-f0-9]{64}$/i.test(secretKey)) {
+    console.log("Detected: Gate.io");
+    return { exchange: "gateio", authType: "hmac", confidence: 0.7 };
+  }
+  
+  // Default to Coinbase legacy if nothing else matches
+  console.log("No specific pattern matched, trying Coinbase legacy");
+  return { exchange: "coinbase", authType: "legacy", confidence: 0.3 };
+}
+
+// Generate JWT for Coinbase CDP API
 async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
-  // Clean up the private key - handle various formats and escape sequences
-  let cleanKey = privateKeyPem.trim();
+  let cleanKey = privateKeyPem.trim()
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
   
-  // Handle escaped newlines (e.g., literal "\n" strings from JSON or copy-paste)
-  cleanKey = cleanKey.replace(/\\n/g, '\n').replace(/\\r/g, '');
-  
-  // Normalize line endings
-  cleanKey = cleanKey.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  
-  console.log("Processing private key, original length:", privateKeyPem.length, "cleaned length:", cleanKey.length);
-  console.log("Key starts with:", cleanKey.substring(0, 50));
-  
-  // Ensure the key has proper PEM headers
   if (!cleanKey.includes("-----BEGIN")) {
-    // Try to wrap it as EC private key
     cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
   }
   
   let privateKey: jose.KeyLike;
   
   try {
-    // First try importing as PKCS8 (-----BEGIN PRIVATE KEY-----)
     if (cleanKey.includes("-----BEGIN PRIVATE KEY-----")) {
       privateKey = await jose.importPKCS8(cleanKey, "ES256");
-      console.log("Successfully imported as PKCS8");
     } else {
-      // For SEC1 EC keys, we need to convert them first
-      // jose doesn't directly support SEC1, so we'll use a workaround
-      // Try importing directly - some runtimes support it
       try {
         privateKey = await jose.importPKCS8(cleanKey, "ES256");
-        console.log("Successfully imported EC key");
       } catch {
-        // Extract the base64 content and try to import as JWK
-        console.log("Direct import failed, attempting manual conversion...");
-        
-        // Parse the PEM to extract the key data
+        // Parse SEC1 format manually
         const pemContents = cleanKey
           .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
           .replace(/-----END EC PRIVATE KEY-----/g, "")
           .replace(/\s+/g, "");
         
-        // Decode the base64 SEC1 structure
         const binaryString = atob(pemContents);
         const keyBytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           keyBytes[i] = binaryString.charCodeAt(i);
         }
         
-        console.log("Key bytes length:", keyBytes.length);
-        
-        // Parse SEC1 ASN.1 to extract private key 'd' value and optional public key
+        // Parse ASN.1 to extract private key
         let offset = 0;
-        
-        // SEQUENCE
-        if (keyBytes[offset++] !== 0x30) throw new Error("Invalid SEC1: expected SEQUENCE");
+        if (keyBytes[offset++] !== 0x30) throw new Error("Invalid SEC1");
         let seqLen = keyBytes[offset++];
         if (seqLen & 0x80) {
           const lenBytes = seqLen & 0x7f;
           seqLen = 0;
-          for (let i = 0; i < lenBytes; i++) {
-            seqLen = (seqLen << 8) | keyBytes[offset++];
-          }
+          for (let i = 0; i < lenBytes; i++) seqLen = (seqLen << 8) | keyBytes[offset++];
         }
         
-        // Version (INTEGER, should be 1)
-        if (keyBytes[offset++] !== 0x02) throw new Error("Invalid SEC1: expected INTEGER");
-        const versionLen = keyBytes[offset++];
-        offset += versionLen;
+        if (keyBytes[offset++] !== 0x02) throw new Error("Invalid SEC1");
+        offset += keyBytes[offset++];
         
-        // Private key (OCTET STRING)
-        if (keyBytes[offset++] !== 0x04) throw new Error("Invalid SEC1: expected OCTET STRING");
+        if (keyBytes[offset++] !== 0x04) throw new Error("Invalid SEC1");
         const privKeyLen = keyBytes[offset++];
         const dBytes = keyBytes.slice(offset, offset + privKeyLen);
         offset += privKeyLen;
         
-        console.log("Extracted d value, length:", dBytes.length);
-        
-        // Look for public key [1] BIT STRING
         let xBytes: Uint8Array | null = null;
         let yBytes: Uint8Array | null = null;
         
@@ -132,26 +218,19 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
           if (len & 0x80) {
             const lenBytes = len & 0x7f;
             len = 0;
-            for (let i = 0; i < lenBytes; i++) {
-              len = (len << 8) | keyBytes[offset++];
-            }
+            for (let i = 0; i < lenBytes; i++) len = (len << 8) | keyBytes[offset++];
           }
           
-          if (tag === 0xa1) { // [1] public key
-            // Skip BIT STRING wrapper
+          if (tag === 0xa1) {
             if (keyBytes[offset] === 0x03) {
               offset++;
               let bitStringLen = keyBytes[offset++];
               if (bitStringLen & 0x80) {
                 const lenBytes = bitStringLen & 0x7f;
                 bitStringLen = 0;
-                for (let i = 0; i < lenBytes; i++) {
-                  bitStringLen = (bitStringLen << 8) | keyBytes[offset++];
-                }
+                for (let i = 0; i < lenBytes; i++) bitStringLen = (bitStringLen << 8) | keyBytes[offset++];
               }
-              offset++; // Skip unused bits byte
-              
-              // Public key should start with 0x04 (uncompressed point)
+              offset++;
               if (keyBytes[offset] === 0x04) {
                 offset++;
                 xBytes = keyBytes.slice(offset, offset + 32);
@@ -163,261 +242,430 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
           offset += len;
         }
         
-        // Convert to base64url
-        const base64url = (bytes: Uint8Array) => {
-          const base64 = btoa(String.fromCharCode(...bytes));
-          return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        };
+        const base64url = (bytes: Uint8Array) => 
+          btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         
-        // Create JWK
-        const jwk: jose.JWK = {
-          kty: "EC",
-          crv: "P-256",
-          d: base64url(dBytes),
-        };
-        
-        if (xBytes && yBytes) {
-          jwk.x = base64url(xBytes);
-          jwk.y = base64url(yBytes);
-        }
-        
-        console.log("Created JWK with d length:", dBytes.length);
+        const jwk: jose.JWK = { kty: "EC", crv: "P-256", d: base64url(dBytes) };
+        if (xBytes && yBytes) { jwk.x = base64url(xBytes); jwk.y = base64url(yBytes); }
         
         privateKey = await jose.importJWK(jwk, "ES256") as jose.KeyLike;
-        console.log("Successfully imported as JWK");
       }
     }
   } catch (e: any) {
-    console.error("Key import error:", e);
     throw new Error(`Failed to import private key: ${e.message}`);
   }
   
-  // Build and sign the JWT with the uri claim
-  const jwt = await new jose.SignJWT({
-    iss: "cdp",
-    sub: apiKey,
-    uri: uri,
-  })
-    .setProtectedHeader({ 
-      alg: "ES256", 
-      kid: apiKey,
-      nonce: crypto.randomUUID(),
-      typ: "JWT"
-    })
+  return await new jose.SignJWT({ iss: "cdp", sub: apiKey, uri })
+    .setProtectedHeader({ alg: "ES256", kid: apiKey, nonce: crypto.randomUUID(), typ: "JWT" })
     .setIssuedAt()
     .setNotBefore(Math.floor(Date.now() / 1000))
     .setExpirationTime("2m")
     .sign(privateKey);
-  
-  console.log("JWT generated successfully for URI:", uri, "length:", jwt.length);
-  return jwt;
 }
 
-async function testCoinbaseConnection(apiKey: string, secretKey: string, passphrase?: string) {
-  // Detect if this is a CDP API key
-  // Primary indicator: API key starts with "organizations/"
-  // Secondary indicators: Secret key looks like a PEM private key
-  const isCdpKey = apiKey.startsWith("organizations/") || 
-                   secretKey.includes("-----BEGIN") || 
-                   secretKey.includes("PRIVATE KEY");
+// Test Coinbase connection
+async function testCoinbase(apiKey: string, secretKey: string, passphrase?: string, authType?: string) {
+  const isCdp = authType === "cdp" || apiKey.startsWith("organizations/") || secretKey.includes("-----BEGIN");
   
-  console.log("Coinbase key detection - isCdpKey:", isCdpKey, "apiKey prefix:", apiKey.substring(0, 20));
-  
-  if (isCdpKey) {
-    // CDP API uses JWT authentication
-    console.log("Using CDP JWT authentication for Coinbase");
+  if (isCdp) {
+    const requestPath = "/api/v3/brokerage/accounts";
+    const jwt = await generateCdpJwt(apiKey, secretKey, `GET api.coinbase.com${requestPath}`);
     
-    try {
-      const requestPath = "/api/v3/brokerage/accounts";
-      const uri = `GET api.coinbase.com${requestPath}`;
-      const jwt = await generateCdpJwt(apiKey, secretKey, uri);
-      
-      const response = await fetch(`https://api.coinbase.com${requestPath}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${jwt}`,
-          "Content-Type": "application/json",
-        },
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Coinbase CDP API error:", response.status, errorText);
-        
-        if (response.status === 401) {
-          throw new Error("Invalid CDP API credentials. Please verify your API Key and Private Key are correct.");
-        }
-        throw new Error(`Coinbase API error (${response.status}): ${errorText}`);
-      }
-      
-      const data = await response.json();
-      
-      let totalBalance = 0;
-      if (data.accounts && Array.isArray(data.accounts)) {
-        for (const account of data.accounts) {
-          if (account.available_balance && account.available_balance.value) {
-            totalBalance += parseFloat(account.available_balance.value);
-          }
-        }
-      }
-      
-      return {
-        success: true,
-        accountInfo: {
-          balance: totalBalance,
-          buying_power: totalBalance,
-          equity: totalBalance,
-        },
-      };
-    } catch (e: any) {
-      console.error("CDP JWT error:", e);
-      if (e.message.includes("Invalid")) {
-        throw e;
-      }
-      throw new Error(`Failed to authenticate with CDP API. Please ensure your private key is in the correct format (EC Private Key PEM). Error: ${e.message}`);
+    const response = await fetch(`https://api.coinbase.com${requestPath}`, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Coinbase CDP error (${response.status}): ${errorText}`);
     }
+    
+    const data = await response.json();
+    let totalBalance = 0;
+    if (data.accounts) {
+      for (const acc of data.accounts) {
+        if (acc.available_balance?.value) totalBalance += parseFloat(acc.available_balance.value);
+      }
+    }
+    
+    return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
   }
   
-  // Legacy Exchange API authentication
+  // Legacy API
+  if (!passphrase) throw new Error("Passphrase required for Coinbase legacy API");
+  
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const method = "GET";
   const requestPath = "/api/v3/brokerage/accounts";
-  const body = "";
+  const message = timestamp + "GET" + requestPath;
   
-  const message = timestamp + method + requestPath + body;
-  
-  let decodedSecret: ArrayBuffer;
-  try {
-    const binaryString = atob(secretKey);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    decodedSecret = bytes.buffer;
-  } catch (e) {
-    throw new Error("Invalid secret key format. The secret key should be base64 encoded. Please check your Coinbase API credentials.");
-  }
-  
-  const messageData = new TextEncoder().encode(message);
-  
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    decodedSecret,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
+  const decodedSecret = Uint8Array.from(atob(secretKey), c => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey("raw", decodedSecret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message));
   const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
-
-  const headers: Record<string, string> = {
-    "CB-ACCESS-KEY": apiKey,
-    "CB-ACCESS-SIGN": signatureBase64,
-    "CB-ACCESS-TIMESTAMP": timestamp,
-    "Content-Type": "application/json",
-  };
-
-  if (passphrase) {
-    headers["CB-ACCESS-PASSPHRASE"] = passphrase;
-  } else {
-    throw new Error("Passphrase is required for Coinbase Exchange API authentication. Please provide your API passphrase.");
-  }
-
-  console.log("Attempting Coinbase legacy connection with timestamp:", timestamp);
   
   const response = await fetch("https://api.coinbase.com" + requestPath, {
     method: "GET",
-    headers,
+    headers: {
+      "CB-ACCESS-KEY": apiKey,
+      "CB-ACCESS-SIGN": signatureBase64,
+      "CB-ACCESS-TIMESTAMP": timestamp,
+      "CB-ACCESS-PASSPHRASE": passphrase,
+      "Content-Type": "application/json",
+    },
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Coinbase API error response:", response.status, errorText);
-    
-    if (response.status === 401) {
-      throw new Error("Invalid API credentials. Please verify your API Key, Secret, and Passphrase are correct.");
-    }
-    throw new Error(`Coinbase API error (${response.status}): ${errorText}`);
-  }
-
+  
+  if (!response.ok) throw new Error(`Coinbase error: ${await response.text()}`);
+  
   const data = await response.json();
+  let totalBalance = 0;
+  if (data.accounts) {
+    for (const acc of data.accounts) {
+      if (acc.available_balance?.value) totalBalance += parseFloat(acc.available_balance.value);
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
+
+// Test Binance connection
+async function testBinance(apiKey: string, secretKey: string) {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(queryString));
+  const signatureHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  const response = await fetch(`https://api.binance.com/api/v3/account?${queryString}&signature=${signatureHex}`, {
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  
+  if (!response.ok) throw new Error(`Binance error: ${await response.text()}`);
+  
+  const data = await response.json();
+  let totalBalance = 0;
+  if (data.balances) {
+    for (const bal of data.balances) {
+      const free = parseFloat(bal.free || 0);
+      const locked = parseFloat(bal.locked || 0);
+      // For simplicity, just count non-zero balances
+      if (free + locked > 0) totalBalance += free + locked;
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
+
+// Test Kraken connection
+async function testKraken(apiKey: string, secretKey: string) {
+  const nonce = Date.now() * 1000;
+  const postData = `nonce=${nonce}`;
+  const path = "/0/private/Balance";
+  
+  const sha256 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(nonce + postData));
+  const message = new Uint8Array([...new TextEncoder().encode(path), ...new Uint8Array(sha256)]);
+  
+  const decodedSecret = Uint8Array.from(atob(secretKey), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("raw", decodedSecret, { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, message);
+  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  
+  const response = await fetch("https://api.kraken.com" + path, {
+    method: "POST",
+    headers: {
+      "API-Key": apiKey,
+      "API-Sign": signatureBase64,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: postData,
+  });
+  
+  if (!response.ok) throw new Error(`Kraken error: ${await response.text()}`);
+  
+  const data = await response.json();
+  if (data.error && data.error.length > 0) throw new Error(`Kraken: ${data.error.join(", ")}`);
   
   let totalBalance = 0;
-  if (data.accounts && Array.isArray(data.accounts)) {
-    for (const account of data.accounts) {
-      if (account.available_balance && account.available_balance.value) {
-        totalBalance += parseFloat(account.available_balance.value);
-      }
+  if (data.result) {
+    for (const [, value] of Object.entries(data.result)) {
+      totalBalance += parseFloat(value as string || "0");
     }
   }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
 
-  return {
-    success: true,
-    accountInfo: {
-      balance: totalBalance,
-      buying_power: totalBalance,
-      equity: totalBalance,
+// Test KuCoin connection
+async function testKucoin(apiKey: string, secretKey: string, passphrase?: string) {
+  if (!passphrase) throw new Error("Passphrase required for KuCoin");
+  
+  const timestamp = Date.now().toString();
+  const path = "/api/v1/accounts";
+  const strToSign = timestamp + "GET" + path;
+  
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(strToSign));
+  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  
+  // Encrypt passphrase
+  const passphraseKey = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const passphraseSign = await crypto.subtle.sign("HMAC", passphraseKey, encoder.encode(passphrase));
+  const passphraseBase64 = btoa(String.fromCharCode(...new Uint8Array(passphraseSign)));
+  
+  const response = await fetch("https://api.kucoin.com" + path, {
+    headers: {
+      "KC-API-KEY": apiKey,
+      "KC-API-SIGN": signatureBase64,
+      "KC-API-TIMESTAMP": timestamp,
+      "KC-API-PASSPHRASE": passphraseBase64,
+      "KC-API-KEY-VERSION": "2",
     },
-  };
+  });
+  
+  if (!response.ok) throw new Error(`KuCoin error: ${await response.text()}`);
+  
+  const data = await response.json();
+  let totalBalance = 0;
+  if (data.data) {
+    for (const acc of data.data) {
+      totalBalance += parseFloat(acc.balance || 0);
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
+
+// Test Bybit connection
+async function testBybit(apiKey: string, secretKey: string) {
+  const timestamp = Date.now().toString();
+  const recvWindow = "5000";
+  const params = `accountType=UNIFIED`;
+  const paramStr = `${timestamp}${apiKey}${recvWindow}${params}`;
+  
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(paramStr));
+  const signatureHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  const response = await fetch(`https://api.bybit.com/v5/account/wallet-balance?${params}`, {
+    headers: {
+      "X-BAPI-API-KEY": apiKey,
+      "X-BAPI-SIGN": signatureHex,
+      "X-BAPI-TIMESTAMP": timestamp,
+      "X-BAPI-RECV-WINDOW": recvWindow,
+    },
+  });
+  
+  if (!response.ok) throw new Error(`Bybit error: ${await response.text()}`);
+  
+  const data = await response.json();
+  if (data.retCode !== 0) throw new Error(`Bybit: ${data.retMsg}`);
+  
+  let totalBalance = 0;
+  if (data.result?.list) {
+    for (const account of data.result.list) {
+      totalBalance += parseFloat(account.totalEquity || 0);
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
+
+// Test OKX connection
+async function testOkx(apiKey: string, secretKey: string, passphrase?: string) {
+  if (!passphrase) throw new Error("Passphrase required for OKX");
+  
+  const timestamp = new Date().toISOString();
+  const method = "GET";
+  const requestPath = "/api/v5/account/balance";
+  const preHash = timestamp + method + requestPath;
+  
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(preHash));
+  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  
+  const response = await fetch("https://www.okx.com" + requestPath, {
+    headers: {
+      "OK-ACCESS-KEY": apiKey,
+      "OK-ACCESS-SIGN": signatureBase64,
+      "OK-ACCESS-TIMESTAMP": timestamp,
+      "OK-ACCESS-PASSPHRASE": passphrase,
+    },
+  });
+  
+  if (!response.ok) throw new Error(`OKX error: ${await response.text()}`);
+  
+  const data = await response.json();
+  if (data.code !== "0") throw new Error(`OKX: ${data.msg}`);
+  
+  let totalBalance = 0;
+  if (data.data?.[0]?.details) {
+    for (const detail of data.data[0].details) {
+      totalBalance += parseFloat(detail.eq || 0);
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
+
+// Test Gate.io connection
+async function testGateio(apiKey: string, secretKey: string) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const method = "GET";
+  const path = "/api/v4/spot/accounts";
+  const queryString = "";
+  const bodyHash = await crypto.subtle.digest("SHA-512", new TextEncoder().encode(""));
+  const bodyHashHex = Array.from(new Uint8Array(bodyHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  const signString = `${method}\n${path}\n${queryString}\n${bodyHashHex}\n${timestamp}`;
+  
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(signString));
+  const signatureHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  const response = await fetch("https://api.gateio.ws" + path, {
+    headers: {
+      "KEY": apiKey,
+      "SIGN": signatureHex,
+      "Timestamp": timestamp,
+    },
+  });
+  
+  if (!response.ok) throw new Error(`Gate.io error: ${await response.text()}`);
+  
+  const data = await response.json();
+  let totalBalance = 0;
+  if (Array.isArray(data)) {
+    for (const acc of data) {
+      totalBalance += parseFloat(acc.available || 0) + parseFloat(acc.locked || 0);
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
+}
+
+// Test Bitget connection
+async function testBitget(apiKey: string, secretKey: string, passphrase?: string) {
+  if (!passphrase) throw new Error("Passphrase required for Bitget");
+  
+  const timestamp = Date.now().toString();
+  const method = "GET";
+  const path = "/api/spot/v1/account/assets";
+  const preHash = timestamp + method + path;
+  
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secretKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(preHash));
+  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  
+  const response = await fetch("https://api.bitget.com" + path, {
+    headers: {
+      "ACCESS-KEY": apiKey,
+      "ACCESS-SIGN": signatureBase64,
+      "ACCESS-TIMESTAMP": timestamp,
+      "ACCESS-PASSPHRASE": passphrase,
+    },
+  });
+  
+  if (!response.ok) throw new Error(`Bitget error: ${await response.text()}`);
+  
+  const data = await response.json();
+  if (data.code !== "00000") throw new Error(`Bitget: ${data.msg}`);
+  
+  let totalBalance = 0;
+  if (data.data) {
+    for (const asset of data.data) {
+      totalBalance += parseFloat(asset.available || 0);
+    }
+  }
+  
+  return { balance: totalBalance, buying_power: totalBalance, equity: totalBalance };
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Verify authentication
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
+    if (!authHeader) throw new Error("No authorization header");
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
+    if (authError || !user) throw new Error("Unauthorized");
 
-    const body: BrokerCredentials = await req.json();
+    const body: ExchangeCredentials = await req.json();
     const { provider, apiKey, secretKey, passphrase } = body;
 
-    if (!provider || !apiKey || !secretKey) {
-      throw new Error("Missing required credentials");
+    if (!apiKey || !secretKey) throw new Error("Missing required credentials");
+
+    // Auto-detect exchange if not specified
+    let detectedExchange = provider as ExchangeType | undefined;
+    let authType: string | undefined;
+    
+    if (!detectedExchange || detectedExchange === "auto" as any) {
+      const detection = detectExchange(apiKey, secretKey);
+      if (!detection) throw new Error("Could not detect exchange from API key format");
+      detectedExchange = detection.exchange;
+      authType = detection.authType;
+      console.log(`Auto-detected exchange: ${detectedExchange} (${authType}) with confidence ${detection.confidence}`);
     }
 
-    let result;
-
-    if (provider === "alpaca") {
-      result = await testAlpacaConnection(apiKey, secretKey);
-    } else if (provider === "coinbase") {
-      result = await testCoinbaseConnection(apiKey, secretKey, passphrase);
-    } else {
-      throw new Error("Unsupported provider");
+    let accountInfo;
+    
+    switch (detectedExchange) {
+      case "coinbase":
+        accountInfo = await testCoinbase(apiKey, secretKey, passphrase, authType);
+        break;
+      case "binance":
+        accountInfo = await testBinance(apiKey, secretKey);
+        break;
+      case "kraken":
+        accountInfo = await testKraken(apiKey, secretKey);
+        break;
+      case "kucoin":
+        accountInfo = await testKucoin(apiKey, secretKey, passphrase);
+        break;
+      case "bybit":
+        accountInfo = await testBybit(apiKey, secretKey);
+        break;
+      case "okx":
+        accountInfo = await testOkx(apiKey, secretKey, passphrase);
+        break;
+      case "gateio":
+        accountInfo = await testGateio(apiKey, secretKey);
+        break;
+      case "bitget":
+        accountInfo = await testBitget(apiKey, secretKey, passphrase);
+        break;
+      default:
+        throw new Error(`Unsupported exchange: ${detectedExchange}`);
     }
 
-    return new Response(JSON.stringify(result), {
+    return new Response(JSON.stringify({ 
+      success: true, 
+      detectedExchange,
+      exchangeName: EXCHANGES[detectedExchange].name,
+      accountInfo 
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: any) {
-    console.error("Error testing broker connection:", error);
+    console.error("Error testing connection:", error);
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        message: error.message || "Failed to test connection" 
-      }),
-      {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: false, message: error.message || "Failed to test connection" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

@@ -3,19 +3,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+export type ExchangeProvider = 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
+
 export interface ApiConnection {
   id: string;
-  provider: 'alpaca' | 'coinbase';
+  provider: ExchangeProvider;
   is_connected: boolean;
   api_key_hint: string | null;
   updated_at: string | null;
 }
 
 export interface ApiCredentials {
-  provider: 'alpaca' | 'coinbase';
+  provider?: ExchangeProvider | 'auto';
   apiKey: string;
   secretKey: string;
-  passphrase?: string; // Only for Coinbase
+  passphrase?: string;
 }
 
 export function useApiConnections() {
@@ -34,10 +36,9 @@ export function useApiConnections() {
 
       if (error) throw error;
       
-      // Cast the provider to the correct type
       const typedConnections = (data || []).map(conn => ({
         ...conn,
-        provider: conn.provider as 'alpaca' | 'coinbase'
+        provider: conn.provider as ExchangeProvider
       }));
       
       setConnections(typedConnections);
@@ -52,21 +53,21 @@ export function useApiConnections() {
     fetchConnections();
   }, [user]);
 
-  const getConnection = (provider: 'alpaca' | 'coinbase'): ApiConnection | undefined => {
+  const getConnection = (provider: ExchangeProvider): ApiConnection | undefined => {
     return connections.find(c => c.provider === provider);
   };
 
-  const connectBroker = async (credentials: ApiCredentials): Promise<boolean> => {
+  const connectExchange = async (credentials: ApiCredentials): Promise<{ success: boolean; detectedExchange?: string }> => {
     if (!user) {
-      toast.error('You must be logged in to connect a broker');
-      return false;
+      toast.error('You must be logged in to connect an exchange');
+      return { success: false };
     }
 
     try {
-      // Call edge function to test and store credentials
+      // Call edge function to test and detect exchange
       const { data, error } = await supabase.functions.invoke('test-broker-connection', {
         body: {
-          provider: credentials.provider,
+          provider: credentials.provider || 'auto',
           apiKey: credentials.apiKey,
           secretKey: credentials.secretKey,
           passphrase: credentials.passphrase,
@@ -76,20 +77,22 @@ export function useApiConnections() {
       if (error) throw error;
 
       if (!data.success) {
-        toast.error(data.message || 'Failed to connect broker');
-        return false;
+        toast.error(data.message || 'Failed to connect exchange');
+        return { success: false };
       }
 
-      // Create hint from API key (first 4 and last 4 chars)
+      const detectedProvider = data.detectedExchange as ExchangeProvider;
+      const exchangeName = data.exchangeName || detectedProvider;
+
+      // Create hint from API key
       const apiKeyHint = credentials.apiKey.length > 8 
         ? `${credentials.apiKey.slice(0, 4)}...${credentials.apiKey.slice(-4)}`
         : '****';
 
       // Check if connection already exists
-      const existingConnection = getConnection(credentials.provider);
+      const existingConnection = getConnection(detectedProvider);
 
       if (existingConnection) {
-        // Update existing connection
         const { error: updateError } = await supabase
           .from('api_connections')
           .update({
@@ -101,12 +104,11 @@ export function useApiConnections() {
 
         if (updateError) throw updateError;
       } else {
-        // Insert new connection
         const { error: insertError } = await supabase
           .from('api_connections')
           .insert({
             user_id: user.id,
-            provider: credentials.provider,
+            provider: detectedProvider,
             is_connected: true,
             api_key_hint: apiKeyHint,
           });
@@ -114,7 +116,7 @@ export function useApiConnections() {
         if (insertError) throw insertError;
       }
 
-      // If connected, also create/update live_account with synced balance
+      // Create/update live_account with synced balance
       if (data.accountInfo) {
         const { balance, buying_power, equity } = data.accountInfo;
         
@@ -122,7 +124,7 @@ export function useApiConnections() {
           .from('live_account')
           .select('id')
           .eq('user_id', user.id)
-          .eq('provider', credentials.provider)
+          .eq('provider', detectedProvider)
           .single();
 
         if (existingAccount) {
@@ -140,7 +142,7 @@ export function useApiConnections() {
             .from('live_account')
             .insert({
               user_id: user.id,
-              provider: credentials.provider,
+              provider: detectedProvider,
               balance: balance || 0,
               buying_power: buying_power || 0,
               equity: equity || 0,
@@ -149,23 +151,22 @@ export function useApiConnections() {
       }
 
       await fetchConnections();
-      toast.success(`${credentials.provider === 'alpaca' ? 'Alpaca' : 'Coinbase'} connected successfully!`);
-      return true;
+      toast.success(`${exchangeName} connected successfully!`);
+      return { success: true, detectedExchange: detectedProvider };
     } catch (error: any) {
-      console.error('Error connecting broker:', error);
-      toast.error(error.message || 'Failed to connect broker');
-      return false;
+      console.error('Error connecting exchange:', error);
+      toast.error(error.message || 'Failed to connect exchange');
+      return { success: false };
     }
   };
 
-  const disconnectBroker = async (provider: 'alpaca' | 'coinbase'): Promise<boolean> => {
+  const disconnectExchange = async (provider: ExchangeProvider): Promise<boolean> => {
     if (!user) return false;
 
     try {
       const connection = getConnection(provider);
       if (!connection) return false;
 
-      // Update connection to disconnected
       const { error } = await supabase
         .from('api_connections')
         .update({
@@ -178,11 +179,11 @@ export function useApiConnections() {
       if (error) throw error;
 
       await fetchConnections();
-      toast.success(`${provider === 'alpaca' ? 'Alpaca' : 'Coinbase'} disconnected`);
+      toast.success(`${provider} disconnected`);
       return true;
     } catch (error: any) {
-      console.error('Error disconnecting broker:', error);
-      toast.error(error.message || 'Failed to disconnect broker');
+      console.error('Error disconnecting exchange:', error);
+      toast.error(error.message || 'Failed to disconnect exchange');
       return false;
     }
   };
@@ -191,8 +192,8 @@ export function useApiConnections() {
     connections,
     loading,
     getConnection,
-    connectBroker,
-    disconnectBroker,
+    connectExchange,
+    disconnectExchange,
     refetch: fetchConnections,
   };
 }
