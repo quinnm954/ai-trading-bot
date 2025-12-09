@@ -32,31 +32,60 @@ export function MilestoneProgressCard() {
 
     const fetchData = async () => {
       try {
-        // Get paper account balance
-        const { data: paperAccount } = await supabase
-          .from('paper_account')
-          .select('balance, initial_balance, created_at')
+        // Get AI settings to determine trading mode
+        const { data: aiSettings } = await supabase
+          .from('ai_settings')
+          .select('trading_mode')
           .eq('user_id', user.id)
           .single();
+        
+        const isLiveMode = aiSettings?.trading_mode === 'live';
+        
+        let cashBalance = 0;
+        let startingBalance = 100000;
+        let tradingStartTime: Date | null = null;
 
-        // Get positions value
+        if (isLiveMode) {
+          // Get live account balance
+          const { data: liveAccount } = await supabase
+            .from('live_account')
+            .select('balance, equity, created_at')
+            .eq('user_id', user.id)
+            .single();
+          
+          cashBalance = liveAccount?.balance || 0;
+          startingBalance = liveAccount?.balance || 0; // For live, starting = current deposited
+          tradingStartTime = liveAccount?.created_at ? new Date(liveAccount.created_at) : null;
+        } else {
+          // Get paper account balance
+          const { data: paperAccount } = await supabase
+            .from('paper_account')
+            .select('balance, initial_balance, created_at')
+            .eq('user_id', user.id)
+            .single();
+          
+          cashBalance = paperAccount?.balance || 0;
+          startingBalance = paperAccount?.initial_balance || 100000;
+          tradingStartTime = paperAccount?.created_at ? new Date(paperAccount.created_at) : null;
+        }
+
+        // Get positions value based on trading mode
         const { data: positions } = await supabase
           .from('positions')
           .select('quantity, current_price, avg_entry_price')
           .eq('user_id', user.id)
-          .eq('is_paper', true);
+          .eq('is_paper', !isLiveMode);
 
         // Get recent closed trades to calculate profit rate
         const { data: recentTrades } = await supabase
           .from('trades')
           .select('pnl, closed_at, created_at')
           .eq('user_id', user.id)
-          .eq('is_paper', true)
+          .eq('is_paper', !isLiveMode)
           .eq('status', 'closed')
           .order('closed_at', { ascending: false })
           .limit(50);
 
-        const cashBalance = paperAccount?.balance || 0;
         const positionsValue = positions?.reduce((sum, p) => {
           const price = p.current_price || p.avg_entry_price;
           return sum + (Number(p.quantity) * Number(price));
@@ -79,11 +108,11 @@ export function MilestoneProgressCard() {
           }
         }
 
-        // Calculate target milestone
-        const MILESTONE_INCREMENT = 100000;
-        const STARTING_MILESTONE = 200000;
+        // Calculate target milestone - $1M for live, $200K increments for paper
+        const TARGET_EQUITY = isLiveMode ? 1000000 : 200000;
+        const MILESTONE_INCREMENT = isLiveMode ? 100000 : 100000;
         const nextMilestone = Math.max(
-          STARTING_MILESTONE,
+          TARGET_EQUITY,
           Math.ceil(currentEquity / MILESTONE_INCREMENT) * MILESTONE_INCREMENT
         );
 
@@ -92,8 +121,8 @@ export function MilestoneProgressCard() {
           cashBalance,
           positionsValue,
           targetMilestone: nextMilestone,
-          startingBalance: paperAccount?.initial_balance || 100000,
-          tradingStartTime: paperAccount?.created_at ? new Date(paperAccount.created_at) : null,
+          startingBalance,
+          tradingStartTime,
           recentProfitRate: profitRate,
         });
       } catch (error) {
