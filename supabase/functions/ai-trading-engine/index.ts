@@ -124,7 +124,7 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
   throw new Error("All key import methods failed");
 }
 
-// Execute REAL buy on Coinbase - uses USDC to buy crypto
+// Execute REAL buy on Coinbase - uses USDC to buy crypto with LIMIT orders for lower fees
 async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ success: boolean; quantity?: number; price?: number; error?: string }> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
   const apiSecret = Deno.env.get('COINBASE_API_SECRET');
@@ -139,19 +139,61 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    const orderId = crypto.randomUUID();
-    const orderBody = {
-      client_order_id: orderId,
-      product_id: productId,
-      side: 'BUY',
-      order_configuration: {
-        market_market_ioc: {
-          quote_size: usdAmount.toFixed(2) // Amount in USDC to spend
-        }
-      }
-    };
+    // Get current price for limit order
+    const tickerUri = `GET api.coinbase.com/api/v3/brokerage/products/${productId}/ticker`;
+    const tickerJwt = await generateCdpJwt(apiKey, apiSecret, tickerUri);
+    const priceResponse = await fetch(`https://api.coinbase.com/api/v3/brokerage/products/${productId}/ticker`, {
+      headers: { 'Authorization': `Bearer ${tickerJwt}` },
+    });
+    const priceData = await priceResponse.json();
+    const currentPrice = parseFloat(priceData.price || '0');
     
-    console.log(`📤 REAL Coinbase BUY: $${usdAmount.toFixed(2)} of ${symbol}...`);
+    const orderId = crypto.randomUUID();
+    let orderBody: any;
+    
+    if (currentPrice > 0) {
+      // Calculate quantity from USD amount
+      const quantity = usdAmount / currentPrice;
+      
+      // Get precision for this symbol
+      const precisionMap: Record<string, number> = {
+        'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'DOGE': 2, 'ADA': 2, 'AVAX': 4,
+        'DOT': 4, 'LINK': 4, 'UNI': 4, 'LTC': 6, 'ATOM': 4, 'NEAR': 4, 'APT': 4,
+        'ARB': 2, 'OP': 4, 'INJ': 4, 'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4,
+        'RENDER': 4, 'FET': 2, 'TAO': 6, 'AAVE': 6, 'GRT': 2, 'SHIB': 0, 'PEPE': 0,
+      };
+      const precision = precisionMap[symbol.toUpperCase()] ?? 4;
+      const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+      
+      // Use LIMIT order with post_only for MAKER fees (0.4% vs 0.6% taker)
+      // Buy at current price to maximize fill chance while getting maker fee
+      orderBody = {
+        client_order_id: orderId,
+        product_id: productId,
+        side: 'BUY',
+        order_configuration: {
+          limit_limit_gtc: {
+            base_size: roundedQty.toFixed(precision),
+            limit_price: currentPrice.toFixed(8), // Buy at current price
+            post_only: true // Ensures maker fee (0.4%)
+          }
+        }
+      };
+      console.log(`📤 LIMIT BUY ${roundedQty} ${symbol} @ $${currentPrice.toFixed(4)} (maker fee: 0.4%)...`);
+    } else {
+      // Fallback to market order if can't get price
+      console.log(`⚠️ Could not get price for ${symbol}, using market order (0.6% fee)`);
+      orderBody = {
+        client_order_id: orderId,
+        product_id: productId,
+        side: 'BUY',
+        order_configuration: {
+          market_market_ioc: {
+            quote_size: usdAmount.toFixed(2)
+          }
+        }
+      };
+    }
     
     const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
       method: 'POST',
@@ -167,16 +209,24 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
     
     if (response.ok && result.success) {
       const filledSize = parseFloat(result.order?.filled_size || '0');
-      const avgPrice = parseFloat(result.order?.average_filled_price || '0');
+      const avgPrice = parseFloat(result.order?.average_filled_price || currentPrice.toString());
+      const orderStatus = result.order?.status;
       
-      // Check if order actually filled - IOC orders should fill immediately
+      // For limit orders, check if pending (GTC orders don't fill immediately)
+      if (orderStatus === 'PENDING' || orderStatus === 'OPEN') {
+        // Order placed but not filled yet - this is expected for post_only limit orders
+        // Calculate expected quantity from order
+        const expectedQty = usdAmount / currentPrice;
+        console.log(`⏳ LIMIT ORDER PLACED: ${expectedQty.toFixed(6)} ${symbol} @ $${currentPrice.toFixed(4)} - waiting for fill`);
+        return { success: true, quantity: expectedQty, price: currentPrice };
+      }
+      
       if (filledSize > 0 && avgPrice > 0) {
         console.log(`✅ REAL BUY SUCCESS: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
         return { success: true, quantity: filledSize, price: avgPrice };
       } else {
-        // Order was accepted but not filled - likely insufficient liquidity or other issue
-        console.error(`⚠️ Order accepted but not filled for ${symbol}. Status: ${result.order?.status}, filled_size: ${filledSize}`);
-        return { success: false, error: `Order not filled. Status: ${result.order?.status}` };
+        console.error(`⚠️ Order accepted but not filled for ${symbol}. Status: ${orderStatus}`);
+        return { success: false, error: `Order not filled. Status: ${orderStatus}` };
       }
     } else {
       const errorMsg = result.error_response?.message || result.error_response?.preview_failure_reason || result.error || JSON.stringify(result);

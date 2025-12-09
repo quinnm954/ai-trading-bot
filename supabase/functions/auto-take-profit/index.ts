@@ -7,13 +7,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// FEE-ADJUSTED PROFITABLE SETTINGS
-// Coinbase fees: ~0.6% per trade (taker), so round-trip = ~1.2%
-// Take-profit MUST be > 1.2% to be profitable after fees
-const COINBASE_ROUND_TRIP_FEE = 1.2; // 0.6% buy + 0.6% sell
-const BASE_TAKE_PROFIT_PERCENT = 1.5; // 1.5% take profit = ~0.3% net profit after 1.2% fees
-// Stop loss: cut losses at 2% to limit damage
-const BASE_STOP_LOSS_PERCENT = -2.0;
+// AGGRESSIVE MAKER FEE SETTINGS (using limit orders with post_only)
+// Coinbase maker fees: ~0.4% per trade (vs 0.6% taker)
+// Round-trip with maker orders = ~0.8% (saves 0.4% vs market orders!)
+const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
+const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
+// Take-profit: 1.0% = ~0.2% net profit after 0.8% maker fees
+// This allows FASTER cycling than 1.5% with taker fees
+const BASE_TAKE_PROFIT_PERCENT = 1.0;
+// Stop loss: cut losses at 1.5% to limit damage but allow breathing room
+const BASE_STOP_LOSS_PERCENT = -1.5;
 // Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
 const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
 
@@ -493,8 +496,35 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
       return { success: false, error: `Quantity ${roundedQty} below minimum ${minQty} - dust position` };
     }
     
+    // First get current price for limit order
+    const priceResponse = await fetch(`https://api.coinbase.com/api/v3/brokerage/products/${productId}/ticker`, {
+      headers: { 'Authorization': `Bearer ${jwt}` },
+    });
+    const priceData = await priceResponse.json();
+    const currentPrice = parseFloat(priceData.price || '0');
+    
+    if (currentPrice <= 0) {
+      // Fallback to market order if can't get price
+      console.log(`⚠️ Could not get price for ${symbol}, using market order`);
+    }
+    
     const orderId = crypto.randomUUID();
-    const orderBody = {
+    
+    // Use LIMIT order with post_only for MAKER fees (0.4% vs 0.6% taker)
+    // Set price at current market to maximize fill chance while getting maker fee
+    const orderBody = currentPrice > 0 ? {
+      client_order_id: orderId,
+      product_id: productId,
+      side: 'SELL',
+      order_configuration: {
+        limit_limit_gtc: {
+          base_size: roundedQty.toFixed(precision),
+          limit_price: currentPrice.toFixed(8), // Sell at current price
+          post_only: true // Ensures maker fee (0.4%)
+        }
+      }
+    } : {
+      // Fallback market order
       client_order_id: orderId,
       product_id: productId,
       side: 'SELL',
@@ -505,7 +535,7 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
       }
     };
     
-    console.log(`📤 Selling ${roundedQty} ${symbol} on Coinbase (precision: ${precision})...`);
+    console.log(`📤 LIMIT SELL ${roundedQty} ${symbol} @ $${currentPrice.toFixed(4)} (maker fee: 0.4%)...`);
     
     const execStart = Date.now();
     const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
