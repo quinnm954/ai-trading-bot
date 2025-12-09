@@ -130,72 +130,122 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string): Promise<st
   
   console.log("Key bytes length:", keyBytes.length);
   
-  // Helper function to convert SEC1 EC key to PKCS8 format
-  // SEC1 format is simpler, PKCS8 wraps it with algorithm identifier
+  // Parse SEC1 EC key and convert to PKCS8 format for Web Crypto API
+  // SEC1 structure: SEQUENCE { version INTEGER, privateKey OCTET STRING, [0] parameters, [1] publicKey }
   const convertSec1ToPkcs8 = (sec1Key: Uint8Array): Uint8Array => {
-    // PKCS8 header for EC P-256 keys
-    // This is the ASN.1 structure: SEQUENCE { INTEGER version, SEQUENCE { OID ecPublicKey, OID prime256v1 }, OCTET STRING sec1Key }
-    const pkcs8Header = new Uint8Array([
-      0x30, 0x81, 0x87,  // SEQUENCE, length 135 (will be adjusted)
-      0x02, 0x01, 0x00,  // INTEGER version = 0
-      0x30, 0x13,        // SEQUENCE (algorithm identifier)
-      0x06, 0x07,        // OID
-      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,  // ecPublicKey OID (1.2.840.10045.2.1)
-      0x06, 0x08,        // OID
-      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,  // prime256v1 OID (1.2.840.10045.3.1.7)
-      0x04, 0x6d         // OCTET STRING, length 109 (for typical EC key)
-    ]);
+    console.log("SEC1 key first bytes:", Array.from(sec1Key.slice(0, 10)).map(b => b.toString(16).padStart(2, '0')).join(' '));
     
-    // For a typical SEC1 EC P-256 key, the structure is already correct
-    // We just need to wrap it in the PKCS8 structure
-    const totalLength = 26 + sec1Key.length;  // header (26 bytes) + key
-    const pkcs8Key = new Uint8Array(totalLength);
-    
-    // Build the PKCS8 structure
+    // Parse the SEC1 ASN.1 structure to extract the 32-byte private key
     let offset = 0;
     
-    // SEQUENCE tag and length
-    pkcs8Key[offset++] = 0x30;
-    if (totalLength - 2 > 127) {
-      pkcs8Key[offset++] = 0x81;
-      pkcs8Key[offset++] = totalLength - 3;
-    } else {
-      pkcs8Key[offset++] = totalLength - 2;
+    // Check for SEQUENCE tag (0x30)
+    if (sec1Key[offset] !== 0x30) {
+      throw new Error("Invalid SEC1 key: expected SEQUENCE tag");
+    }
+    offset++;
+    
+    // Read length
+    let seqLength = sec1Key[offset++];
+    if (seqLength & 0x80) {
+      const lenBytes = seqLength & 0x7f;
+      seqLength = 0;
+      for (let i = 0; i < lenBytes; i++) {
+        seqLength = (seqLength << 8) | sec1Key[offset++];
+      }
     }
     
-    // Version INTEGER 0
-    pkcs8Key[offset++] = 0x02;
-    pkcs8Key[offset++] = 0x01;
-    pkcs8Key[offset++] = 0x00;
+    // Version INTEGER (should be 1)
+    if (sec1Key[offset] !== 0x02) {
+      throw new Error("Invalid SEC1 key: expected INTEGER tag for version");
+    }
+    offset++;
+    const versionLen = sec1Key[offset++];
+    offset += versionLen; // Skip version value
     
-    // Algorithm identifier SEQUENCE
-    pkcs8Key[offset++] = 0x30;
-    pkcs8Key[offset++] = 0x13;
+    // Private key OCTET STRING
+    if (sec1Key[offset] !== 0x04) {
+      throw new Error("Invalid SEC1 key: expected OCTET STRING tag for private key");
+    }
+    offset++;
+    const privKeyLen = sec1Key[offset++];
+    const privateKeyBytes = sec1Key.slice(offset, offset + privKeyLen);
     
-    // ecPublicKey OID
-    pkcs8Key[offset++] = 0x06;
-    pkcs8Key[offset++] = 0x07;
-    pkcs8Key.set([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01], offset);
-    offset += 7;
+    console.log("Extracted private key length:", privateKeyBytes.length);
     
-    // prime256v1 OID
-    pkcs8Key[offset++] = 0x06;
-    pkcs8Key[offset++] = 0x08;
-    pkcs8Key.set([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07], offset);
-    offset += 8;
+    // Build PKCS8 wrapper around the raw private key
+    // PKCS8 structure for EC P-256:
+    // SEQUENCE {
+    //   INTEGER 0 (version)
+    //   SEQUENCE { OID ecPublicKey, OID prime256v1 }
+    //   OCTET STRING { SEC1 private key }
+    // }
     
-    // OCTET STRING containing the SEC1 key
-    pkcs8Key[offset++] = 0x04;
-    if (sec1Key.length > 127) {
-      pkcs8Key[offset++] = 0x81;
-      pkcs8Key[offset++] = sec1Key.length;
+    // Rebuild a minimal SEC1 structure to embed in PKCS8
+    const sec1Inner = new Uint8Array([
+      0x30, 0x41,  // SEQUENCE, length 65
+      0x02, 0x01, 0x01,  // INTEGER version = 1
+      0x04, 0x20,  // OCTET STRING, 32 bytes
+      ...privateKeyBytes,
+      0xa0, 0x0a,  // [0] EXPLICIT, length 10
+      0x06, 0x08,  // OID, 8 bytes
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07  // prime256v1 OID
+    ]);
+    
+    // Update the outer SEQUENCE length
+    const sec1InnerLength = 3 + 2 + privateKeyBytes.length + 12;  // version + privkey header + privkey + params
+    const sec1Rebuilt = new Uint8Array(2 + sec1InnerLength);
+    sec1Rebuilt[0] = 0x30;
+    sec1Rebuilt[1] = sec1InnerLength;
+    sec1Rebuilt.set([0x02, 0x01, 0x01], 2);  // version
+    sec1Rebuilt.set([0x04, privateKeyBytes.length], 5);  // privkey header
+    sec1Rebuilt.set(privateKeyBytes, 7);  // privkey
+    sec1Rebuilt.set([0xa0, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07], 7 + privateKeyBytes.length);  // params
+    
+    // Now build PKCS8 wrapper
+    const algorithmId = new Uint8Array([
+      0x30, 0x13,  // SEQUENCE, 19 bytes
+      0x06, 0x07,  // OID, 7 bytes
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,  // ecPublicKey OID
+      0x06, 0x08,  // OID, 8 bytes
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07  // prime256v1 OID
+    ]);
+    
+    // PKCS8 = SEQUENCE { version, algorithmId, OCTET STRING { sec1 } }
+    const innerContentLen = 3 + algorithmId.length + 2 + sec1Rebuilt.length;  // version + algo + octet header + sec1
+    
+    const pkcs8 = new Uint8Array(4 + innerContentLen);  // tag + length (2 bytes) + content
+    let idx = 0;
+    
+    pkcs8[idx++] = 0x30;  // SEQUENCE
+    if (innerContentLen > 127) {
+      pkcs8[idx++] = 0x81;
+      pkcs8[idx++] = innerContentLen;
     } else {
-      pkcs8Key[offset++] = sec1Key.length;
+      pkcs8[idx++] = innerContentLen;
     }
     
-    pkcs8Key.set(sec1Key, offset);
+    // Version
+    pkcs8[idx++] = 0x02;
+    pkcs8[idx++] = 0x01;
+    pkcs8[idx++] = 0x00;
     
-    return pkcs8Key.slice(0, offset + sec1Key.length);
+    // Algorithm identifier
+    pkcs8.set(algorithmId, idx);
+    idx += algorithmId.length;
+    
+    // OCTET STRING wrapping SEC1
+    pkcs8[idx++] = 0x04;
+    if (sec1Rebuilt.length > 127) {
+      pkcs8[idx++] = 0x81;
+      pkcs8[idx++] = sec1Rebuilt.length;
+    } else {
+      pkcs8[idx++] = sec1Rebuilt.length;
+    }
+    pkcs8.set(sec1Rebuilt, idx);
+    idx += sec1Rebuilt.length;
+    
+    console.log("Built PKCS8 key, total length:", idx);
+    return pkcs8.slice(0, idx);
   };
   
   // Import the EC private key - try PKCS8 format first, then convert SEC1
