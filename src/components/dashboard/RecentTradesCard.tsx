@@ -54,7 +54,8 @@ export function RecentTradesCard() {
                 <div>
                   <p className="font-medium text-foreground">{trade.symbol}</p>
                   <p className="text-xs text-muted-foreground">
-                    {trade.strategy || 'manual'} • {trade.quantity} shares
+                    {trade.strategy || 'manual'} • {trade.quantity.toFixed(6)} units
+                    {trade.aiReasoning?.includes('direct swap') && ' • 🔄 converted'}
                   </p>
                 </div>
               </div>
