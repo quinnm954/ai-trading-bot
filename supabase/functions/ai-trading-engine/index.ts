@@ -239,6 +239,94 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
   }
 }
 
+// Get actual USDC balance from Coinbase and auto-convert DAI if needed
+async function getAvailableUsdcBalance(): Promise<{ usdcBalance: number; daiConverted: number }> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) {
+    return { usdcBalance: 0, daiConverted: 0 };
+  }
+  
+  try {
+    const uri = `GET api.coinbase.com/api/v3/brokerage/accounts`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+      headers: { 'Authorization': `Bearer ${jwt}` },
+    });
+    
+    if (!response.ok) {
+      console.error('Failed to fetch Coinbase accounts');
+      return { usdcBalance: 0, daiConverted: 0 };
+    }
+    
+    const data = await response.json();
+    let usdcBalance = 0;
+    let daiBalance = 0;
+    
+    for (const account of data.accounts || []) {
+      const balance = parseFloat(account.available_balance?.value || '0');
+      if (account.currency === 'USDC' && balance > 0) {
+        usdcBalance = balance;
+      }
+      if (account.currency === 'DAI' && balance > 0) {
+        daiBalance = balance;
+      }
+    }
+    
+    console.log(`💵 Available: $${usdcBalance.toFixed(2)} USDC, $${daiBalance.toFixed(2)} DAI`);
+    
+    // Auto-convert DAI to USDC if we have significant DAI and low USDC
+    let daiConverted = 0;
+    if (daiBalance > 5 && usdcBalance < 10) {
+      console.log(`🔄 Auto-converting ${daiBalance.toFixed(2)} DAI to USDC...`);
+      
+      const convertUri = `POST api.coinbase.com/api/v3/brokerage/orders`;
+      const convertJwt = await generateCdpJwt(apiKey, apiSecret, convertUri);
+      
+      // DAI has 4 decimal precision
+      const daiQty = Math.floor(daiBalance * 10000) / 10000;
+      
+      const orderBody = {
+        client_order_id: crypto.randomUUID(),
+        product_id: 'DAI-USDC',
+        side: 'SELL', // Sell DAI for USDC
+        order_configuration: {
+          market_market_ioc: {
+            base_size: daiQty.toFixed(4)
+          }
+        }
+      };
+      
+      const convertResponse = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${convertJwt}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(orderBody),
+      });
+      
+      const convertResult = await convertResponse.json();
+      
+      if (convertResponse.ok && convertResult.success) {
+        const filledValue = parseFloat(convertResult.order?.filled_value || '0');
+        daiConverted = filledValue;
+        usdcBalance += filledValue;
+        console.log(`✅ Converted ${daiQty} DAI → $${filledValue.toFixed(2)} USDC`);
+      } else {
+        console.error('❌ DAI conversion failed:', convertResult.error_response?.message || 'Unknown error');
+      }
+    }
+    
+    return { usdcBalance, daiConverted };
+  } catch (error) {
+    console.error('Error getting USDC balance:', error);
+    return { usdcBalance: 0, daiConverted: 0 };
+  }
+}
+
 interface MarketData {
   symbol: string;
   price: number;
@@ -1051,12 +1139,25 @@ serve(async (req) => {
         .single();
       balance = paperAccount?.balance || 100000;
     } else {
-      const { data: liveAccount } = await supabase
+      // For live mode, get ACTUAL USDC balance from Coinbase and auto-convert DAI if needed
+      const { usdcBalance, daiConverted } = await getAvailableUsdcBalance();
+      
+      if (daiConverted > 0) {
+        console.log(`💰 Auto-converted DAI: +$${daiConverted.toFixed(2)} USDC available`);
+      }
+      
+      balance = usdcBalance;
+      console.log(`💵 Actual trading balance: $${balance.toFixed(2)} USDC`);
+      
+      // Also update the database with actual balance
+      await supabase
         .from('live_account')
-        .select('equity')
-        .eq('user_id', user.id)
-        .single();
-      balance = liveAccount?.equity || 0;
+        .update({ 
+          balance: usdcBalance,
+          buying_power: usdcBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id);
     }
 
     // Get current open positions count
