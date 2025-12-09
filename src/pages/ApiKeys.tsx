@@ -4,18 +4,19 @@ import {
   Eye, 
   EyeOff, 
   CheckCircle, 
-  XCircle,
   Loader2,
   Trash2,
   ExternalLink,
-  AlertCircle,
-  Zap
+  Zap,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useApiConnections, ExchangeProvider } from '@/hooks/useApiConnections';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface ExchangeConfig {
   provider: ExchangeProvider;
@@ -113,6 +114,29 @@ export default function ApiKeys() {
   const [testing, setTesting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [detectedExchange, setDetectedExchange] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncBalances = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-broker-balances');
+      
+      if (error) {
+        console.error('Sync error:', error);
+        toast.error('Failed to sync balances: ' + error.message);
+      } else if (data?.success) {
+        toast.success(`Balance synced successfully! Synced: ${data.synced?.join(', ') || 'none'}`);
+        console.log('Sync results:', data);
+      } else {
+        toast.error(data?.message || 'Failed to sync balances');
+      }
+    } catch (err: any) {
+      console.error('Sync error:', err);
+      toast.error('Failed to sync balances');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Auto-detect exchange from key format
   const detectExchangeFromKey = (apiKey: string, secretKey: string): string | null => {
@@ -368,6 +392,26 @@ export default function ApiKeys() {
               );
             })}
           </div>
+          
+          {/* Sync Button */}
+          <Button
+            onClick={handleSyncBalances}
+            disabled={syncing}
+            variant="outline"
+            className="w-full mt-4 gap-2"
+          >
+            {syncing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Syncing Balances...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Sync Balances Now
+              </>
+            )}
+          </Button>
         </div>
       )}
 
