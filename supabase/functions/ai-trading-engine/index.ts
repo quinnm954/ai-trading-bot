@@ -1160,6 +1160,16 @@ serve(async (req) => {
         .eq('user_id', user.id);
     }
 
+    // 📋 LOG ALL USER PARAMETERS BEING USED
+    console.log(`⚙️ YOUR AI TRADER SETTINGS:`);
+    console.log(`   Max Capital Usage: ${settings.max_capital_usage || 80}%`);
+    console.log(`   Max Position Size: ${settings.max_position_size || 10}%`);
+    console.log(`   Max Daily Loss: ${settings.max_daily_loss || 5}%`);
+    console.log(`   Max Concurrent Trades: ${settings.max_concurrent_trades || 5}`);
+    console.log(`   Max Leverage: ${settings.max_leverage || 3}x`);
+    console.log(`   Risk Tolerance: ${settings.risk_tolerance || 'moderate'}`);
+    console.log(`   Allowed Markets: ${(settings.allowed_markets || ['crypto']).join(', ')}`);
+
     // Get current open positions count
     const { count: openPositions } = await supabase
       .from('positions')
@@ -1168,7 +1178,7 @@ serve(async (req) => {
       .eq('is_paper', isPaperMode);
 
     if ((openPositions || 0) >= settings.max_concurrent_trades) {
-      console.log('Max concurrent trades reached');
+      console.log(`🛑 Max concurrent trades reached (${openPositions}/${settings.max_concurrent_trades})`);
       return new Response(JSON.stringify({ 
         message: 'Max concurrent trades reached',
         openPositions,
@@ -1178,6 +1188,40 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // 📉 DAILY LOSS CHECK - Stop trading if daily loss limit exceeded
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    
+    const { data: todaysTrades } = await supabase
+      .from('trades')
+      .select('pnl')
+      .eq('user_id', user.id)
+      .eq('is_paper', isPaperMode)
+      .gte('created_at', todayStart.toISOString());
+    
+    const todaysLoss = (todaysTrades || []).reduce((sum, t) => sum + (t.pnl && t.pnl < 0 ? t.pnl : 0), 0);
+    const maxDailyLossAmount = balance * ((settings.max_daily_loss || 5) / 100);
+    
+    if (Math.abs(todaysLoss) >= maxDailyLossAmount) {
+      console.log(`🛑 DAILY LOSS LIMIT HIT: Lost $${Math.abs(todaysLoss).toFixed(2)} (max: $${maxDailyLossAmount.toFixed(2)})`);
+      
+      await supabase
+        .from('ai_settings')
+        .update({ bot_status: 'idle', updated_at: new Date().toISOString() })
+        .eq('user_id', user.id);
+      
+      return new Response(JSON.stringify({ 
+        message: 'Daily loss limit reached - trading paused',
+        todaysLoss: Math.abs(todaysLoss),
+        maxDailyLoss: maxDailyLossAmount,
+        status: 'daily_limit'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    console.log(`📊 Daily P&L: $${todaysLoss.toFixed(2)} (limit: -$${maxDailyLossAmount.toFixed(2)})`)
 
     // Fetch market data
     const marketData = await fetchMarketData();
@@ -1307,20 +1351,26 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // 🚀 AUTONOMOUS LEVERAGED TRADING - AI decides position size
+      // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
       const MIN_TRADE_VALUE = 5.00;
       const decisionLeverage = (decision as any).leverage || optimalLeverage || 1;
-      const decisionSizePercent = (decision as any).size_percent || settings.max_position_size;
+      const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
       
-      // Calculate leveraged position value (notional exposure)
-      const baseValue = balance * (decisionSizePercent / 100);
+      // Use YOUR max_capital_usage setting (not hardcoded 80%)
+      const maxCapitalUsage = settings.max_capital_usage || 80;
+      const maxPositionSize = settings.max_position_size || 10;
+      const availableCapital = balance * (maxCapitalUsage / 100);
+      
+      // Calculate position value respecting YOUR max position size setting
+      const baseValue = availableCapital * (decisionSizePercent / 100);
       const leveragedNotional = baseValue * decisionLeverage;
       
-      // Actual capital used = base value (leverage is notional)
-      const tradeValue = Math.max(Math.min(baseValue * decision.confidence, balance * 0.8), MIN_TRADE_VALUE);
+      // Actual capital used = base value, capped by YOUR max_capital_usage
+      const tradeValue = Math.max(Math.min(baseValue * decision.confidence, availableCapital), MIN_TRADE_VALUE);
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
       
+      console.log(`⚙️ Using YOUR settings: maxCapital=${maxCapitalUsage}%, maxPosition=${maxPositionSize}%, maxTrades=${settings.max_concurrent_trades}`);
       console.log(`📈 Leveraged trade: $${tradeValue.toFixed(2)} × ${decisionLeverage}x = $${(tradeValue * decisionLeverage).toFixed(2)} notional`);
 
       // STRICT VALIDATION: Skip if trade value, quantity, or price is $0 or invalid
