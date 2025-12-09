@@ -72,14 +72,11 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     
-    // Use anon key client for auth validation
-    const authClient = createClient(supabaseUrl, supabaseAnonKey);
-    // Use service role for database operations
+    // Use service role for all operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get authorization header
+    // Get authorization header and decode JWT directly
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -89,15 +86,33 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await authClient.auth.getUser(token);
     
-    if (authError || !user) {
-      console.error('Auth error:', authError?.message);
+    // Decode JWT payload directly (base64url decode the middle part)
+    let userId: string;
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) throw new Error('Invalid JWT format');
+      
+      // Decode base64url payload
+      const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const decoded = JSON.parse(atob(payload));
+      
+      // Check expiration
+      if (decoded.exp && decoded.exp < Date.now() / 1000) {
+        throw new Error('Token expired');
+      }
+      
+      userId = decoded.sub;
+      if (!userId) throw new Error('No user ID in token');
+    } catch (e) {
+      console.error('JWT decode error:', e);
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    const user = { id: userId };
 
     console.log(`Auto take-profit/stop-loss check for user: ${user.id}`);
 
