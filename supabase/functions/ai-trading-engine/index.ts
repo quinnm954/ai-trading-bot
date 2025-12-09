@@ -218,10 +218,10 @@ CRITICAL: TREND ANALYSIS - Read carefully and DO NOT trade against trends!
 ${trendContext}
 
 MARKET DATA (only tradeable coins with positive/neutral trends):
-${marketData.map(m => `${m.symbol}: $${m.price.toFixed(2)} | 24h: ${m.change24h > 0 ? '+' : ''}${m.change24h.toFixed(2)}% | Range: $${m.low24h.toFixed(2)}-$${m.high24h.toFixed(2)} | Vol: $${(m.volume/1e9).toFixed(1)}B`).join('\n')}
+${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 TRADING PARAMETERS:
-- Available Balance: $${balance.toFixed(2)}
+- Available Balance: $${(balance || 0).toFixed(2)}
 - Max Position Size: ${maxPositionSize}% of balance per trade
 - Target: Quick 1-2% scalp profits
 - Stop Loss: -0.5%
