@@ -6,36 +6,25 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function fetchAlpacaAccount(apiKey: string, secretKey: string) {
-  const response = await fetch("https://paper-api.alpaca.markets/v2/account", {
-    method: "GET",
-    headers: {
-      "APCA-API-KEY-ID": apiKey,
-      "APCA-API-SECRET-KEY": secretKey,
-    },
-  });
+async function fetchCoinbaseBalance(): Promise<{
+  balance: number;
+  buying_power: number;
+  equity: number;
+}> {
+  const apiKey = Deno.env.get("COINBASE_API_KEY");
+  const apiSecret = Deno.env.get("COINBASE_API_SECRET");
 
-  if (!response.ok) {
-    throw new Error(`Alpaca API error: ${response.status}`);
+  if (!apiKey || !apiSecret) {
+    throw new Error("Coinbase API credentials not configured");
   }
 
-  const account = await response.json();
-  
-  return {
-    balance: parseFloat(account.cash || 0),
-    buying_power: parseFloat(account.buying_power || 0),
-    equity: parseFloat(account.equity || 0),
-  };
-}
-
-async function fetchCoinbaseAccount(apiKey: string, secretKey: string) {
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const method = "GET";
   const requestPath = "/api/v3/brokerage/accounts";
   
   const message = timestamp + method + requestPath;
   const encoder = new TextEncoder();
-  const keyData = encoder.encode(secretKey);
+  const keyData = encoder.encode(apiSecret);
   const messageData = encoder.encode(message);
   
   const cryptoKey = await crypto.subtle.importKey(
@@ -49,6 +38,8 @@ async function fetchCoinbaseAccount(apiKey: string, secretKey: string) {
   const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
   const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
 
+  console.log("Fetching Coinbase accounts...");
+  
   const response = await fetch("https://api.coinbase.com" + requestPath, {
     method: "GET",
     headers: {
@@ -60,24 +51,41 @@ async function fetchCoinbaseAccount(apiKey: string, secretKey: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Coinbase API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error("Coinbase API error:", response.status, errorText);
+    throw new Error(`Coinbase API error: ${response.status} - ${errorText}`);
   }
 
   const data = await response.json();
+  console.log("Coinbase accounts response:", JSON.stringify(data, null, 2));
   
   let totalBalance = 0;
+  let usdBalance = 0;
+  
   if (data.accounts && Array.isArray(data.accounts)) {
     for (const account of data.accounts) {
+      // Get USD value of available balance
       if (account.available_balance && account.available_balance.value) {
-        totalBalance += parseFloat(account.available_balance.value);
+        const value = parseFloat(account.available_balance.value);
+        
+        // If currency is USD, add directly
+        if (account.currency === "USD" || account.available_balance.currency === "USD") {
+          usdBalance += value;
+          console.log(`USD account: $${value}`);
+        }
+        
+        // For now, we'll focus on USD balance only for "cash"
+        // Crypto holdings would need price conversion
       }
     }
   }
 
+  console.log(`Total USD balance: $${usdBalance}`);
+
   return {
-    balance: totalBalance,
-    buying_power: totalBalance,
-    equity: totalBalance,
+    balance: usdBalance,
+    buying_power: usdBalance,
+    equity: usdBalance,
   };
 }
 
@@ -128,32 +136,61 @@ serve(async (req) => {
     }
 
     const synced = [];
+    const results: Record<string, any> = {};
 
     for (const conn of connections) {
       try {
-        // Note: In production, credentials should be stored encrypted
-        // For now we'll skip the actual sync if no credentials are available
-        // This is a placeholder for when proper credential storage is implemented
-        
         console.log(`Syncing ${conn.provider} account for user ${user.id}`);
         
-        // Update last_synced_at timestamp
-        const { error: updateError } = await serviceClient
-          .from("live_account")
-          .update({ last_synced_at: new Date().toISOString() })
-          .eq("user_id", user.id)
-          .eq("provider", conn.provider);
+        if (conn.provider === "coinbase") {
+          const balanceData = await fetchCoinbaseBalance();
+          
+          console.log(`Coinbase balance fetched: $${balanceData.balance}`);
+          
+          // Upsert live account with actual balance
+          const { error: upsertError } = await serviceClient
+            .from("live_account")
+            .upsert({
+              user_id: user.id,
+              provider: conn.provider,
+              balance: balanceData.balance,
+              buying_power: balanceData.buying_power,
+              equity: balanceData.equity,
+              last_synced_at: new Date().toISOString(),
+            }, {
+              onConflict: "user_id,provider",
+            });
 
-        if (!updateError) {
+          if (upsertError) {
+            // Try update instead
+            const { error: updateError } = await serviceClient
+              .from("live_account")
+              .update({
+                balance: balanceData.balance,
+                buying_power: balanceData.buying_power,
+                equity: balanceData.equity,
+                last_synced_at: new Date().toISOString(),
+              })
+              .eq("user_id", user.id)
+              .eq("provider", conn.provider);
+
+            if (updateError) {
+              console.error("Update error:", updateError);
+              throw updateError;
+            }
+          }
+          
           synced.push(conn.provider);
+          results[conn.provider] = balanceData;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Error syncing ${conn.provider}:`, err);
+        results[conn.provider] = { error: err.message };
       }
     }
 
     return new Response(
-      JSON.stringify({ success: true, synced }),
+      JSON.stringify({ success: true, synced, results }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
