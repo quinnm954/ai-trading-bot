@@ -534,6 +534,89 @@ async function executeCoinbaseSell(symbol: string, quantity: number): Promise<{ 
   }
 }
 
+// AGGRESSIVE sell - attempts to sell ANY quantity, bypasses minimum checks
+// Used for "Sell All" to liquidate even dust positions
+async function executeCoinbaseSellAggressive(symbol: string, quantity: number): Promise<{ success: boolean; usdValue?: number; error?: string }> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  
+  if (!apiKey || !apiSecret) {
+    return { success: false, error: 'API keys not configured' };
+  }
+  
+  try {
+    const productId = `${symbol}-USDC`;
+    const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    
+    // Use maximum precision available
+    const precisionMap: Record<string, number> = {
+      'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'BNB': 6, 'ADA': 2, 'AVAX': 4,
+      'DOT': 4, 'LINK': 4, 'MATIC': 2, 'POL': 2, 'UNI': 4, 'LTC': 6, 'ATOM': 4,
+      'NEAR': 4, 'APT': 4, 'ARB': 2, 'OP': 4, 'INJ': 4, 'TIA': 4, 'SEI': 2,
+      'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4, 'RENDER': 4, 'FET': 2, 'TAO': 6,
+      'AAVE': 6, 'MKR': 6, 'GRT': 2, 'LDO': 4, 'CRV': 2, 'IMX': 2, 'STX': 2,
+      'HBAR': 2, 'XLM': 2, 'ALGO': 2, 'VET': 2, 'ETC': 6, 'BCH': 6, 'TRX': 2,
+      'DOGE': 2, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0, 'BONK': 0, 'WIF': 4, 'MEME': 0,
+      'GALA': 2, 'SAND': 2, 'MANA': 2, 'AXS': 4, 'ENJ': 2, 'CHZ': 2, 'APE': 4,
+      'CAKE': 4, 'COMP': 6, 'SNX': 4, 'DYDX': 4, 'GMX': 6, '1INCH': 2, 'BAT': 2,
+      'ZRX': 2, 'LRC': 2, 'ENS': 6, 'RPL': 6, 'BLUR': 2, 'JUP': 2, 'ONDO': 4,
+      'PYTH': 2, 'WLD': 4, 'THETA': 4, 'FTM': 2, 'RUNE': 4, 'KAVA': 4,
+      'EOS': 4, 'NEO': 4, 'XTZ': 4, 'QTUM': 4, 'ICX': 2, 'ZIL': 2, 'ONE': 2,
+      'CELO': 4, 'ANKR': 2, 'SKL': 2, 'STORJ': 4, 'OCEAN': 2, 'MINA': 4,
+      'EGLD': 6, 'FLOW': 4, 'CFX': 2, 'IOTA': 2, 'XEC': 0, 'KAS': 2, 'MNT': 2,
+      'CRO': 2, 'OKB': 4, 'LEO': 4, 'DAI': 4,
+    };
+    const precision = precisionMap[symbol.toUpperCase()] ?? 8;
+    const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+    
+    if (roundedQty <= 0) {
+      return { success: false, error: 'Quantity zero after rounding' };
+    }
+    
+    // NO MINIMUM CHECK - attempt to sell any amount
+    const orderId = crypto.randomUUID();
+    const orderBody = {
+      client_order_id: orderId,
+      product_id: productId,
+      side: 'SELL',
+      order_configuration: {
+        market_market_ioc: {
+          base_size: roundedQty.toFixed(precision)
+        }
+      }
+    };
+    
+    console.log(`📤 AGGRESSIVE SELL: ${roundedQty} ${symbol} (precision: ${precision})...`);
+    
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderBody),
+    });
+    
+    const result = await response.json();
+    console.log(`📋 Aggressive sell response for ${symbol}:`, JSON.stringify(result).substring(0, 500));
+    
+    if (response.ok && result.success) {
+      const filledValue = parseFloat(result.order?.filled_value || result.order?.total_value_after_fees || '0');
+      const filledSize = parseFloat(result.order?.filled_size || '0');
+      console.log(`✅ AGGRESSIVE SOLD ${filledSize} ${symbol} for $${filledValue.toFixed(2)} USDC`);
+      return { success: true, usdValue: filledValue };
+    } else {
+      const errorMsg = result.error_response?.message || result.error_response?.preview_failure_reason || result.error || 'Order failed';
+      console.error(`❌ Aggressive sell failed for ${symbol}:`, errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  } catch (error) {
+    console.error(`❌ Aggressive sell error:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 // Fetch all Coinbase crypto holdings
 async function fetchCoinbaseHoldings(): Promise<Array<{ symbol: string; quantity: number; value: number }>> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
@@ -1115,21 +1198,88 @@ serve(async (req) => {
       });
     }
 
-    // SELL ALL - Liquidate all Coinbase crypto holdings to USDC
+    // SELL ALL - Liquidate ALL Coinbase crypto holdings to USDC (including dust)
     if (action === 'sell-all') {
-      console.log('🔴 SELL ALL COINBASE HOLDINGS requested');
+      console.log('🔴 SELL ALL COINBASE HOLDINGS requested (including dust)');
       
-      const result = await sellAllCoinbaseHoldings();
+      // Get all holdings directly from Coinbase (not positions table)
+      const holdings = await fetchCoinbaseHoldings();
+      const sold: Array<{ symbol: string; quantity: number; usdValue: number }> = [];
+      const errors: string[] = [];
+      const cleaned: string[] = [];
       
-      const totalSold = result.sold.reduce((sum, s) => sum + s.usdValue, 0);
+      console.log(`📊 Found ${holdings.length} crypto holdings on Coinbase to liquidate`);
+      
+      for (const holding of holdings) {
+        console.log(`💰 Attempting to sell ${holding.quantity} ${holding.symbol}...`);
+        
+        // Try aggressive sell with full quantity
+        const result = await executeCoinbaseSellAggressive(holding.symbol, holding.quantity);
+        
+        if (result.success) {
+          sold.push({
+            symbol: holding.symbol,
+            quantity: holding.quantity,
+            usdValue: result.usdValue || 0,
+          });
+          console.log(`✅ Sold ${holding.symbol} for $${result.usdValue?.toFixed(2)}`);
+        } else {
+          errors.push(`${holding.symbol}: ${result.error}`);
+          console.error(`❌ Failed to sell ${holding.symbol}: ${result.error}`);
+        }
+      }
+      
+      // Now clean up positions table - delete all live positions
+      const authHeader = req.headers.get('Authorization');
+      if (authHeader) {
+        const token = authHeader.replace('Bearer ', '');
+        try {
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            while (payload.length % 4) payload += '=';
+            const decoded = JSON.parse(atob(payload));
+            if (decoded.sub) {
+              const userId = decoded.sub;
+              
+              // Delete all live positions from database
+              const { data: deletedPositions, error: delErr } = await supabase
+                .from('positions')
+                .delete()
+                .eq('user_id', userId)
+                .eq('is_paper', false)
+                .select('symbol');
+              
+              if (!delErr && deletedPositions) {
+                cleaned.push(...deletedPositions.map((p: any) => p.symbol));
+                console.log(`🧹 Cleaned up ${deletedPositions.length} positions from database`);
+              }
+              
+              // Log the mass liquidation
+              const totalSold = sold.reduce((sum, s) => sum + s.usdValue, 0);
+              await supabase.from('ai_decisions').insert({
+                user_id: userId,
+                decision_type: 'mass_liquidation',
+                action: 'sell',
+                reasoning: `Sold ALL ${sold.length} holdings for $${totalSold.toFixed(2)} USDC. Cleaned ${cleaned.length} positions. Errors: ${errors.length}`,
+              });
+            }
+          }
+        } catch (e) {
+          console.error('Failed to clean positions:', e);
+        }
+      }
+      
+      const totalSold = sold.reduce((sum, s) => sum + s.usdValue, 0);
       
       return new Response(JSON.stringify({
         status: 'success',
         action: 'sell-all',
-        holdingsSold: result.sold.length,
+        holdingsSold: sold.length,
         totalUsdValue: totalSold,
-        sold: result.sold,
-        errors: result.errors,
+        sold,
+        errors,
+        positionsCleaned: cleaned,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
