@@ -85,7 +85,7 @@ export default function Pricing() {
       <div className="min-h-screen bg-background">
         <header className="border-b border-border">
           <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-3">
+            <Link to="/dashboard" className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-primary/20">
                 <Brain className="w-6 h-6 text-primary" />
               </div>
@@ -94,7 +94,7 @@ export default function Pricing() {
               </span>
             </Link>
             <Button variant="outline" asChild>
-              <Link to="/">Dashboard</Link>
+              <Link to="/dashboard">Dashboard</Link>
             </Button>
           </div>
         </header>
@@ -110,7 +110,7 @@ export default function Pricing() {
             You have full access to all features as the creator account.
           </p>
           <Button variant="glow" asChild>
-            <Link to="/">Go to Dashboard</Link>
+            <Link to="/dashboard">Go to Dashboard</Link>
           </Button>
         </main>
       </div>
@@ -122,7 +122,7 @@ export default function Pricing() {
       {/* Header */}
       <header className="border-b border-border">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to={isAuthenticated ? '/' : '/auth'} className="flex items-center gap-3">
+          <Link to={isAuthenticated ? '/dashboard' : '/'} className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-primary/20">
               <Brain className="w-6 h-6 text-primary" />
             </div>
@@ -133,7 +133,7 @@ export default function Pricing() {
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
               <Button variant="outline" asChild>
-                <Link to="/">Dashboard</Link>
+                <Link to="/dashboard">Dashboard</Link>
               </Button>
             ) : (
               <>

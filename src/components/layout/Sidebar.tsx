@@ -21,7 +21,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
 const navItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/strategies', icon: Layers, label: 'Strategies' },
   { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
   { path: '/ai-trader', icon: Bot, label: 'Autonomous AI', badge: 'AUTO' },
