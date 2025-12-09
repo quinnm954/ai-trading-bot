@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { z } from 'zod';
 import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -346,6 +346,15 @@ export default function Auth() {
           )}
         </div>
 
+        {/* Pricing Link */}
+        <div className="mt-8 text-center">
+          <Link 
+            to="/pricing" 
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            View pricing plans →
+          </Link>
+        </div>
       </div>
     </div>
   );
