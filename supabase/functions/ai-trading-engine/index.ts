@@ -1271,12 +1271,37 @@ serve(async (req) => {
       return true;
     });
 
-    console.log(`✅ Generated ${decisions.length} trading decisions using ${bestStrategy} strategy`);
+    // CRITICAL: Limit decisions to remaining trade slots (respecting max_concurrent_trades)
+    const remainingSlots = Math.max(0, settings.max_concurrent_trades - (openPositions || 0));
+    console.log(`📊 Trade slots: ${openPositions || 0} used / ${settings.max_concurrent_trades} max = ${remainingSlots} remaining`);
+    
+    if (remainingSlots === 0) {
+      console.log('⚠️ No remaining trade slots - skipping all new trades');
+      return new Response(JSON.stringify({
+        status: 'at_limit',
+        message: 'Max concurrent trades reached',
+        openPositions: openPositions || 0,
+        maxAllowed: settings.max_concurrent_trades,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    // Only take as many decisions as we have slots for
+    const limitedDecisions = decisions.slice(0, remainingSlots);
+    console.log(`✅ Generated ${decisions.length} trading decisions, executing ${limitedDecisions.length} (limited by ${remainingSlots} slots) using ${bestStrategy} strategy`);
 
     const executedTrades: any[] = [];
+    let tradesExecuted = 0;
 
-    // Execute trades
-    for (const decision of decisions) {
+    // Execute trades (limited to available slots)
+    for (const decision of limitedDecisions) {
+      // Double-check we haven't exceeded the limit during this loop
+      if (tradesExecuted >= remainingSlots) {
+        console.log(`🛑 Stopping: Reached max_concurrent_trades limit (${settings.max_concurrent_trades})`);
+        break;
+      }
+      
       if (decision.action === 'hold') continue;
       
       const coinData = marketData.find(m => m.symbol === decision.symbol);
@@ -1440,8 +1465,11 @@ serve(async (req) => {
         reason: decision.reason,
         pattern: decision.pattern,
       });
+      
+      // Increment counter to respect max_concurrent_trades
+      tradesExecuted++;
 
-      console.log(`🎯 Executed ${decision.action} for ${decision.symbol}: ${quantity.toFixed(6)} @ $${coinData.price} | Pattern: ${decision.pattern}`);
+      console.log(`🎯 Executed ${decision.action} for ${decision.symbol}: ${quantity.toFixed(6)} @ $${coinData.price} | Pattern: ${decision.pattern} | Trades: ${tradesExecuted}/${remainingSlots}`);
     }
 
     return new Response(JSON.stringify({
