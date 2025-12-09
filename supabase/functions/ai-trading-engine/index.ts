@@ -450,15 +450,15 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   let shouldTrade = true;
   let reason = '';
   
-  // STRONG UPTREND ONLY MODE: Only trade when momentum is strongly upward
+  // UPTREND ONLY MODE: Trade strong uptrends and regular uptrends, skip neutral/downtrends
   if (trendScore >= 0.5) {
     trend = 'strong_uptrend';
-    shouldTrade = true; // ONLY strong uptrends are tradeable
+    shouldTrade = true;
     reason = `🚀 Strong uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore >= 0.1) {
     trend = 'uptrend';
-    shouldTrade = false; // Skip regular uptrends
-    reason = `📈 Uptrend (skipping - not strong enough): +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
+    shouldTrade = true; // Trade uptrends too
+    reason = `📈 Uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore <= -0.7) {
     trend = 'strong_downtrend';
     shouldTrade = false;
