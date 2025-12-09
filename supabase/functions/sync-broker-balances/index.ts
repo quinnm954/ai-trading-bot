@@ -9,107 +9,147 @@ const corsHeaders = {
 
 // Generate JWT for Coinbase CDP API
 async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
+  console.log("Parsing private key...");
+  
+  // Clean and normalize the key
   let cleanKey = privateKeyPem.trim()
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
   
+  // If key doesn't have PEM headers, try to add them
   if (!cleanKey.includes("-----BEGIN")) {
-    cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
+    // Check if it looks like base64 content
+    if (/^[A-Za-z0-9+/=\s]+$/.test(cleanKey.replace(/\s/g, ''))) {
+      cleanKey = `-----BEGIN EC PRIVATE KEY-----\n${cleanKey}\n-----END EC PRIVATE KEY-----`;
+    }
   }
+  
+  console.log("Key format detected:", cleanKey.includes("PRIVATE KEY") ? "PEM" : "unknown");
   
   let privateKey: jose.KeyLike;
   
-  try {
-    if (cleanKey.includes("-----BEGIN PRIVATE KEY-----")) {
-      privateKey = await jose.importPKCS8(cleanKey, "ES256");
-    } else {
-      try {
-        privateKey = await jose.importPKCS8(cleanKey, "ES256");
-      } catch {
-        // Parse SEC1 format manually
-        const pemContents = cleanKey
-          .replace(/-----BEGIN EC PRIVATE KEY-----/g, "")
-          .replace(/-----END EC PRIVATE KEY-----/g, "")
-          .replace(/\s+/g, "");
-        
-        const binaryString = atob(pemContents);
-        const keyBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          keyBytes[i] = binaryString.charCodeAt(i);
+  // Try multiple import methods
+  const importMethods = [
+    // Method 1: Direct PKCS8 import
+    async () => {
+      console.log("Trying PKCS8 import...");
+      return await jose.importPKCS8(cleanKey, "ES256");
+    },
+    // Method 2: Try with reformatted PKCS8 header
+    async () => {
+      console.log("Trying reformatted PKCS8...");
+      const pemContent = cleanKey
+        .replace(/-----BEGIN.*-----/g, "")
+        .replace(/-----END.*-----/g, "")
+        .replace(/\s+/g, "");
+      const reformatted = `-----BEGIN PRIVATE KEY-----\n${pemContent}\n-----END PRIVATE KEY-----`;
+      return await jose.importPKCS8(reformatted, "ES256");
+    },
+    // Method 3: Parse SEC1 EC key manually
+    async () => {
+      console.log("Trying SEC1 manual parse...");
+      const pemContents = cleanKey
+        .replace(/-----BEGIN.*-----/g, "")
+        .replace(/-----END.*-----/g, "")
+        .replace(/\s+/g, "");
+      
+      const binaryString = atob(pemContents);
+      const keyBytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        keyBytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      // For P-256, the private key is 32 bytes
+      // Try to extract it from various positions in the ASN.1 structure
+      let dBytes: Uint8Array | null = null;
+      
+      // Look for the 32-byte private key value
+      for (let i = 0; i < keyBytes.length - 32; i++) {
+        // Check if this could be an OCTET STRING containing 32 bytes
+        if (keyBytes[i] === 0x04 && keyBytes[i + 1] === 0x20) {
+          dBytes = keyBytes.slice(i + 2, i + 34);
+          break;
         }
-        
-        // Parse ASN.1 to extract private key
-        let offset = 0;
-        if (keyBytes[offset++] !== 0x30) throw new Error("Invalid SEC1");
-        let seqLen = keyBytes[offset++];
-        if (seqLen & 0x80) {
-          const lenBytes = seqLen & 0x7f;
-          seqLen = 0;
-          for (let i = 0; i < lenBytes; i++) seqLen = (seqLen << 8) | keyBytes[offset++];
-        }
-        
-        if (keyBytes[offset++] !== 0x02) throw new Error("Invalid SEC1");
-        offset += keyBytes[offset++];
-        
-        if (keyBytes[offset++] !== 0x04) throw new Error("Invalid SEC1");
-        const privKeyLen = keyBytes[offset++];
-        const dBytes = keyBytes.slice(offset, offset + privKeyLen);
-        offset += privKeyLen;
-        
-        let xBytes: Uint8Array | null = null;
-        let yBytes: Uint8Array | null = null;
-        
-        while (offset < keyBytes.length) {
-          const tag = keyBytes[offset++];
-          let len = keyBytes[offset++];
-          if (len & 0x80) {
-            const lenBytes = len & 0x7f;
-            len = 0;
-            for (let i = 0; i < lenBytes; i++) len = (len << 8) | keyBytes[offset++];
-          }
-          
-          if (tag === 0xa1) {
-            if (keyBytes[offset] === 0x03) {
-              offset++;
-              let bitStringLen = keyBytes[offset++];
-              if (bitStringLen & 0x80) {
-                const lenBytes = bitStringLen & 0x7f;
-                bitStringLen = 0;
-                for (let i = 0; i < lenBytes; i++) bitStringLen = (bitStringLen << 8) | keyBytes[offset++];
-              }
-              offset++;
-              if (keyBytes[offset] === 0x04) {
-                offset++;
-                xBytes = keyBytes.slice(offset, offset + 32);
-                yBytes = keyBytes.slice(offset + 32, offset + 64);
-              }
+      }
+      
+      if (!dBytes) {
+        // Try finding a 32-byte sequence after common ASN.1 patterns
+        for (let i = 7; i < keyBytes.length - 32; i++) {
+          if (keyBytes[i - 1] === 0x20 || keyBytes[i - 1] === 0x21) {
+            const candidate = keyBytes.slice(i, i + 32);
+            // Check if it looks like a valid private key (not all zeros, not all same byte)
+            const unique = new Set(candidate);
+            if (unique.size > 5) {
+              dBytes = candidate;
+              break;
             }
+          }
+        }
+      }
+      
+      if (!dBytes) {
+        throw new Error("Could not extract private key bytes");
+      }
+      
+      const base64url = (bytes: Uint8Array) => 
+        btoa(String.fromCharCode(...bytes))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=/g, '');
+      
+      // Create JWK with just the d parameter
+      const jwk: jose.JWK = {
+        kty: "EC",
+        crv: "P-256",
+        d: base64url(dBytes),
+        // Generate x and y from the key if present in the data
+        x: base64url(new Uint8Array(32)), // Placeholder
+        y: base64url(new Uint8Array(32)), // Placeholder
+      };
+      
+      // Try to find public key coordinates in the data
+      for (let i = 0; i < keyBytes.length - 65; i++) {
+        if (keyBytes[i] === 0x04 && i + 65 <= keyBytes.length) {
+          // Uncompressed point format
+          const nextBytes = keyBytes.slice(i, i + 65);
+          if (nextBytes[0] === 0x04) {
+            jwk.x = base64url(nextBytes.slice(1, 33));
+            jwk.y = base64url(nextBytes.slice(33, 65));
             break;
           }
-          offset += len;
         }
-        
-        const base64url = (bytes: Uint8Array) => 
-          btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        
-        const jwk: jose.JWK = { kty: "EC", crv: "P-256", d: base64url(dBytes) };
-        if (xBytes && yBytes) { jwk.x = base64url(xBytes); jwk.y = base64url(yBytes); }
-        
-        privateKey = await jose.importJWK(jwk, "ES256") as jose.KeyLike;
       }
+      
+      return await jose.importJWK(jwk, "ES256") as jose.KeyLike;
+    },
+    // Method 4: Try direct JWK if the key is in JSON format
+    async () => {
+      console.log("Trying JWK import...");
+      const jwk = JSON.parse(cleanKey);
+      return await jose.importJWK(jwk, "ES256") as jose.KeyLike;
+    },
+  ];
+  
+  for (const method of importMethods) {
+    try {
+      privateKey = await method();
+      console.log("Key import successful!");
+      
+      return await new jose.SignJWT({ iss: "cdp", sub: apiKey, uri })
+        .setProtectedHeader({ alg: "ES256", kid: apiKey, nonce: crypto.randomUUID(), typ: "JWT" })
+        .setIssuedAt()
+        .setNotBefore(Math.floor(Date.now() / 1000))
+        .setExpirationTime("2m")
+        .sign(privateKey);
+    } catch (e: any) {
+      console.log(`Import method failed: ${e.message}`);
+      continue;
     }
-  } catch (e: any) {
-    throw new Error(`Failed to import private key: ${e.message}`);
   }
   
-  return await new jose.SignJWT({ iss: "cdp", sub: apiKey, uri })
-    .setProtectedHeader({ alg: "ES256", kid: apiKey, nonce: crypto.randomUUID(), typ: "JWT" })
-    .setIssuedAt()
-    .setNotBefore(Math.floor(Date.now() / 1000))
-    .setExpirationTime("2m")
-    .sign(privateKey);
+  throw new Error("All key import methods failed. Please check the private key format.");
 }
 
 async function fetchCoinbaseBalance(): Promise<{
