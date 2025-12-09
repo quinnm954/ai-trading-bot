@@ -104,7 +104,7 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
-// Aggressive trading strategy based on momentum and RSI-like logic
+// SCALPING STRATEGY - Fast in, fast out, no holding
 function analyzeForTrades(
   marketData: MarketData[],
   regime: string,
@@ -113,73 +113,59 @@ function analyzeForTrades(
 ): TradingDecision[] {
   const decisions: TradingDecision[] = [];
   
-  // AGGRESSIVE: Much lower thresholds for triggering trades
-  const CONFIDENCE_THRESHOLD = 0.15; // Was 0.3
-  const POSITION_MULTIPLIER = 2.5; // Larger positions
+  // SCALPING MODE: Ultra-low thresholds, quick trades
+  const CONFIDENCE_THRESHOLD = 0.10; // Very low - trade often
+  const POSITION_MULTIPLIER = 3.0; // Big positions for quick profits
   
   for (const coin of marketData) {
     let action: 'buy' | 'sell' | 'hold' = 'hold';
     let confidence = 0;
     let reason = '';
     
-    // Price relative to daily range (pseudo-RSI)
+    // Price relative to daily range
     const priceRange = coin.high24h - coin.low24h;
     const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
     
-    // AGGRESSIVE: Momentum-based strategy with lower thresholds
-    if (regime === 'trending') {
-      if (coin.change24h > 2 && pricePosition < 0.85) { // Was 5% and 0.7
-        action = 'buy';
-        confidence = Math.min(0.9, (coin.change24h / 5) + 0.3);
-        reason = `Aggressive momentum buy (+${coin.change24h.toFixed(1)}%)`;
-      } else if (coin.change24h < -2 && pricePosition > 0.15) { // Was -5% and 0.3
-        action = 'sell';
-        confidence = Math.min(0.85, (Math.abs(coin.change24h) / 5) + 0.3);
-        reason = `Aggressive short on downtrend (${coin.change24h.toFixed(1)}%)`;
-      }
+    // SCALPING: Any momentum = trade opportunity
+    if (coin.change24h > 0.5) {
+      // Riding momentum up
+      action = 'buy';
+      confidence = Math.min(0.95, 0.5 + (coin.change24h / 10));
+      reason = `🚀 SCALP: Momentum ride (+${coin.change24h.toFixed(2)}%)`;
+    } else if (coin.change24h < -0.5 && pricePosition < 0.4) {
+      // Quick bounce play near bottom
+      action = 'buy';
+      confidence = 0.7;
+      reason = `⚡ SCALP: Bounce play at ${(pricePosition * 100).toFixed(0)}% range`;
+    } else if (coin.change24h < -0.5 && pricePosition > 0.6) {
+      // Short the downtrend
+      action = 'sell';
+      confidence = 0.65;
+      reason = `📉 SCALP: Short downtrend (${coin.change24h.toFixed(2)}%)`;
+    } else if (pricePosition < 0.25) {
+      // Near daily low - quick scalp buy
+      action = 'buy';
+      confidence = 0.8;
+      reason = `💰 SCALP: Near daily low (${(pricePosition * 100).toFixed(0)}%)`;
+    } else if (pricePosition > 0.75) {
+      // Near daily high - take profit / short
+      action = 'sell';
+      confidence = 0.75;
+      reason = `🎯 SCALP: Near daily high (${(pricePosition * 100).toFixed(0)}%)`;
     }
     
-    // AGGRESSIVE: Mean reversion with wider zones
-    if (regime === 'ranging') {
-      if (pricePosition < 0.35 && coin.change24h < 0) { // Was 0.2 and -2%
-        action = 'buy';
-        confidence = 0.7; // Was 0.6
-        reason = `Aggressive buy - near range bottom (${(pricePosition * 100).toFixed(0)}%)`;
-      } else if (pricePosition > 0.65 && coin.change24h > 0) { // Was 0.8 and 2%
-        action = 'sell';
-        confidence = 0.7;
-        reason = `Aggressive sell - near range top (${(pricePosition * 100).toFixed(0)}%)`;
-      }
-    }
-    
-    // AGGRESSIVE: Volatility breakout with lower threshold
+    // High volatility = more opportunities
     if (regime === 'high_volatility') {
-      if (coin.change24h > 4) { // Was 8%
+      confidence *= 1.2; // Boost confidence in volatile markets
+      if (coin.change24h > 2) {
         action = 'buy';
-        confidence = 0.65; // Was 0.5
-        reason = `Aggressive volatility breakout (+${coin.change24h.toFixed(1)}%)`;
-      } else if (coin.change24h < -4) {
-        action = 'buy'; // Buy the dip aggressively
-        confidence = 0.55;
-        reason = `Aggressive dip buy in high volatility (${coin.change24h.toFixed(1)}%)`;
-      }
-    }
-    
-    // AGGRESSIVE: DCA on any red candle in low volatility
-    if (regime === 'low_volatility') {
-      if (coin.change24h < 0) { // Any negative change
-        action = 'buy';
-        confidence = 0.5; // Was 0.4
-        reason = `Aggressive DCA accumulation`;
-      } else if (coin.change24h > 1) {
-        action = 'buy'; // Also buy on small gains to not miss moves
-        confidence = 0.4;
-        reason = `Low vol momentum entry (+${coin.change24h.toFixed(1)}%)`;
+        confidence = 0.85;
+        reason = `🔥 SCALP: Vol breakout (+${coin.change24h.toFixed(2)}%)`;
       }
     }
     
     if (action !== 'hold' && confidence >= CONFIDENCE_THRESHOLD) {
-      // AGGRESSIVE: Larger position sizes
+      // SCALPING: Bigger positions for quick % gains
       const positionValue = balance * (maxPositionSize / 100) * confidence * POSITION_MULTIPLIER;
       const quantity = positionValue / coin.price;
       
@@ -187,14 +173,14 @@ function analyzeForTrades(
         action,
         symbol: coin.symbol,
         reason,
-        confidence,
+        confidence: Math.min(confidence, 0.95),
         suggestedSize: quantity,
       });
     }
   }
   
-  // Return more trades (up to 5 instead of 3)
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+  // Return more trades - scalping means high frequency
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
 }
 
 serve(async (req) => {
@@ -337,12 +323,12 @@ serve(async (req) => {
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
 
-      // Calculate position size - AGGRESSIVE: larger positions
-      const maxValue = balance * (settings.max_position_size / 100) * 2; // Double max position
+      // SCALPING: Maximum position sizes for quick profits
+      const maxValue = balance * (settings.max_position_size / 100) * 3; // Triple max position
       const tradeValue = Math.min(maxValue * decision.confidence, maxValue);
       const quantity = tradeValue / coinData.price;
 
-      if (tradeValue < 1) continue; // Lower minimum to $1 (was $10)
+      if (tradeValue < 0.5) continue; // Ultra-low minimum for more trades
 
       // Record the trade
       const tradeData = {
