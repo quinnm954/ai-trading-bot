@@ -4,7 +4,7 @@ import { Brain, Check, Zap, Crown, ArrowRight, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
-
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 const tiers = [
   {
     name: 'Free',
@@ -67,6 +67,7 @@ const tiers = [
 export default function Pricing() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { isAdmin } = useIsAdmin();
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
 
   const handleSelectPlan = (tierName: string) => {
@@ -77,6 +78,44 @@ export default function Pricing() {
       navigate('/settings');
     }
   };
+
+  // Admin gets all features free
+  if (isAuthenticated && isAdmin) {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="border-b border-border">
+          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-primary/20">
+                <Brain className="w-6 h-6 text-primary" />
+              </div>
+              <span className="text-xl font-bold text-foreground">
+                Titan<span className="text-primary">AI</span>
+              </span>
+            </Link>
+            <Button variant="outline" asChild>
+              <Link to="/">Dashboard</Link>
+            </Button>
+          </div>
+        </header>
+        <main className="container mx-auto px-4 py-16 text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 text-primary mb-6">
+            <Crown className="w-5 h-5" />
+            Creator Account
+          </div>
+          <h1 className="text-4xl font-bold text-foreground mb-4">
+            All Features Unlocked
+          </h1>
+          <p className="text-xl text-muted-foreground mb-8">
+            You have full access to all features as the creator account.
+          </p>
+          <Button variant="glow" asChild>
+            <Link to="/">Go to Dashboard</Link>
+          </Button>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
