@@ -402,7 +402,7 @@ serve(async (req) => {
                   }
                 } else {
                   // Insert new position
-                  const { error: posError } = await serviceClient
+                  const { data: insertedData, error: posError } = await serviceClient
                     .from("positions")
                     .insert({
                       user_id: userId,
@@ -414,12 +414,13 @@ serve(async (req) => {
                       market_type: "crypto",
                       is_paper: false,
                       unrealized_pnl: 0,
-                    });
+                    })
+                    .select();
                   
                   if (posError) {
-                    console.error(`Error inserting ${holding.symbol}:`, posError.message);
+                    console.error(`❌ Error inserting ${holding.symbol}:`, posError.message, posError.code, posError.details);
                   } else {
-                    console.log(`📊 Synced position: ${holding.quantity} ${holding.symbol}`);
+                    console.log(`✅ Inserted position: ${holding.quantity} ${holding.symbol}, id: ${insertedData?.[0]?.id || 'unknown'}`);
                   }
                 }
               }
