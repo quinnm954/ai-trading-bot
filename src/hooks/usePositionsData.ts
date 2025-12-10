@@ -216,16 +216,16 @@ export function usePositionsData(isPaper: boolean = true) {
     }
   }, [user, isPaper]);
 
-  // Real-time price updates every 10 seconds
+  // Aggressive real-time price updates every 5 seconds
   useEffect(() => {
     fetchPositions();
 
-    // Set up real-time price polling
+    // Set up aggressive real-time price polling (5 seconds)
     priceUpdateInterval.current = setInterval(() => {
       fetchPositions();
-    }, 10000); // Update every 10 seconds
+    }, 5000);
 
-    // Subscribe to position changes
+    // Subscribe to position changes with status monitoring
     const channel = supabase
       .channel('positions-changes')
       .on(
@@ -239,12 +239,43 @@ export function usePositionsData(isPaper: boolean = true) {
           fetchPositions();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[Positions] Channel status:', status);
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[Positions] Channel error, data still refreshing via interval');
+        }
+      });
+
+    // Refresh on visibility change
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Positions] Tab visible, refreshing');
+        fetchPositions();
+      }
+    };
+
+    // Refresh on focus
+    const handleFocus = () => {
+      fetchPositions();
+    };
+
+    // Refresh when back online
+    const handleOnline = () => {
+      console.log('[Positions] Back online, refreshing');
+      fetchPositions();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnline);
 
     return () => {
       if (priceUpdateInterval.current) {
         clearInterval(priceUpdateInterval.current);
       }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnline);
       supabase.removeChannel(channel);
     };
   }, [fetchPositions]);
