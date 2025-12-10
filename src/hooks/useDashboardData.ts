@@ -299,85 +299,126 @@ export function useDashboardData() {
   useEffect(() => {
     fetchData();
     
-    // Subscribe to real-time trades updates
-    const tradesChannel = supabase
-      .channel('dashboard-trades-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trades',
-        },
-        () => {
-          triggerRealtimeUpdate();
-          fetchData();
-        }
-      )
-      .subscribe();
+    // Subscribe to real-time trades updates with reconnection handling
+    const setupChannels = () => {
+      const tradesChannel = supabase
+        .channel('dashboard-trades-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'trades',
+          },
+          () => {
+            triggerRealtimeUpdate();
+            fetchData();
+          }
+        )
+        .subscribe((status) => {
+          console.log('[Dashboard] Trades channel status:', status);
+          if (status === 'CHANNEL_ERROR') {
+            console.warn('[Dashboard] Trades channel error, will retry...');
+          }
+        });
 
-    // Subscribe to real-time positions updates
-    const positionsChannel = supabase
-      .channel('dashboard-positions-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'positions',
-        },
-        () => {
-          triggerRealtimeUpdate();
-          fetchData();
-        }
-      )
-      .subscribe();
+      const positionsChannel = supabase
+        .channel('dashboard-positions-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'positions',
+          },
+          () => {
+            triggerRealtimeUpdate();
+            fetchData();
+          }
+        )
+        .subscribe((status) => {
+          console.log('[Dashboard] Positions channel status:', status);
+        });
 
-    // Subscribe to real-time paper account updates
-    const paperChannel = supabase
-      .channel('dashboard-paper-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'paper_account',
-        },
-        () => {
-          triggerRealtimeUpdate();
-          fetchData();
-        }
-      )
-      .subscribe();
+      const paperChannel = supabase
+        .channel('dashboard-paper-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'paper_account',
+          },
+          () => {
+            triggerRealtimeUpdate();
+            fetchData();
+          }
+        )
+        .subscribe((status) => {
+          console.log('[Dashboard] Paper channel status:', status);
+        });
 
-    // Subscribe to real-time live account updates (for balance sync)
-    const liveAccountChannel = supabase
-      .channel('dashboard-live-account-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'live_account',
-        },
-        () => {
-          triggerRealtimeUpdate();
-          fetchData();
-        }
-      )
-      .subscribe();
+      const liveAccountChannel = supabase
+        .channel('dashboard-live-account-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'live_account',
+          },
+          () => {
+            triggerRealtimeUpdate();
+            fetchData();
+          }
+        )
+        .subscribe((status) => {
+          console.log('[Dashboard] Live account channel status:', status);
+        });
 
-    // Auto-refresh every 10 seconds (positions get live prices each refresh)
+      return { tradesChannel, positionsChannel, paperChannel, liveAccountChannel };
+    };
+
+    const channels = setupChannels();
+
+    // Aggressive auto-refresh every 5 seconds (reduced from 10s)
     const intervalId = setInterval(() => {
       fetchData();
-    }, 10000);
+    }, 5000);
+
+    // Extra safety: refresh on tab visibility change
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Dashboard] Tab visible, refreshing data');
+        fetchData();
+      }
+    };
+
+    // Refresh on window focus
+    const handleFocus = () => {
+      console.log('[Dashboard] Window focused, refreshing data');
+      fetchData();
+    };
+
+    // Refresh when coming back online
+    const handleOnline = () => {
+      console.log('[Dashboard] Back online, refreshing data');
+      fetchData();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnline);
     
     return () => {
       clearInterval(intervalId);
-      supabase.removeChannel(tradesChannel);
-      supabase.removeChannel(positionsChannel);
-      supabase.removeChannel(paperChannel);
-      supabase.removeChannel(liveAccountChannel);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnline);
+      supabase.removeChannel(channels.tradesChannel);
+      supabase.removeChannel(channels.positionsChannel);
+      supabase.removeChannel(channels.paperChannel);
+      supabase.removeChannel(channels.liveAccountChannel);
     };
   }, [fetchData, triggerRealtimeUpdate]);
 
