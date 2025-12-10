@@ -33,6 +33,28 @@ export default function Dashboard() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    
+    // If in live mode, sync broker balances first
+    if (isLiveMode) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-broker-balances`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+            }
+          );
+        }
+      } catch (error) {
+        console.error('Sync error:', error);
+      }
+    }
+    
     await refetch();
     setTimeout(() => setIsRefreshing(false), 500);
   };
