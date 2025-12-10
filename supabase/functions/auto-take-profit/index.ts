@@ -14,7 +14,7 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
 // Rotation threshold: when position gains X%, rotate into rising asset
 const ROTATION_PROFIT_THRESHOLD = 1.0; // 1.0% profit triggers rotation (profitable after 0.8% fees)
 // Stop loss: emergency protection
-const BASE_STOP_LOSS_PERCENT = -8.0;
+const BASE_STOP_LOSS_PERCENT = -1.0; // Tight stop loss to minimize losses
 // Minimum momentum for target asset (must be rising)
 const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
 // Maximum momentum - avoid buying at the top
