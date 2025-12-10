@@ -623,13 +623,21 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   };
 }
 
-// Analyze all coins and filter out downtrending ones
+// GAINERS ONLY: Pre-filter to only positive 24h change, then analyze trends
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
-  const trendAnalysis = marketData.map(coin => analyzeTrend(coin));
-  const tradeable = marketData.filter(coin => {
+  // Step 1: Filter to GAINERS ONLY (positive 24h change)
+  const gainersOnly = marketData.filter(coin => coin.change24h > 0);
+  const skippedCount = marketData.length - gainersOnly.length;
+  console.log(`🎯 GAINERS FILTER: ${gainersOnly.length} gainers / ${marketData.length} total (skipped ${skippedCount} losers/flat)`);
+  
+  // Step 2: Analyze trends only for gainers
+  const trendAnalysis = gainersOnly.map(coin => analyzeTrend(coin));
+  const tradeable = gainersOnly.filter(coin => {
     const analysis = trendAnalysis.find(t => t.symbol === coin.symbol);
     return analysis?.shouldTrade ?? false;
   });
+  
+  console.log(`📈 Tradeable gainers: ${tradeable.length} (uptrend/strong_uptrend)`);
   
   return { tradeable, trendAnalysis };
 }
