@@ -45,7 +45,7 @@ export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Symbol</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Side</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Qty</th>
-                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Current</th>
+                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Invested</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Value</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">P&L</th>
               </tr>
@@ -78,8 +78,8 @@ export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
                       </span>
                     </td>
                     <td className="py-4 px-4 text-right font-mono text-sm">{position.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                    <td className="py-4 px-4 text-right font-mono text-sm">
-                      ${position.currentPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) || '-'}
+                    <td className="py-4 px-4 text-right font-mono text-sm text-muted-foreground">
+                      ${position.initialInvestment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="py-4 px-4 text-right font-mono text-sm font-medium text-foreground">
                       ${position.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

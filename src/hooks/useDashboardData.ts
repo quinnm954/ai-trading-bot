@@ -84,6 +84,7 @@ export interface DashboardPosition {
   unrealizedPnl: number;
   pnlPercent: number;
   value: number;
+  initialInvestment: number;
 }
 
 interface LiveAccount {
@@ -197,6 +198,8 @@ export function useDashboardData() {
             unrealizedPnl += posUnrealizedPnl;
           }
           
+          const initialInvestment = entryPrice * quantity;
+          
           formattedPositions.push({
             id: pos.id,
             symbol: pos.symbol,
@@ -207,6 +210,7 @@ export function useDashboardData() {
             unrealizedPnl: posUnrealizedPnl,
             pnlPercent,
             value,
+            initialInvestment,
           });
         });
       }
