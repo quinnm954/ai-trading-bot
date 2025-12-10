@@ -12,7 +12,7 @@ const corsHeaders = {
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
 // Rotation threshold: when position gains X%, rotate into rising asset
-const ROTATION_PROFIT_THRESHOLD = 3.0; // 3% profit triggers rotation to better opportunity
+const ROTATION_PROFIT_THRESHOLD = 2.0; // 2% profit triggers rotation to better opportunity
 // Stop loss: emergency protection
 const BASE_STOP_LOSS_PERCENT = -8.0;
 // Minimum momentum for target asset (must be rising)
