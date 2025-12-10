@@ -7,18 +7,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// AGGRESSIVE MAKER FEE SETTINGS (using limit orders with post_only)
-// Coinbase maker fees: ~0.4% per trade (vs 0.6% taker)
-// Round-trip with maker orders = ~0.8% (saves 0.4% vs market orders!)
+// HOLD MODE - No auto take-profit, positions held until manual sell
+// User wants max profit accumulation without auto-selling to USDC
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
-// Take-profit: 1.0% = ~0.2% net profit after 0.8% maker fees
-// This allows FASTER cycling than 1.5% with taker fees
-const BASE_TAKE_PROFIT_PERCENT = 1.0;
-// Stop loss: cut losses at 1.5% to limit damage but allow breathing room
-const BASE_STOP_LOSS_PERCENT = -1.5;
-// Only convert to another crypto if momentum is > this threshold (otherwise sell to USDC)
-const MIN_CONVERSION_MOMENTUM = 3.0; // 3% 24h gain required to justify conversion hop
+// Take-profit DISABLED - set to 1000% so it never triggers automatically
+// User will manually sell when ready
+const BASE_TAKE_PROFIT_PERCENT = 1000.0; // Effectively disabled
+// Stop loss: keep at -10% as emergency protection only
+const BASE_STOP_LOSS_PERCENT = -10.0;
+// Conversion momentum - not used when take-profit is disabled
+const MIN_CONVERSION_MOMENTUM = 3.0;
 
 // Latency tracking for dynamic threshold adjustment
 interface LatencyMetrics {
