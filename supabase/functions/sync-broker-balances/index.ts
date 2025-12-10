@@ -208,17 +208,23 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
   
   do {
     pageCount++;
-    const requestPath = cursor 
-      ? `/api/v3/brokerage/accounts?cursor=${cursor}&limit=250`
-      : "/api/v3/brokerage/accounts?limit=250";
+    // Build URL with query params
+    const baseUrl = "https://api.coinbase.com/api/v3/brokerage/accounts";
+    const params = new URLSearchParams({ limit: "250" });
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+    const fullUrl = `${baseUrl}?${params.toString()}`;
+    const requestPath = `/api/v3/brokerage/accounts`;
     
-    console.log(`📄 Fetching page ${pageCount}: ${requestPath}`);
+    console.log(`📄 Fetching page ${pageCount}: ${fullUrl}`);
     
     let response: Response;
 
     if (isCdp) {
+      // CDP JWT URI should be just the base path without query params
       const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
-      response = await fetch(`https://api.coinbase.com${requestPath}`, {
+      response = await fetch(fullUrl, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${jwt}`,
@@ -226,6 +232,7 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
         },
       });
     } else {
+      // Legacy HMAC auth - sign just the path without query params
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const method = "GET";
       const message = timestamp + method + requestPath;
@@ -245,7 +252,7 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
       const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
       const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
 
-      response = await fetch("https://api.coinbase.com" + requestPath, {
+      response = await fetch(fullUrl, {
         method: "GET",
         headers: {
           "CB-ACCESS-KEY": apiKey,
