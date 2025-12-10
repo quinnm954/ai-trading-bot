@@ -959,9 +959,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
+    
+    // Log position status for monitoring (even when not triggering)
+    const statusIcon = hitRotationTarget ? '🔄' : hitStopLoss ? '🛑' : '👀';
+    const distToRotate = (rotationThreshold - pnlPercent).toFixed(2);
+    const distToStop = (pnlPercent - adjustedStopLoss).toFixed(2);
+    console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%`);
 
     if (hitRotationTarget || hitStopLoss) {
-      console.log(`${hitRotationTarget ? '🔄 ROTATE' : '🛑 STOP'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+      console.log(`${hitRotationTarget ? '🔄 ROTATE TRIGGERED' : '🛑 STOP TRIGGERED'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
