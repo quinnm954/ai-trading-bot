@@ -1,15 +1,14 @@
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePositionsData } from '@/hooks/usePositionsData';
-import { useDashboardData } from '@/hooks/useDashboardData';
+import { DashboardPosition } from '@/hooks/useDashboardData';
 
-export function PositionsTable() {
-  const { stats, isLoading: dashboardLoading } = useDashboardData();
-  const isPaper = stats.tradingMode === 'paper';
-  const { positions, isLoading: positionsLoading } = usePositionsData(isPaper);
+interface PositionsTableProps {
+  positions: DashboardPosition[];
+  isLoading: boolean;
+}
 
-  // Wait for dashboard to load first so we know the correct trading mode
-  if (dashboardLoading || positionsLoading) {
+export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
+  if (isLoading) {
     return (
       <div className="glass-panel p-6">
         <div className="flex items-center justify-between mb-6">
@@ -56,7 +55,6 @@ export function PositionsTable() {
                 const pnl = position.unrealizedPnl || 0;
                 const pnlPercent = position.pnlPercent || 0;
                 const displaySide = position.side === 'buy' ? 'long' : 'short';
-                const positionValue = (position.currentPrice || 0) * position.quantity;
                 
                 return (
                   <tr 
@@ -84,7 +82,7 @@ export function PositionsTable() {
                       ${position.currentPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) || '-'}
                     </td>
                     <td className="py-4 px-4 text-right font-mono text-sm font-medium text-foreground">
-                      ${positionValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${position.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="py-4 px-4 text-right">
                       <div className={cn(

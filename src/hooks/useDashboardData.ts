@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -34,25 +34,16 @@ async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<st
   const prices: Record<string, number> = {};
   const ids = symbols.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
   
-  console.log('[Dashboard] Fetching prices for symbols:', symbols);
-  console.log('[Dashboard] Mapped to CoinGecko IDs:', ids);
-  
   if (ids.length === 0) {
-    console.warn('[Dashboard] No CoinGecko IDs found for symbols');
     return prices;
   }
   
   try {
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`;
-    console.log('[Dashboard] Fetching from:', url);
-    
     const response = await fetch(url);
-    
-    console.log('[Dashboard] CoinGecko response status:', response.status);
     
     if (response.ok) {
       const data = await response.json();
-      console.log('[Dashboard] CoinGecko data:', data);
       
       for (const symbol of symbols) {
         const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
@@ -60,9 +51,6 @@ async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<st
           prices[symbol.toUpperCase()] = data[geckoId].usd;
         }
       }
-      console.log('[Dashboard] Final prices:', prices);
-    } else {
-      console.error('[Dashboard] CoinGecko error:', response.status, await response.text());
     }
   } catch (error) {
     console.error('[Dashboard] Error fetching live prices:', error);
@@ -84,6 +72,18 @@ interface DashboardStats {
   openPositions: number;
   todayTrades: number;
   tradingMode: 'paper' | 'live';
+}
+
+export interface DashboardPosition {
+  id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  quantity: number;
+  avgEntryPrice: number;
+  currentPrice: number;
+  unrealizedPnl: number;
+  pnlPercent: number;
+  value: number;
 }
 
 interface LiveAccount {
@@ -110,13 +110,18 @@ export function useDashboardData() {
     todayTrades: 0,
     tradingMode: 'paper',
   });
+  const [positions, setPositions] = useState<DashboardPosition[]>([]);
   const [liveAccounts, setLiveAccounts] = useState<LiveAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isRealtimeUpdate, setIsRealtimeUpdate] = useState(false);
+  const refreshCounter = useRef(0);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
+
+    const fetchId = ++refreshCounter.current;
+    console.log(`[Dashboard] Fetch #${fetchId} starting...`);
 
     try {
       // Fetch AI settings for trading mode
@@ -154,21 +159,17 @@ export function useDashboardData() {
       setLiveAccounts(formattedLiveAccounts);
 
       // Fetch positions
-      const { data: positionsData, count: positionsCount, error: positionsError } = await supabase
+      const { data: positionsData, count: positionsCount } = await supabase
         .from('positions')
-        .select('symbol, quantity, avg_entry_price, current_price', { count: 'exact' })
+        .select('*', { count: 'exact' })
         .eq('user_id', user.id)
         .eq('is_paper', tradingMode === 'paper');
-
-      console.log('[Dashboard] Trading mode:', tradingMode);
-      console.log('[Dashboard] Positions query - is_paper:', tradingMode === 'paper');
-      console.log('[Dashboard] Positions data:', positionsData);
-      console.log('[Dashboard] Positions count:', positionsCount);
-      if (positionsError) console.error('[Dashboard] Positions error:', positionsError);
 
       // Fetch live prices for positions from CoinGecko
       let positionsValue = 0;
       let unrealizedPnl = 0;
+      const formattedPositions: DashboardPosition[] = [];
+      
       if (positionsData && positionsData.length > 0) {
         const symbols = [...new Set(positionsData.map(p => p.symbol))];
         const livePrices = await fetchLivePricesForDashboard(symbols);
@@ -181,16 +182,33 @@ export function useDashboardData() {
           
           positionsValue += value;
           
-          // Calculate unrealized P&L (only if we have a valid entry price)
+          // Calculate unrealized P&L
+          let posUnrealizedPnl = 0;
+          let pnlPercent = 0;
+          
           if (entryPrice > 0) {
-            unrealizedPnl += (Number(livePrice) - entryPrice) * quantity;
+            if (pos.side === 'buy') {
+              posUnrealizedPnl = (Number(livePrice) - entryPrice) * quantity;
+              pnlPercent = ((Number(livePrice) - entryPrice) / entryPrice) * 100;
+            } else {
+              posUnrealizedPnl = (entryPrice - Number(livePrice)) * quantity;
+              pnlPercent = ((entryPrice - Number(livePrice)) / entryPrice) * 100;
+            }
+            unrealizedPnl += posUnrealizedPnl;
           }
           
-          console.log(`[Dashboard] ${pos.symbol}: qty=${quantity}, price=${livePrice}, value=${value}, unrealizedPnl=${(Number(livePrice) - entryPrice) * quantity}`);
+          formattedPositions.push({
+            id: pos.id,
+            symbol: pos.symbol,
+            side: pos.side as 'buy' | 'sell',
+            quantity,
+            avgEntryPrice: entryPrice,
+            currentPrice: Number(livePrice),
+            unrealizedPnl: posUnrealizedPnl,
+            pnlPercent,
+            value,
+          });
         });
-        console.log('[Dashboard] Total positions value:', positionsValue, 'Unrealized P&L:', unrealizedPnl);
-      } else {
-        console.log('[Dashboard] No positions found');
       }
 
       // Fetch today's trades and calculate P&L
@@ -246,47 +264,43 @@ export function useDashboardData() {
       const dailyPnlPercent = totalEquity > 0 ? (dailyPnl / totalEquity) * 100 : 0;
       const weeklyPnlPercent = totalEquity > 0 ? (weeklyPnl / totalEquity) * 100 : 0;
       
-      // For paper mode: use initial balance as baseline
-      // For live mode: use total P&L (realized + unrealized) as percentage of current equity
+      // Combined P&L calculation
       let totalPnlPercent = 0;
-      let combinedPnl = totalPnl + unrealizedPnl; // realized + unrealized
+      let combinedPnl = totalPnl + unrealizedPnl;
       
       if (tradingMode === 'paper') {
         totalPnlPercent = initialBalance > 0 ? ((totalEquity - initialBalance) / initialBalance) * 100 : 0;
       } else {
-        // Live mode: total P&L (realized + unrealized) relative to cost basis
-        // Cost basis = current equity - combined P&L
         const costBasis = totalEquity - combinedPnl;
         totalPnlPercent = costBasis > 0 ? (combinedPnl / costBasis) * 100 : 0;
       }
-      
-      console.log('[Dashboard] P&L breakdown:', { 
-        realizedPnl: totalPnl, 
-        unrealizedPnl, 
-        combinedPnl, 
-        totalEquity, 
-        totalPnlPercent 
-      });
 
-      setStats({
-        cashBalance,
-        positionsValue,
-        totalEquity,
-        dailyPnl,
-        dailyPnlPercent,
-        weeklyPnl,
-        weeklyPnlPercent,
-        totalPnl: combinedPnl, // Show combined P&L in stats
-        totalPnlPercent,
-        openPositions: positionsCount || 0,
-        todayTrades: todayTradesCount,
-        tradingMode,
-      });
+      // Only update state if this is the most recent fetch
+      if (fetchId === refreshCounter.current) {
+        setPositions(formattedPositions);
+        setStats({
+          cashBalance,
+          positionsValue,
+          totalEquity,
+          dailyPnl,
+          dailyPnlPercent,
+          weeklyPnl,
+          weeklyPnlPercent,
+          totalPnl: combinedPnl,
+          totalPnlPercent,
+          openPositions: positionsCount || 0,
+          todayTrades: todayTradesCount,
+          tradingMode,
+        });
+        setLastUpdated(new Date());
+        console.log(`[Dashboard] Fetch #${fetchId} complete: equity=$${totalEquity.toFixed(2)}, positions=$${positionsValue.toFixed(2)}`);
+      }
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      console.error('[Dashboard] Error fetching data:', error);
     } finally {
-      setIsLoading(false);
-      setLastUpdated(new Date());
+      if (fetchId === refreshCounter.current) {
+        setIsLoading(false);
+      }
     }
   }, [user]);
 
@@ -299,112 +313,60 @@ export function useDashboardData() {
   useEffect(() => {
     fetchData();
     
-    // Subscribe to real-time trades updates with reconnection handling
+    // Subscribe to real-time updates with reconnection handling
     const setupChannels = () => {
       const tradesChannel = supabase
         .channel('dashboard-trades-changes')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'trades',
-          },
-          () => {
-            triggerRealtimeUpdate();
-            fetchData();
-          }
+          { event: '*', schema: 'public', table: 'trades' },
+          () => { triggerRealtimeUpdate(); fetchData(); }
         )
-        .subscribe((status) => {
-          console.log('[Dashboard] Trades channel status:', status);
-          if (status === 'CHANNEL_ERROR') {
-            console.warn('[Dashboard] Trades channel error, will retry...');
-          }
-        });
+        .subscribe();
 
       const positionsChannel = supabase
         .channel('dashboard-positions-changes')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'positions',
-          },
-          () => {
-            triggerRealtimeUpdate();
-            fetchData();
-          }
+          { event: '*', schema: 'public', table: 'positions' },
+          () => { triggerRealtimeUpdate(); fetchData(); }
         )
-        .subscribe((status) => {
-          console.log('[Dashboard] Positions channel status:', status);
-        });
+        .subscribe();
 
       const paperChannel = supabase
         .channel('dashboard-paper-changes')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'paper_account',
-          },
-          () => {
-            triggerRealtimeUpdate();
-            fetchData();
-          }
+          { event: '*', schema: 'public', table: 'paper_account' },
+          () => { triggerRealtimeUpdate(); fetchData(); }
         )
-        .subscribe((status) => {
-          console.log('[Dashboard] Paper channel status:', status);
-        });
+        .subscribe();
 
       const liveAccountChannel = supabase
         .channel('dashboard-live-account-changes')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'live_account',
-          },
-          () => {
-            triggerRealtimeUpdate();
-            fetchData();
-          }
+          { event: '*', schema: 'public', table: 'live_account' },
+          () => { triggerRealtimeUpdate(); fetchData(); }
         )
-        .subscribe((status) => {
-          console.log('[Dashboard] Live account channel status:', status);
-        });
+        .subscribe();
 
       return { tradesChannel, positionsChannel, paperChannel, liveAccountChannel };
     };
 
     const channels = setupChannels();
 
-    // Aggressive auto-refresh every 5 seconds (reduced from 10s)
+    // Consistent 5-second refresh for ALL data (stats + positions together)
     const intervalId = setInterval(() => {
       fetchData();
     }, 5000);
 
-    // Extra safety: refresh on tab visibility change
+    // Refresh on visibility/focus/online
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('[Dashboard] Tab visible, refreshing data');
-        fetchData();
-      }
+      if (document.visibilityState === 'visible') fetchData();
     };
-
-    // Refresh on window focus
-    const handleFocus = () => {
-      console.log('[Dashboard] Window focused, refreshing data');
-      fetchData();
-    };
-
-    // Refresh when coming back online
-    const handleOnline = () => {
-      console.log('[Dashboard] Back online, refreshing data');
-      fetchData();
-    };
+    const handleFocus = () => fetchData();
+    const handleOnline = () => fetchData();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
@@ -424,6 +386,7 @@ export function useDashboardData() {
 
   return {
     stats,
+    positions,
     liveAccounts,
     isLoading,
     lastUpdated,

@@ -25,7 +25,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Dashboard() {
-  const { stats, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
+  const { stats, positions, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
   const isLiveMode = stats.tradingMode === 'live';
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
@@ -233,7 +233,7 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
           <MilestoneProgressCard />
           <EquityChart />
-          <PositionsTable />
+          <PositionsTable positions={positions} isLoading={isLoading} />
         </div>
         <div className="space-y-6">
           <AIStatusCard />
