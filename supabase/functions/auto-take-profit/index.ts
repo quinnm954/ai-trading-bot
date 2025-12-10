@@ -16,7 +16,7 @@ const ROTATION_PROFIT_THRESHOLD = 2.0; // 2% profit triggers rotation to better 
 // Stop loss: emergency protection
 const BASE_STOP_LOSS_PERCENT = -8.0;
 // Minimum momentum for target asset (must be rising)
-const MIN_TARGET_MOMENTUM = 1.0; // Target must have at least 1% 24h gain
+const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
 // Maximum momentum - avoid buying at the top
 const MAX_TARGET_MOMENTUM = 15.0; // Don't buy if already up 15%+ (too late)
 
