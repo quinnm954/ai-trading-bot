@@ -197,84 +197,117 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
   const isCdp = apiKey.startsWith("organizations/") || apiSecret.includes("-----BEGIN");
   console.log(`Fetching Coinbase accounts using ${isCdp ? "CDP JWT" : "Legacy HMAC"} auth...`);
 
-  const requestPath = "/api/v3/brokerage/accounts";
-  let response: Response;
-
-  if (isCdp) {
-    const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
-    response = await fetch(`https://api.coinbase.com${requestPath}`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${jwt}`,
-        "Content-Type": "application/json",
-      },
-    });
-  } else {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const method = "GET";
-    const message = timestamp + method + requestPath;
-    
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(apiSecret);
-    const messageData = encoder.encode(message);
-    
-    const cryptoKey = await crypto.subtle.importKey(
-      "raw",
-      keyData,
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    
-    const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
-    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
-
-    response = await fetch("https://api.coinbase.com" + requestPath, {
-      method: "GET",
-      headers: {
-        "CB-ACCESS-KEY": apiKey,
-        "CB-ACCESS-SIGN": signatureBase64,
-        "CB-ACCESS-TIMESTAMP": timestamp,
-        "Content-Type": "application/json",
-      },
-    });
-  }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Coinbase API error:", response.status, errorText);
-    throw new Error(`Coinbase API error: ${response.status} - ${errorText}`);
-  }
-
-  const data = await response.json();
-  
   let cashBalance = 0;
   const holdings: Array<{ symbol: string; quantity: number; value: number }> = [];
-  
   const stablecoins = ["USD", "USDC", "USDT", "PYUSD", "USD1", "DAI", "BUSD", "GUSD", "USDP", "TUSD"];
   
-  if (data.accounts && Array.isArray(data.accounts)) {
-    for (const account of data.accounts) {
-      if (account.available_balance && account.available_balance.value) {
-        const value = parseFloat(account.available_balance.value);
-        const currency = account.currency || account.available_balance.currency;
-        
-        if (value > 0) {
-          if (stablecoins.includes(currency)) {
-            cashBalance += value;
-            console.log(`💵 ${currency} balance: $${value.toFixed(2)}`);
-          } else {
-            holdings.push({
-              symbol: currency,
-              quantity: value,
-              value: 0,
-            });
-            console.log(`📊 ${currency} holding: ${value}`);
+  // Fetch all pages of accounts (Coinbase API paginates results)
+  let cursor: string | null = null;
+  let pageCount = 0;
+  const MAX_PAGES = 10; // Safety limit
+  
+  do {
+    pageCount++;
+    const requestPath = cursor 
+      ? `/api/v3/brokerage/accounts?cursor=${cursor}&limit=250`
+      : "/api/v3/brokerage/accounts?limit=250";
+    
+    console.log(`📄 Fetching page ${pageCount}: ${requestPath}`);
+    
+    let response: Response;
+
+    if (isCdp) {
+      const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
+      response = await fetch(`https://api.coinbase.com${requestPath}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${jwt}`,
+          "Content-Type": "application/json",
+        },
+      });
+    } else {
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const method = "GET";
+      const message = timestamp + method + requestPath;
+      
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(apiSecret);
+      const messageData = encoder.encode(message);
+      
+      const cryptoKey = await crypto.subtle.importKey(
+        "raw",
+        keyData,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      
+      const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
+      const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+
+      response = await fetch("https://api.coinbase.com" + requestPath, {
+        method: "GET",
+        headers: {
+          "CB-ACCESS-KEY": apiKey,
+          "CB-ACCESS-SIGN": signatureBase64,
+          "CB-ACCESS-TIMESTAMP": timestamp,
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Coinbase API error:", response.status, errorText);
+      throw new Error(`Coinbase API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    
+    // Process accounts from this page
+    if (data.accounts && Array.isArray(data.accounts)) {
+      console.log(`📊 Page ${pageCount}: Found ${data.accounts.length} accounts`);
+      
+      for (const account of data.accounts) {
+        if (account.available_balance && account.available_balance.value) {
+          const value = parseFloat(account.available_balance.value);
+          const currency = account.currency || account.available_balance.currency;
+          
+          if (value > 0) {
+            if (stablecoins.includes(currency)) {
+              cashBalance += value;
+              console.log(`💵 ${currency} balance: $${value.toFixed(2)}`);
+            } else {
+              // Check if we already have this holding (consolidate across accounts)
+              const existing = holdings.find(h => h.symbol === currency);
+              if (existing) {
+                existing.quantity += value;
+                console.log(`📊 ${currency} holding (added): ${value} (total: ${existing.quantity})`);
+              } else {
+                holdings.push({
+                  symbol: currency,
+                  quantity: value,
+                  value: 0,
+                });
+                console.log(`📊 ${currency} holding: ${value}`);
+              }
+            }
           }
         }
       }
     }
-  }
+    
+    // Check for next page cursor
+    cursor = data.cursor || null;
+    if (data.has_next === false) {
+      cursor = null;
+    }
+    
+    console.log(`📄 Page ${pageCount} complete. Has next: ${!!cursor}`);
+    
+  } while (cursor && pageCount < MAX_PAGES);
+  
+  console.log(`✅ Fetched ${pageCount} page(s) total`);
 
   console.log(`✅ Cash: $${cashBalance.toFixed(2)}, Holdings: ${holdings.length} assets`);
 
