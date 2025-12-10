@@ -7,17 +7,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// HOLD MODE - No auto take-profit, positions held until manual sell
-// User wants max profit accumulation without auto-selling to USDC
+// ROTATION MODE - Actively rotate profits from winners into rising assets
+// Sell positions with gains and rotate into assets showing upward momentum
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
-// Take-profit DISABLED - set to 1000% so it never triggers automatically
-// User will manually sell when ready
-const BASE_TAKE_PROFIT_PERCENT = 1000.0; // Effectively disabled
-// Stop loss: keep at -10% as emergency protection only
-const BASE_STOP_LOSS_PERCENT = -10.0;
-// Conversion momentum - not used when take-profit is disabled
-const MIN_CONVERSION_MOMENTUM = 3.0;
+// Rotation threshold: when position gains X%, rotate into rising asset
+const ROTATION_PROFIT_THRESHOLD = 3.0; // 3% profit triggers rotation to better opportunity
+// Stop loss: emergency protection
+const BASE_STOP_LOSS_PERCENT = -8.0;
+// Minimum momentum for target asset (must be rising)
+const MIN_TARGET_MOMENTUM = 1.0; // Target must have at least 1% 24h gain
+// Maximum momentum - avoid buying at the top
+const MAX_TARGET_MOMENTUM = 15.0; // Don't buy if already up 15%+ (too late)
 
 // Latency tracking for dynamic threshold adjustment
 interface LatencyMetrics {
@@ -57,9 +58,9 @@ function trackLatency(startTime: number): number {
   return latencyMs;
 }
 
-// Get adjusted take-profit threshold accounting for latency slippage
-function getAdjustedTakeProfit(): number {
-  const adjusted = BASE_TAKE_PROFIT_PERCENT + latencyTracker.slippageBuffer;
+// Get adjusted rotation threshold accounting for latency slippage
+function getAdjustedRotationThreshold(): number {
+  const adjusted = ROTATION_PROFIT_THRESHOLD + latencyTracker.slippageBuffer;
   return adjusted;
 }
 
@@ -952,15 +953,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       pnl = (entryPrice - currentPrice) * quantity;
     }
 
-    // Use latency-adjusted thresholds - SIMPLE FAST EXIT LOGIC
-    const adjustedTakeProfit = getAdjustedTakeProfit();
+    // Use latency-adjusted thresholds - ROTATION MODE
+    const rotationThreshold = getAdjustedRotationThreshold();
     const adjustedStopLoss = getAdjustedStopLoss();
     
-    const hitTakeProfit = pnlPercent >= adjustedTakeProfit;
+    const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
 
-    if (hitTakeProfit || hitStopLoss) {
-      console.log(`${hitTakeProfit ? '🎯' : '🛑'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+    if (hitRotationTarget || hitStopLoss) {
+      console.log(`${hitRotationTarget ? '🔄 ROTATE' : '🛑 STOP'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
@@ -969,8 +970,8 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       
       // Execute trade on Coinbase if in live mode
       if (!isPaperMode) {
-        // For TAKE PROFIT: Try direct crypto-to-crypto conversion first
-        if (hitTakeProfit) {
+        // For ROTATION: sell winning position and rotate into rising asset
+        if (hitRotationTarget) {
           // Find the most profitable conversion target based on 24h momentum
           const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'INJ'];
           
@@ -1002,8 +1003,8 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           if (validTargets.length > 0) {
             const bestTarget = validTargets[0];
             
-            // Only convert if momentum exceeds threshold - otherwise sell to USDC is faster
-            if (bestTarget.change24h >= MIN_CONVERSION_MOMENTUM) {
+            // Only convert if momentum is within target range - rising but not topped out
+            if (bestTarget.change24h >= MIN_TARGET_MOMENTUM && bestTarget.change24h <= MAX_TARGET_MOMENTUM) {
               console.log(`🚀 Strong momentum target: ${bestTarget.symbol} (+${bestTarget.change24h.toFixed(2)}% 24h) - CONVERTING`);
               
               const swapResult = await executeCryptoToCryptoSwap(position.symbol, bestTarget.symbol, quantity);
@@ -1031,7 +1032,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
                 }
               }
             } else {
-              console.log(`📉 Best target ${bestTarget.symbol} only +${bestTarget.change24h.toFixed(2)}% - selling to USDC instead (need >${MIN_CONVERSION_MOMENTUM}%)`);
+              console.log(`📉 Best target ${bestTarget.symbol} momentum ${bestTarget.change24h.toFixed(2)}% outside range (${MIN_TARGET_MOMENTUM}%-${MAX_TARGET_MOMENTUM}%) - selling to USDC`);
             }
           }
         }
@@ -1074,13 +1075,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
       await supabase.from('ai_decisions').insert({
         user_id: userId,
-        decision_type: hitTakeProfit ? 'auto_take_profit' : 'auto_stop_loss',
+        decision_type: hitRotationTarget ? 'rotation' : 'auto_stop_loss',
         symbol: position.symbol,
-        action: didDirectConversion ? 'convert' : 'sell',
-        reasoning: `${hitTakeProfit ? '🎯 Take profit' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${conversionNote}`,
+        action: didDirectConversion ? 'rotate' : 'sell',
+        reasoning: `${hitRotationTarget ? '🔄 Rotation' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${conversionNote}`,
       });
 
-      if (hitTakeProfit) takeProfitCount++;
+      if (hitRotationTarget) takeProfitCount++;
       else stopLossCount++;
     } else {
       // Update position with current price
@@ -1474,7 +1475,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       status: 'success',
       usersProcessed: userIds.length,
-      takeProfitTarget: `+${getAdjustedTakeProfit().toFixed(3)}%`,
+      rotationThreshold: `+${getAdjustedRotationThreshold().toFixed(3)}%`,
       stopLossLimit: `${getAdjustedStopLoss().toFixed(3)}%`,
       latencyMetrics: {
         avgMs: latencyTracker.avgLatencyMs.toFixed(0),
