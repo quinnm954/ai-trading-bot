@@ -201,120 +201,85 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
   const holdings: Array<{ symbol: string; quantity: number; value: number }> = [];
   const stablecoins = ["USD", "USDC", "USDT", "PYUSD", "USD1", "DAI", "BUSD", "GUSD", "USDP", "TUSD"];
   
-  // Fetch all pages of accounts (Coinbase API paginates results)
-  let cursor: string | null = null;
-  let pageCount = 0;
-  const MAX_PAGES = 10; // Safety limit
+  // Fetch accounts from Coinbase - the API returns all accounts in one response
+  const requestPath = "/api/v3/brokerage/accounts";
+  console.log(`📄 Fetching accounts from: ${requestPath}`);
   
-  do {
-    pageCount++;
-    // Build URL with query params
-    const baseUrl = "https://api.coinbase.com/api/v3/brokerage/accounts";
-    const params = new URLSearchParams({ limit: "250" });
-    if (cursor) {
-      params.set("cursor", cursor);
-    }
-    const fullUrl = `${baseUrl}?${params.toString()}`;
-    const requestPath = `/api/v3/brokerage/accounts`;
+  let response: Response;
+
+  if (isCdp) {
+    const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
+    response = await fetch(`https://api.coinbase.com${requestPath}`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } else {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const method = "GET";
+    const message = timestamp + method + requestPath;
     
-    console.log(`📄 Fetching page ${pageCount}: ${fullUrl}`);
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(apiSecret);
+    const messageData = encoder.encode(message);
     
-    let response: Response;
-
-    if (isCdp) {
-      // CDP JWT URI should be just the base path without query params
-      const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
-      response = await fetch(fullUrl, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${jwt}`,
-          "Content-Type": "application/json",
-        },
-      });
-    } else {
-      // Legacy HMAC auth - sign just the path without query params
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const method = "GET";
-      const message = timestamp + method + requestPath;
-      
-      const encoder = new TextEncoder();
-      const keyData = encoder.encode(apiSecret);
-      const messageData = encoder.encode(message);
-      
-      const cryptoKey = await crypto.subtle.importKey(
-        "raw",
-        keyData,
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"]
-      );
-      
-      const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
-      const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
-
-      response = await fetch(fullUrl, {
-        method: "GET",
-        headers: {
-          "CB-ACCESS-KEY": apiKey,
-          "CB-ACCESS-SIGN": signatureBase64,
-          "CB-ACCESS-TIMESTAMP": timestamp,
-          "Content-Type": "application/json",
-        },
-      });
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Coinbase API error:", response.status, errorText);
-      throw new Error(`Coinbase API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
     
-    // Process accounts from this page
-    if (data.accounts && Array.isArray(data.accounts)) {
-      console.log(`📊 Page ${pageCount}: Found ${data.accounts.length} accounts`);
-      
-      for (const account of data.accounts) {
-        if (account.available_balance && account.available_balance.value) {
-          const value = parseFloat(account.available_balance.value);
-          const currency = account.currency || account.available_balance.currency;
-          
-          if (value > 0) {
-            if (stablecoins.includes(currency)) {
-              cashBalance += value;
-              console.log(`💵 ${currency} balance: $${value.toFixed(2)}`);
-            } else {
-              // Check if we already have this holding (consolidate across accounts)
-              const existing = holdings.find(h => h.symbol === currency);
-              if (existing) {
-                existing.quantity += value;
-                console.log(`📊 ${currency} holding (added): ${value} (total: ${existing.quantity})`);
-              } else {
-                holdings.push({
-                  symbol: currency,
-                  quantity: value,
-                  value: 0,
-                });
-                console.log(`📊 ${currency} holding: ${value}`);
-              }
-            }
+    const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
+    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+
+    response = await fetch("https://api.coinbase.com" + requestPath, {
+      method: "GET",
+      headers: {
+        "CB-ACCESS-KEY": apiKey,
+        "CB-ACCESS-SIGN": signatureBase64,
+        "CB-ACCESS-TIMESTAMP": timestamp,
+        "Content-Type": "application/json",
+      },
+    });
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Coinbase API error:", response.status, errorText);
+    throw new Error(`Coinbase API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  
+  // Process accounts
+  if (data.accounts && Array.isArray(data.accounts)) {
+    console.log(`📊 Found ${data.accounts.length} accounts`);
+    
+    for (const account of data.accounts) {
+      if (account.available_balance && account.available_balance.value) {
+        const value = parseFloat(account.available_balance.value);
+        const currency = account.currency || account.available_balance.currency;
+        
+        if (value > 0) {
+          if (stablecoins.includes(currency)) {
+            cashBalance += value;
+            console.log(`💵 ${currency} balance: $${value.toFixed(2)}`);
+          } else {
+            holdings.push({
+              symbol: currency,
+              quantity: value,
+              value: 0,
+            });
+            console.log(`📊 ${currency} holding: ${value}`);
           }
         }
       }
     }
-    
-    // Check for next page cursor
-    cursor = data.cursor || null;
-    if (data.has_next === false) {
-      cursor = null;
-    }
-    
-    console.log(`📄 Page ${pageCount} complete. Has next: ${!!cursor}`);
-    
-  } while (cursor && pageCount < MAX_PAGES);
-  
-  console.log(`✅ Fetched ${pageCount} page(s) total`);
+  }
 
   console.log(`✅ Cash: $${cashBalance.toFixed(2)}, Holdings: ${holdings.length} assets`);
 
