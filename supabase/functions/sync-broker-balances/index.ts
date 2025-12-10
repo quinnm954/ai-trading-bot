@@ -278,10 +278,42 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
 
   console.log(`✅ Cash: $${cashBalance.toFixed(2)}, Holdings: ${holdings.length} assets`);
 
+  // Fetch live prices to calculate total equity (cash + holdings value)
+  let holdingsValue = 0;
+  if (holdings.length > 0) {
+    const holdingSymbols = holdings.map(h => h.symbol);
+    const ids = holdingSymbols.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
+    
+    if (ids.length > 0) {
+      try {
+        const priceResponse = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
+        );
+        
+        if (priceResponse.ok) {
+          const priceData = await priceResponse.json();
+          for (const holding of holdings) {
+            const geckoId = SYMBOL_TO_COINGECKO[holding.symbol.toUpperCase()];
+            if (geckoId && priceData[geckoId]?.usd) {
+              const price = priceData[geckoId].usd;
+              holding.value = holding.quantity * price;
+              holdingsValue += holding.value;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching prices for equity calculation:', error);
+      }
+    }
+  }
+
+  const totalEquity = cashBalance + holdingsValue;
+  console.log(`💰 Total Equity: $${totalEquity.toFixed(2)} (Cash: $${cashBalance.toFixed(2)} + Holdings: $${holdingsValue.toFixed(2)})`);
+
   return {
     balance: cashBalance,
     buying_power: cashBalance,
-    equity: cashBalance,
+    equity: totalEquity,
     holdings,
   };
 }
