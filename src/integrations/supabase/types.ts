@@ -239,6 +239,36 @@ export type Database = {
         }
         Relationships: []
       }
+      invite_codes: {
+        Row: {
+          code: string
+          created_at: string | null
+          created_by: string
+          expires_at: string | null
+          id: string
+          used_at: string | null
+          used_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          created_by: string
+          expires_at?: string | null
+          id?: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          created_by?: string
+          expires_at?: string | null
+          id?: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Relationships: []
+      }
       live_account: {
         Row: {
           balance: number
@@ -527,19 +557,25 @@ export type Database = {
       user_roles: {
         Row: {
           created_at: string | null
+          has_free_access: boolean | null
           id: string
+          invited_by: string | null
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
           created_at?: string | null
+          has_free_access?: boolean | null
           id?: string
+          invited_by?: string | null
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
           created_at?: string | null
+          has_free_access?: boolean | null
           id?: string
+          invited_by?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }

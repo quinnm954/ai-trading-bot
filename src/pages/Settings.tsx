@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { InviteManager } from '@/components/settings/InviteManager';
 
 export default function Settings() {
   const [notifications, setNotifications] = useState({
@@ -214,6 +215,9 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* Invite Management - Admin Only */}
+      <InviteManager />
     </div>
   );
 }
