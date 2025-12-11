@@ -7,6 +7,148 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// =============================================================================
+// RISK MANAGER INTEGRATION - Validates trades before execution
+// =============================================================================
+
+interface RiskValidationResult {
+  approved: boolean;
+  reason: string;
+  severity: 'info' | 'warning' | 'critical';
+  violations: string[];
+  adjustedSize?: number;
+}
+
+/**
+ * Calls the RiskManager edge function to validate a trade proposal.
+ * Returns approval status and reasoning. MUST be called before every trade.
+ */
+async function validateTradeWithRiskManager(
+  supabase: any,
+  userId: string,
+  tradeProposal: {
+    symbol: string;
+    side: 'buy' | 'sell';
+    quantity: number;
+    price: number;
+    positionValue: number;
+    stopLoss?: number;
+  },
+  currentEquity: number,
+  openPositionsCount: number,
+  openPositionsValue: number
+): Promise<RiskValidationResult> {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    const response = await fetch(`${supabaseUrl}/functions/v1/risk-manager`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'validate_trade',
+        userId,
+        tradeProposal,
+        currentEquity,
+        openPositionsCount,
+        openPositionsValue,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`❌ RiskManager error: ${response.status}`);
+      // Fail SAFE - if RiskManager is unavailable, block the trade
+      return {
+        approved: false,
+        reason: 'RiskManager unavailable - blocking trade for safety',
+        severity: 'critical',
+        violations: ['risk_manager_unavailable'],
+      };
+    }
+
+    const result = await response.json();
+    return result as RiskValidationResult;
+  } catch (error) {
+    console.error('❌ RiskManager call failed:', error);
+    // Fail SAFE - block trade if we can't validate
+    return {
+      approved: false,
+      reason: `RiskManager error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      severity: 'critical',
+      violations: ['risk_manager_error'],
+    };
+  }
+}
+
+/**
+ * Records a loss with the RiskManager for daily/weekly tracking
+ */
+async function recordLossWithRiskManager(
+  userId: string,
+  lossAmount: number,
+  currentEquity: number
+): Promise<void> {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    await fetch(`${supabaseUrl}/functions/v1/risk-manager`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'record_loss',
+        userId,
+        lossAmount,
+        currentEquity,
+      }),
+    });
+  } catch (error) {
+    console.error('Failed to record loss with RiskManager:', error);
+  }
+}
+
+/**
+ * Updates drawdown tracking with RiskManager
+ */
+async function updateDrawdownTracking(
+  userId: string,
+  currentEquity: number
+): Promise<{ killSwitchTriggered: boolean }> {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    const response = await fetch(`${supabaseUrl}/functions/v1/risk-manager`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'update_drawdown',
+        userId,
+        currentEquity,
+      }),
+    });
+
+    if (!response.ok) {
+      return { killSwitchTriggered: false };
+    }
+
+    const result = await response.json();
+    return { killSwitchTriggered: result.killSwitchTriggered || false };
+  } catch (error) {
+    console.error('Failed to update drawdown:', error);
+    return { killSwitchTriggered: false };
+  }
+}
+
 // Generate CDP JWT for Coinbase API - robust key parsing
 async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
   // Clean and normalize the key
@@ -1175,6 +1317,18 @@ serve(async (req) => {
       });
     }
 
+    // 🛑 KILL SWITCH CHECK - Block all trading if kill switch is active
+    if (settings.kill_switch_active) {
+      console.log('🛑 KILL SWITCH ACTIVE - Trading blocked until manual reset');
+      return new Response(JSON.stringify({ 
+        message: 'Kill switch active - trading halted',
+        reason: 'Maximum drawdown exceeded. Manual reset required.',
+        status: 'kill_switch'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const isPaperMode = settings.trading_mode === 'paper';
 
     // Get current balance
@@ -1452,6 +1606,45 @@ serve(async (req) => {
       
       console.log(`✅ Pre-validated: ${decision.symbol} qty=${preRoundedQty} ($${prePositionValue.toFixed(2)})`);
 
+      // 🛡️ RISK MANAGER VALIDATION - Must pass before execution
+      // Calculate current open positions value for risk check
+      const { data: currentPositions } = await supabase
+        .from('positions')
+        .select('quantity, avg_entry_price')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode);
+      
+      const openPositionsValue = (currentPositions || []).reduce(
+        (sum, p) => sum + (p.quantity * p.avg_entry_price), 
+        0
+      );
+      
+      // Default stop loss for live trades (2.5% below entry)
+      const defaultStopLoss = isPaperMode ? undefined : actualEntryPrice * 0.975;
+      
+      const riskValidation = await validateTradeWithRiskManager(
+        supabase,
+        user.id,
+        {
+          symbol: decision.symbol,
+          side: decision.action as 'buy' | 'sell',
+          quantity: preRoundedQty,
+          price: actualEntryPrice,
+          positionValue: prePositionValue,
+          stopLoss: defaultStopLoss,
+        },
+        balance,
+        openPositions || 0,
+        openPositionsValue
+      );
+
+      if (!riskValidation.approved) {
+        console.log(`🛡️ RISK MANAGER BLOCKED: ${decision.symbol} - ${riskValidation.reason}`);
+        console.log(`   Violations: ${riskValidation.violations.join(', ')}`);
+        continue; // Skip this trade
+      }
+      
+      console.log(`✅ RISK APPROVED: ${decision.symbol} - ${riskValidation.reason}`);
 
       // 💰 EXECUTE REAL COINBASE BUY if in LIVE mode
       if (!isPaperMode && decision.action === 'buy') {
@@ -1570,6 +1763,14 @@ serve(async (req) => {
       console.log(`🎯 Executed ${decision.action} for ${decision.symbol}: ${quantity.toFixed(6)} @ $${coinData.price} | Pattern: ${decision.pattern} | Trades: ${tradesExecuted}/${remainingSlots}`);
     }
 
+    // 📊 UPDATE DRAWDOWN TRACKING after all trades executed
+    if (tradesExecuted > 0) {
+      const drawdownResult = await updateDrawdownTracking(user.id, balance);
+      if (drawdownResult.killSwitchTriggered) {
+        console.log('🛑 KILL SWITCH TRIGGERED by drawdown check');
+      }
+    }
+
     return new Response(JSON.stringify({
       status: 'success',
       regime,
@@ -1579,6 +1780,7 @@ serve(async (req) => {
       executedTrades,
       balance,
       isPaperMode,
+      riskManaged: true,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
