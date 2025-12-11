@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.ai-learning-engine]
 verify_jwt = false
+
+[functions.risk-manager]
+verify_jwt = false
