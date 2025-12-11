@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { 
   Bot, 
   Zap, 
@@ -23,9 +24,15 @@ import { cn } from '@/lib/utils';
 import { useAITraderData } from '@/hooks/useAITraderData';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
+import { LiveModeConfirmDialog } from '@/components/risk/LiveModeConfirmDialog';
+import { useRiskManager } from '@/hooks/useRiskManager';
 
 export default function AITrader() {
   const navigate = useNavigate();
+  const [showLiveModeConfirm, setShowLiveModeConfirm] = useState(false);
+  const { isKillSwitchActive } = useRiskManager();
+  
   const {
     aiSettings,
     paperAccount,
@@ -52,6 +59,21 @@ export default function AITrader() {
     updateSettings({ allowedMarkets: updated });
   };
 
+  // Handle live mode switch with confirmation
+  const handleLiveModeClick = () => {
+    if (tradingMode === 'live') {
+      // Switching to paper - no confirmation needed
+      setTradingMode('paper');
+    } else {
+      // Switching to live - show confirmation dialog
+      setShowLiveModeConfirm(true);
+    }
+  };
+
+  const handleLiveModeConfirmed = () => {
+    setTradingMode('live');
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -65,6 +87,13 @@ export default function AITrader() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Live Mode Confirmation Dialog */}
+      <LiveModeConfirmDialog
+        open={showLiveModeConfirm}
+        onOpenChange={setShowLiveModeConfirm}
+        onConfirmed={handleLiveModeConfirmed}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -105,6 +134,22 @@ export default function AITrader() {
         </div>
       </div>
 
+      {/* Kill Switch Banner - Show at top when active */}
+      {isKillSwitchActive && (
+        <div className="p-4 rounded-lg bg-loss/20 border-2 border-loss/50 animate-pulse">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-loss mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-loss text-lg">KILL SWITCH ACTIVE - TRADING HALTED</p>
+              <p className="text-sm text-loss/80 mt-1">
+                Trading has been automatically stopped due to exceeding maximum drawdown limit.
+                Review your positions and risk settings, then reset the kill switch in the Risk Status panel below.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Trading Mode Toggle */}
       <div className="glass-panel p-6 gradient-border">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -144,7 +189,7 @@ export default function AITrader() {
               Paper Trading
             </button>
             <button
-              onClick={() => setTradingMode('live')}
+              onClick={handleLiveModeClick}
               disabled={isSaving || !hasConnectedBrokers}
               className={cn(
                 'px-4 py-2 rounded-md text-sm font-medium transition-all',
@@ -178,8 +223,8 @@ export default function AITrader() {
         )}
       </div>
 
-      {/* Account Balances */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Account Balances + Risk Status */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Paper Account */}
         <div className={cn(
           'glass-panel p-6 transition-all duration-300',
@@ -301,6 +346,9 @@ export default function AITrader() {
             </div>
           )}
         </div>
+
+        {/* Risk Status Card */}
+        <RiskStatusCard />
       </div>
 
       {/* Main Control */}
@@ -326,9 +374,13 @@ export default function AITrader() {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold text-foreground">
-                  {isEnabled ? 'Autonomous Trading Active' : 'Autonomous Trading Disabled'}
+                  {isKillSwitchActive 
+                    ? 'Trading Halted (Kill Switch)' 
+                    : isEnabled 
+                      ? 'Autonomous Trading Active' 
+                      : 'Autonomous Trading Disabled'}
                 </h2>
-                {isEnabled && (
+                {isEnabled && !isKillSwitchActive && (
                   <span className={cn(
                     'flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full',
                     isLiveMode ? 'bg-loss/20 text-loss' : 'bg-success/20 text-success'
@@ -339,16 +391,18 @@ export default function AITrader() {
                 )}
               </div>
               <p className="text-muted-foreground">
-                {isEnabled 
-                  ? `AI is autonomously trading with ${isLiveMode ? 'real money' : 'simulated funds'}`
-                  : 'Enable to let AI fully manage your trading'
+                {isKillSwitchActive
+                  ? 'Reset the kill switch to resume trading'
+                  : isEnabled 
+                    ? `AI is autonomously trading with ${isLiveMode ? 'real money' : 'simulated funds'}`
+                    : 'Enable to let AI fully manage your trading'
                 }
               </p>
             </div>
           </div>
           <Button 
             onClick={toggleEnabled}
-            disabled={isSaving}
+            disabled={isSaving || isKillSwitchActive}
             variant={isEnabled ? 'glow-danger' : 'glow-success'}
             size="lg"
             className="gap-2"
@@ -369,7 +423,7 @@ export default function AITrader() {
           </Button>
         </div>
 
-        {isEnabled && (
+        {isEnabled && !isKillSwitchActive && (
           <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center gap-2 mb-2">
