@@ -141,15 +141,18 @@ export function useTradesData() {
   useEffect(() => {
     fetchData();
 
-    // Subscribe to real-time trades updates
+    if (!user) return;
+
+    // Subscribe to real-time trades updates with user filter
     const tradesChannel = supabase
-      .channel('trades-changes')
+      .channel(`trades-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'trades',
+          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
           console.log('Trades update:', payload);
@@ -159,15 +162,16 @@ export function useTradesData() {
       )
       .subscribe();
 
-    // Subscribe to real-time positions updates
+    // Subscribe to real-time positions updates with user filter
     const positionsChannel = supabase
-      .channel('positions-changes')
+      .channel(`positions-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'positions',
+          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
           console.log('Positions update:', payload);
@@ -177,17 +181,17 @@ export function useTradesData() {
       )
       .subscribe();
 
-    // Auto-refresh every 30 seconds as backup
+    // Auto-refresh every 10 seconds for more responsive updates
     const intervalId = setInterval(() => {
       fetchData();
-    }, 30000);
+    }, 10000);
 
     return () => {
       clearInterval(intervalId);
       supabase.removeChannel(tradesChannel);
       supabase.removeChannel(positionsChannel);
     };
-  }, [fetchData, triggerRealtimeUpdate]);
+  }, [user, fetchData, triggerRealtimeUpdate]);
 
   // Calculate P&L stats
   const closedTrades = trades.filter(t => t.status === 'closed');
