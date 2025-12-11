@@ -56,57 +56,87 @@ export type Database = {
           allowed_markets: string[] | null
           bot_status: Database["public"]["Enums"]["bot_status"] | null
           created_at: string | null
+          current_drawdown: number | null
           current_regime: Database["public"]["Enums"]["market_regime"] | null
+          daily_loss_today: number | null
           enabled: boolean | null
           id: string
+          kill_switch_active: boolean | null
+          kill_switch_triggered_at: string | null
+          last_loss_reset_date: string | null
+          live_mode_confirmed_at: string | null
           max_capital_usage: number | null
           max_concurrent_trades: number | null
           max_daily_loss: number | null
+          max_drawdown: number | null
           max_leverage: number | null
           max_position_size: number | null
+          peak_equity: number | null
           risk_tolerance: string | null
           target_equity: number | null
           trading_mode: string
           updated_at: string | null
           user_id: string | null
+          weekly_loss_current: number | null
+          weekly_loss_limit: number | null
         }
         Insert: {
           ai_autonomous_mode?: boolean | null
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           created_at?: string | null
+          current_drawdown?: number | null
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
+          daily_loss_today?: number | null
           enabled?: boolean | null
           id?: string
+          kill_switch_active?: boolean | null
+          kill_switch_triggered_at?: string | null
+          last_loss_reset_date?: string | null
+          live_mode_confirmed_at?: string | null
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
+          max_drawdown?: number | null
           max_leverage?: number | null
           max_position_size?: number | null
+          peak_equity?: number | null
           risk_tolerance?: string | null
           target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
           user_id?: string | null
+          weekly_loss_current?: number | null
+          weekly_loss_limit?: number | null
         }
         Update: {
           ai_autonomous_mode?: boolean | null
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           created_at?: string | null
+          current_drawdown?: number | null
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
+          daily_loss_today?: number | null
           enabled?: boolean | null
           id?: string
+          kill_switch_active?: boolean | null
+          kill_switch_triggered_at?: string | null
+          last_loss_reset_date?: string | null
+          live_mode_confirmed_at?: string | null
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
+          max_drawdown?: number | null
           max_leverage?: number | null
           max_position_size?: number | null
+          peak_equity?: number | null
           risk_tolerance?: string | null
           target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
           user_id?: string | null
+          weekly_loss_current?: number | null
+          weekly_loss_limit?: number | null
         }
         Relationships: []
       }
@@ -137,6 +167,51 @@ export type Database = {
           provider?: string
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      daily_pnl: {
+        Row: {
+          created_at: string | null
+          date: string
+          ending_equity: number | null
+          id: string
+          losses: number | null
+          peak_equity: number | null
+          realized_pnl: number | null
+          trades_count: number | null
+          unrealized_pnl: number | null
+          updated_at: string | null
+          user_id: string | null
+          wins: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          ending_equity?: number | null
+          id?: string
+          losses?: number | null
+          peak_equity?: number | null
+          realized_pnl?: number | null
+          trades_count?: number | null
+          unrealized_pnl?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+          wins?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          ending_equity?: number | null
+          id?: string
+          losses?: number | null
+          peak_equity?: number | null
+          realized_pnl?: number | null
+          trades_count?: number | null
+          unrealized_pnl?: number | null
+          updated_at?: string | null
+          user_id?: string | null
+          wins?: number | null
         }
         Relationships: []
       }
@@ -268,6 +343,36 @@ export type Database = {
           symbol?: string
           unrealized_pnl?: number | null
           updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      risk_events: {
+        Row: {
+          created_at: string | null
+          details: Json | null
+          event_type: string
+          id: string
+          message: string
+          severity: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          details?: Json | null
+          event_type: string
+          id?: string
+          message: string
+          severity?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          details?: Json | null
+          event_type?: string
+          id?: string
+          message?: string
+          severity?: string
           user_id?: string | null
         }
         Relationships: []
