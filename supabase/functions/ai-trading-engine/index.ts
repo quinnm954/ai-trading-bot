@@ -331,6 +331,7 @@ interface MarketData {
   symbol: string;
   price: number;
   change24h: number;
+  change7d: number;
   volume: number;
   high24h: number;
   low24h: number;
@@ -381,7 +382,8 @@ async function fetchMarketData(): Promise<MarketData[]> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       // CoinGecko allows up to 250 coins per request
-      const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h&per_page=100`;
+      // Include 7d change for dip-buying strategy
+      const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d&per_page=100`;
       const response = await fetch(url);
       
       if (response.status === 429) {
@@ -402,6 +404,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
         symbol: coin.symbol.toUpperCase(),
         price: coin.current_price,
         change24h: coin.price_change_percentage_24h || 0,
+        change7d: coin.price_change_percentage_7d_in_currency || 0,
         volume: coin.total_volume,
         high24h: coin.high_24h,
         low24h: coin.low_24h,
@@ -424,6 +427,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
         symbol: coin.symbol,
         price: parseFloat(coin.priceUsd),
         change24h: parseFloat(coin.changePercent24Hr) || 0,
+        change7d: 0, // CoinCap doesn't provide 7d data, default to 0
         volume: parseFloat(coin.volumeUsd24Hr),
         high24h: parseFloat(coin.priceUsd) * 1.02,
         low24h: parseFloat(coin.priceUsd) * 0.98,
@@ -436,11 +440,11 @@ async function fetchMarketData(): Promise<MarketData[]> {
   // Last resort: Return mock data for major coins
   console.log('Using fallback mock data');
   return [
-    { symbol: 'BTC', price: 90000, change24h: -1.5, volume: 40000000000, high24h: 92000, low24h: 89000 },
-    { symbol: 'ETH', price: 3100, change24h: -0.5, volume: 20000000000, high24h: 3200, low24h: 3050 },
-    { symbol: 'SOL', price: 130, change24h: -0.8, volume: 5000000000, high24h: 138, low24h: 128 },
-    { symbol: 'XRP', price: 2.05, change24h: -0.7, volume: 3000000000, high24h: 2.15, low24h: 2.00 },
-    { symbol: 'DOGE', price: 0.14, change24h: 0.5, volume: 1000000000, high24h: 0.145, low24h: 0.138 },
+    { symbol: 'BTC', price: 90000, change24h: -1.5, change7d: 5, volume: 40000000000, high24h: 92000, low24h: 89000 },
+    { symbol: 'ETH', price: 3100, change24h: -0.5, change7d: 3, volume: 20000000000, high24h: 3200, low24h: 3050 },
+    { symbol: 'SOL', price: 130, change24h: -0.8, change7d: 8, volume: 5000000000, high24h: 138, low24h: 128 },
+    { symbol: 'XRP', price: 2.05, change24h: -0.7, change7d: 4, volume: 3000000000, high24h: 2.15, low24h: 2.00 },
+    { symbol: 'DOGE', price: 0.14, change24h: 0.5, change7d: 2, volume: 1000000000, high24h: 0.145, low24h: 0.138 },
   ];
 }
 
@@ -623,21 +627,57 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   };
 }
 
-// GAINERS ONLY: Pre-filter to only positive 24h change, then analyze trends
+// DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
-  // Step 1: Filter to GAINERS ONLY (positive 24h change)
-  const gainersOnly = marketData.filter(coin => coin.change24h > 0);
-  const skippedCount = marketData.length - gainersOnly.length;
-  console.log(`🎯 GAINERS FILTER: ${gainersOnly.length} gainers / ${marketData.length} total (skipped ${skippedCount} losers/flat)`);
+  // Step 1: Find DIP-BUY candidates - assets that:
+  // - Have positive 7-day trend (overall uptrend)
+  // - But have pulled back in 24h (negative or low 24h change = buying the dip)
+  const dipBuyCandidates = marketData.filter(coin => {
+    const has7dUptrend = coin.change7d > 2; // Asset is up >2% over 7 days (uptrend)
+    const hasDip = coin.change24h < 1 && coin.change24h > -8; // Recent pullback (-8% to +1%)
+    const notCrashing = coin.change24h > -8; // Avoid free-falling assets
+    return has7dUptrend && hasDip && notCrashing;
+  });
   
-  // Step 2: Analyze trends only for gainers
-  const trendAnalysis = gainersOnly.map(coin => analyzeTrend(coin));
-  const tradeable = gainersOnly.filter(coin => {
+  // Also include strong momentum plays (positive 24h AND 7d)
+  const momentumPlays = marketData.filter(coin => {
+    const strongMomentum = coin.change24h > 3 && coin.change7d > 5;
+    const notOverbought = coin.change24h < 15; // Avoid parabolic moves
+    return strongMomentum && notOverbought;
+  });
+  
+  // Combine and dedupe
+  const combinedCandidates = [...dipBuyCandidates];
+  momentumPlays.forEach(coin => {
+    if (!combinedCandidates.find(c => c.symbol === coin.symbol)) {
+      combinedCandidates.push(coin);
+    }
+  });
+  
+  console.log(`🎯 DIP-BUY FILTER: ${dipBuyCandidates.length} dips + ${momentumPlays.length} momentum = ${combinedCandidates.length} candidates`);
+  
+  // Step 2: Analyze trends for candidates
+  const trendAnalysis = combinedCandidates.map(coin => {
+    const analysis = analyzeTrend(coin);
+    // For dip-buying, we want to trade even on slight pullbacks in uptrending assets
+    const isDipBuy = coin.change7d > 2 && coin.change24h < 1;
+    if (isDipBuy && coin.change24h > -5) {
+      // Override to allow trading dips in uptrending assets
+      return {
+        ...analysis,
+        shouldTrade: true,
+        reason: `🔄 DIP-BUY: 7d: +${coin.change7d.toFixed(1)}% uptrend, 24h: ${coin.change24h.toFixed(1)}% pullback | Entry opportunity`,
+      };
+    }
+    return analysis;
+  });
+  
+  const tradeable = combinedCandidates.filter(coin => {
     const analysis = trendAnalysis.find(t => t.symbol === coin.symbol);
     return analysis?.shouldTrade ?? false;
   });
   
-  console.log(`📈 Tradeable gainers: ${tradeable.length} (uptrend/strong_uptrend)`);
+  console.log(`📈 Tradeable (dips + momentum): ${tradeable.length}`);
   
   return { tradeable, trendAnalysis };
 }
