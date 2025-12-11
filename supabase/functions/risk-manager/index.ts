@@ -546,14 +546,21 @@ serve(async (req) => {
           .order('created_at', { ascending: false })
           .limit(10);
 
+        // Calculate percentages safely (avoid division by zero)
+        const safeEquity = currentEquity > 0 ? currentEquity : settings.peakEquity || 100000;
+        const dailyLossPercent = safeEquity > 0 ? (Math.abs(settings.dailyLossToday) / safeEquity) * 100 : 0;
+        const weeklyLossPercent = safeEquity > 0 ? (Math.abs(settings.weeklyLossCurrent) / safeEquity) * 100 : 0;
+
+        console.log(`📊 Risk Status: Daily Loss: ${dailyLossPercent.toFixed(2)}%, Weekly Loss: ${weeklyLossPercent.toFixed(2)}%, Drawdown: ${settings.currentDrawdown}%`);
+
         return new Response(
           JSON.stringify({
             settings,
             recentEvents: recentEvents || [],
             riskMetrics: {
-              dailyLossPercent: (Math.abs(settings.dailyLossToday) / currentEquity) * 100,
-              weeklyLossPercent: (Math.abs(settings.weeklyLossCurrent) / currentEquity) * 100,
-              drawdownPercent: settings.currentDrawdown,
+              dailyLossPercent: isNaN(dailyLossPercent) ? 0 : dailyLossPercent,
+              weeklyLossPercent: isNaN(weeklyLossPercent) ? 0 : weeklyLossPercent,
+              drawdownPercent: settings.currentDrawdown || 0,
               isKillSwitchActive: settings.killSwitchActive,
               isTradingEnabled: settings.enabled && !settings.killSwitchActive,
             },
