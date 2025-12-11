@@ -1444,6 +1444,40 @@ serve(async (req) => {
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
     console.log(`✅ Tradeable coins: ${tradeable.map(c => c.symbol).join(', ') || 'NONE - All in downtrend'}`);
 
+    // 🚀 MOONSHOT PRIORITY - Boost coins with high pump probability
+    let prioritizedTradeable = tradeable;
+    if (settings.prioritize_moonshots) {
+      console.log('🚀 Moonshot Priority ENABLED - fetching pump probability scores...');
+      
+      const { data: moonshotSignals } = await supabase
+        .from('moonshot_signals')
+        .select('symbol, pump_probability, signal_tags')
+        .gte('pump_probability', 60) // Only consider high probability signals
+        .order('pump_probability', { ascending: false });
+      
+      if (moonshotSignals && moonshotSignals.length > 0) {
+        console.log(`🎯 Found ${moonshotSignals.length} high-probability moonshots:`);
+        moonshotSignals.forEach((s: any) => console.log(`   ${s.symbol}: ${s.pump_probability}% - ${(s.signal_tags || []).join(', ')}`));
+        
+        // Create a map of symbol -> pump_probability
+        const moonshotMap = new Map(moonshotSignals.map((s: any) => [s.symbol, s.pump_probability]));
+        
+        // Sort tradeable coins by moonshot priority (high pump probability first)
+        prioritizedTradeable = [...tradeable].sort((a, b) => {
+          const aPump = moonshotMap.get(a.symbol) || 0;
+          const bPump = moonshotMap.get(b.symbol) || 0;
+          return bPump - aPump; // Higher pump probability first
+        });
+        
+        console.log(`📊 Prioritized order: ${prioritizedTradeable.map(c => {
+          const pump = moonshotMap.get(c.symbol);
+          return pump ? `${c.symbol}(🚀${pump}%)` : c.symbol;
+        }).join(', ')}`);
+      } else {
+        console.log('📊 No high-probability moonshots found, using standard order');
+      }
+    }
+
     // If all coins are in downtrend, skip trading entirely
     if (tradeable.length === 0) {
       console.log('⚠️ All coins in downtrend - SKIPPING TRADING');
@@ -1499,12 +1533,12 @@ serve(async (req) => {
     const optimalLeverage = calculateOptimalLeverage(balance, targetEquity, leverage, settings.risk_tolerance || 'aggressive');
     
     console.log(`🚀 AI Autonomous Mode: ${optimalLeverage}x leverage, $${balance.toFixed(2)} → $${targetEquity} target`);
-    let decisions = await analyzeWithAI(tradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, targetEquity);
+    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, targetEquity);
     
     // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {
       console.log('📊 AI returned no decisions, using strategy-specific rules');
-      decisions = analyzeWithRules(tradeable, regime, settings.max_position_size, balance, bestStrategy);
+      decisions = analyzeWithRules(prioritizedTradeable, regime, settings.max_position_size, balance, bestStrategy);
     }
 
     // Double-check: Filter out any decisions for coins in downtrend (safety net)

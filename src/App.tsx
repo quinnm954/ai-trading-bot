@@ -11,6 +11,7 @@ import AIAdvisor from "./pages/AIAdvisor";
 import AITrader from "./pages/AITrader";
 import AILearningEngine from "./pages/AILearningEngine";
 import RiskManagement from "./pages/RiskManagement";
+import MoonshotScanner from "./pages/MoonshotScanner";
 import Trades from "./pages/Trades";
 import ApiKeys from "./pages/ApiKeys";
 import Settings from "./pages/Settings";
@@ -39,6 +40,7 @@ const App = () => (
               <Route path="/ai-trader" element={<AITrader />} />
               <Route path="/ai-learning" element={<AILearningEngine />} />
               <Route path="/risk-management" element={<RiskManagement />} />
+              <Route path="/moonshot-scanner" element={<MoonshotScanner />} />
               <Route path="/trades" element={<Trades />} />
               <Route path="/api-keys" element={<ApiKeys />} />
               <Route path="/settings" element={<Settings />} />
