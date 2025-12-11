@@ -13,7 +13,8 @@ import {
   Wallet,
   RefreshCw,
   X,
-  Shield
+  Shield,
+  Rocket
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
   { path: '/ai-trader', icon: Bot, label: 'Autonomous AI', badge: 'AUTO' },
   { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning', badge: 'NEW' },
+  { path: '/moonshot-scanner', icon: Rocket, label: 'Moonshot Scanner', badge: '🚀' },
   { path: '/risk-management', icon: Shield, label: 'Risk Management' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },

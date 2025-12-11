@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.risk-manager]
 verify_jwt = false
+
+[functions.moonshot-scanner]
+verify_jwt = false

@@ -72,6 +72,7 @@ export type Database = {
           max_leverage: number | null
           max_position_size: number | null
           peak_equity: number | null
+          prioritize_moonshots: boolean | null
           risk_tolerance: string | null
           target_equity: number | null
           trading_mode: string
@@ -101,6 +102,7 @@ export type Database = {
           max_leverage?: number | null
           max_position_size?: number | null
           peak_equity?: number | null
+          prioritize_moonshots?: boolean | null
           risk_tolerance?: string | null
           target_equity?: number | null
           trading_mode?: string
@@ -130,6 +132,7 @@ export type Database = {
           max_leverage?: number | null
           max_position_size?: number | null
           peak_equity?: number | null
+          prioritize_moonshots?: boolean | null
           risk_tolerance?: string | null
           target_equity?: number | null
           trading_mode?: string
@@ -269,6 +272,60 @@ export type Database = {
           provider?: string
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      moonshot_signals: {
+        Row: {
+          created_at: string
+          id: string
+          liquidity_score: number
+          name: string | null
+          price_change_24h: number | null
+          price_usd: number | null
+          pump_probability: number
+          sentiment_score: number
+          signal_tags: string[] | null
+          symbol: string
+          technical_score: number
+          updated_at: string
+          volume_24h: number | null
+          volume_score: number
+          whale_score: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          liquidity_score?: number
+          name?: string | null
+          price_change_24h?: number | null
+          price_usd?: number | null
+          pump_probability?: number
+          sentiment_score?: number
+          signal_tags?: string[] | null
+          symbol: string
+          technical_score?: number
+          updated_at?: string
+          volume_24h?: number | null
+          volume_score?: number
+          whale_score?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          liquidity_score?: number
+          name?: string | null
+          price_change_24h?: number | null
+          price_usd?: number | null
+          pump_probability?: number
+          sentiment_score?: number
+          signal_tags?: string[] | null
+          symbol?: string
+          technical_score?: number
+          updated_at?: string
+          volume_24h?: number | null
+          volume_score?: number
+          whale_score?: number
         }
         Relationships: []
       }
