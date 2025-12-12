@@ -255,14 +255,39 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
 
   const data = await response.json();
   
-  // Process accounts
+  // Process accounts - DETAILED LOGGING FOR DEBUG
   if (data.accounts && Array.isArray(data.accounts)) {
-    console.log(`📊 Found ${data.accounts.length} accounts`);
+    console.log(`📊 Found ${data.accounts.length} total accounts from Coinbase`);
+    
+    // Log ALL currencies returned (even with 0 balance) to debug missing BTC
+    console.log(`🔍 === ALL COINBASE ACCOUNTS ===`);
+    const allCurrencies: string[] = [];
     
     for (const account of data.accounts) {
+      const currency = account.currency || account.available_balance?.currency || 'UNKNOWN';
+      const availableValue = parseFloat(account.available_balance?.value || '0');
+      const holdValue = parseFloat(account.hold?.value || '0');
+      const totalValue = availableValue + holdValue;
+      const accountType = account.type || 'N/A';
+      const accountName = account.name || 'N/A';
+      const accountUuid = account.uuid || 'N/A';
+      
+      allCurrencies.push(currency);
+      
+      // Log every account for complete visibility
+      if (totalValue > 0 || currency === 'BTC') {
+        console.log(`   ${currency}: available=${availableValue}, hold=${holdValue}, total=${totalValue}, type=${accountType}, name=${accountName}, uuid=${accountUuid.substring(0, 8)}...`);
+      }
+      
+      // Special BTC debugging
+      if (currency === 'BTC' || currency === 'WBTC' || currency === 'cbBTC') {
+        console.log(`🔶 BTC-RELATED ACCOUNT FOUND: ${currency}`);
+        console.log(`   Full account data: ${JSON.stringify(account).substring(0, 500)}`);
+      }
+      
+      // Process accounts with positive available balance
       if (account.available_balance && account.available_balance.value) {
         const value = parseFloat(account.available_balance.value);
-        const currency = account.currency || account.available_balance.currency;
         
         if (value > 0) {
           if (stablecoins.includes(currency)) {
@@ -279,6 +304,10 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
         }
       }
     }
+    
+    // Summary of all currencies
+    console.log(`🔍 All currencies in account: ${allCurrencies.filter((c, i, a) => a.indexOf(c) === i).sort().join(', ')}`);
+    console.log(`🔍 BTC present in list: ${allCurrencies.includes('BTC') ? 'YES' : 'NO'}`);
   }
 
   console.log(`✅ Cash: $${cashBalance.toFixed(2)}, Holdings: ${holdings.length} assets`);
