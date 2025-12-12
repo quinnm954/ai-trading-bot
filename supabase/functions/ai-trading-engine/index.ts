@@ -703,8 +703,11 @@ function analyzeMultiTimeframe(coin: MarketData): MultiTimeframeAnalysis {
 // Analyze trend for each coin using multiple signals + multi-timeframe
 function analyzeTrend(coin: MarketData): TrendAnalysis {
   const mtf = analyzeMultiTimeframe(coin);
-  const priceRange = coin.high24h - coin.low24h;
-  const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
+  const high24h = coin.high24h ?? coin.price ?? 0;
+  const low24h = coin.low24h ?? coin.price ?? 0;
+  const price = coin.price ?? 0;
+  const priceRange = high24h - low24h;
+  const pricePosition = priceRange > 0 ? (price - low24h) / priceRange : 0.5;
   
   // Null-safe access to change values
   const change24h = coin.change24h ?? 0;
@@ -784,14 +787,15 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   // Pre-filter: Remove stablecoins and low-price coins
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
-    const isBelowMinPrice = coin.price < MIN_PRICE_USD;
+    const price = coin.price ?? 0;
+    const isBelowMinPrice = price < MIN_PRICE_USD;
     
     if (isStablecoin) {
       console.log(`🚫 Excluding stablecoin: ${coin.symbol}`);
       return false;
     }
     if (isBelowMinPrice) {
-      console.log(`🚫 Excluding low-price coin: ${coin.symbol} @ $${coin.price.toFixed(4)}`);
+      console.log(`🚫 Excluding low-price coin: ${coin.symbol} @ $${price.toFixed(4)}`);
       return false;
     }
     return true;
