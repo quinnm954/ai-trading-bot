@@ -769,12 +769,36 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   };
 }
 
+// Stablecoins to exclude from trading
+const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
+
+// Minimum price filter - exclude coins worth less than $1
+const MIN_PRICE_USD = 1.0;
+
 // DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
+  // Pre-filter: Remove stablecoins and low-price coins
+  const eligibleCoins = marketData.filter(coin => {
+    const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
+    const isBelowMinPrice = coin.price < MIN_PRICE_USD;
+    
+    if (isStablecoin) {
+      console.log(`🚫 Excluding stablecoin: ${coin.symbol}`);
+      return false;
+    }
+    if (isBelowMinPrice) {
+      console.log(`🚫 Excluding low-price coin: ${coin.symbol} @ $${coin.price.toFixed(4)}`);
+      return false;
+    }
+    return true;
+  });
+  
+  console.log(`✅ Eligible coins (>= $${MIN_PRICE_USD}, non-stablecoin): ${eligibleCoins.length}/${marketData.length}`);
+  
   // Step 1: Find DIP-BUY candidates - assets that:
   // - Have positive 7-day trend (overall uptrend)
   // - But have pulled back in 24h (negative or low 24h change = buying the dip)
-  const dipBuyCandidates = marketData.filter(coin => {
+  const dipBuyCandidates = eligibleCoins.filter(coin => {
     const has7dUptrend = coin.change7d > 2; // Asset is up >2% over 7 days (uptrend)
     const hasDip = coin.change24h < 1 && coin.change24h > -8; // Recent pullback (-8% to +1%)
     const notCrashing = coin.change24h > -8; // Avoid free-falling assets
@@ -782,7 +806,7 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   });
   
   // Also include strong momentum plays (positive 24h AND 7d)
-  const momentumPlays = marketData.filter(coin => {
+  const momentumPlays = eligibleCoins.filter(coin => {
     const strongMomentum = coin.change24h > 3 && coin.change7d > 5;
     const notOverbought = coin.change24h < 15; // Avoid parabolic moves
     return strongMomentum && notOverbought;
