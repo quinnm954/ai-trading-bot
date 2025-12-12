@@ -196,12 +196,11 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
 
   const isCdp = apiKey.startsWith("organizations/") || apiSecret.includes("-----BEGIN");
   console.log(`Fetching Coinbase accounts using ${isCdp ? "CDP JWT" : "Legacy HMAC"} auth...`);
-
   let cashBalance = 0;
   const holdings: Array<{ symbol: string; quantity: number; value: number }> = [];
   const stablecoins = ["USD", "USDC", "USDT", "PYUSD", "USD1", "DAI", "BUSD", "GUSD", "USDP", "TUSD"];
   
-  // Fetch accounts from Coinbase - the API returns all accounts in one response
+  // Fetch accounts from Coinbase
   const requestPath = "/api/v3/brokerage/accounts";
   console.log(`📄 Fetching accounts from: ${requestPath}`);
   
@@ -209,7 +208,7 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
 
   if (isCdp) {
     const jwt = await generateCdpJwt(apiKey, apiSecret, `GET api.coinbase.com${requestPath}`);
-    response = await fetch(`https://api.coinbase.com${requestPath}`, {
+    response = await fetch(`https://api.coinbase.com${requestPath}?limit=250`, {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${jwt}`,
@@ -236,7 +235,7 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
     const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
     const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
 
-    response = await fetch("https://api.coinbase.com" + requestPath, {
+    response = await fetch("https://api.coinbase.com" + requestPath + "?limit=250", {
       method: "GET",
       headers: {
         "CB-ACCESS-KEY": apiKey,
@@ -255,6 +254,9 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
 
   const data = await response.json();
   
+  // Log pagination info
+  console.log(`📊 Response has_next: ${data.has_next}, size: ${data.size}, cursor: ${data.cursor ? 'yes' : 'no'}`);
+  
   // Process accounts - DETAILED LOGGING FOR DEBUG
   if (data.accounts && Array.isArray(data.accounts)) {
     console.log(`📊 Found ${data.accounts.length} total accounts from Coinbase`);
@@ -262,6 +264,10 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
     // Log ALL currencies returned (even with 0 balance) to debug missing BTC
     console.log(`🔍 === ALL COINBASE ACCOUNTS ===`);
     const allCurrencies: string[] = [];
+    
+    // Check for BTC in ANY form
+    let btcFound = false;
+    let btcAccountData: any = null;
     
     for (const account of data.accounts) {
       const currency = account.currency || account.available_balance?.currency || 'UNKNOWN';
@@ -271,18 +277,24 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
       const accountType = account.type || 'N/A';
       const accountName = account.name || 'N/A';
       const accountUuid = account.uuid || 'N/A';
+      const accountActive = account.active;
+      const accountReady = account.ready;
       
       allCurrencies.push(currency);
       
-      // Log every account for complete visibility
-      if (totalValue > 0 || currency === 'BTC') {
-        console.log(`   ${currency}: available=${availableValue}, hold=${holdValue}, total=${totalValue}, type=${accountType}, name=${accountName}, uuid=${accountUuid.substring(0, 8)}...`);
+      // Check for ANY BTC-related currency
+      if (currency === 'BTC' || currency === 'WBTC' || currency === 'cbBTC' || currency.includes('BTC')) {
+        btcFound = true;
+        btcAccountData = account;
+        console.log(`🔶 BTC-RELATED FOUND: ${currency}`);
+        console.log(`   available=${availableValue}, hold=${holdValue}, total=${totalValue}`);
+        console.log(`   type=${accountType}, active=${accountActive}, ready=${accountReady}`);
+        console.log(`   Full: ${JSON.stringify(account).substring(0, 800)}`);
       }
       
-      // Special BTC debugging
-      if (currency === 'BTC' || currency === 'WBTC' || currency === 'cbBTC') {
-        console.log(`🔶 BTC-RELATED ACCOUNT FOUND: ${currency}`);
-        console.log(`   Full account data: ${JSON.stringify(account).substring(0, 500)}`);
+      // Log accounts with positive balance
+      if (totalValue > 0) {
+        console.log(`   ${currency}: available=${availableValue}, hold=${holdValue}, total=${totalValue}, type=${accountType}, name=${accountName}, uuid=${accountUuid.substring(0, 8)}...`);
       }
       
       // Process accounts with positive available balance
@@ -305,9 +317,19 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
       }
     }
     
-    // Summary of all currencies
-    console.log(`🔍 All currencies in account: ${allCurrencies.filter((c, i, a) => a.indexOf(c) === i).sort().join(', ')}`);
-    console.log(`🔍 BTC present in list: ${allCurrencies.includes('BTC') ? 'YES' : 'NO'}`);
+    // Summary
+    const sortedCurrencies = allCurrencies.filter((c, i, a) => a.indexOf(c) === i).sort();
+    console.log(`🔍 All ${sortedCurrencies.length} currencies: ${sortedCurrencies.join(', ')}`);
+    console.log(`🔍 BTC present in list: ${btcFound ? 'YES' : 'NO'}`);
+    
+    if (!btcFound) {
+      console.log(`⚠️ BTC NOT FOUND in Coinbase brokerage API response!`);
+      console.log(`   This could mean:`);
+      console.log(`   1. BTC is in Coinbase Earn/Staking`);
+      console.log(`   2. BTC is in a Vault`);
+      console.log(`   3. BTC is in a different Coinbase portfolio`);
+      console.log(`   4. API key doesn't have permission to view BTC`);
+    }
   }
 
   console.log(`✅ Cash: $${cashBalance.toFixed(2)}, Holdings: ${holdings.length} assets`);
