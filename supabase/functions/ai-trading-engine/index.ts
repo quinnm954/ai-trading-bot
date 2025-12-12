@@ -706,11 +706,15 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   const priceRange = coin.high24h - coin.low24h;
   const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
   
+  // Null-safe access to change values
+  const change24h = coin.change24h ?? 0;
+  const change7d = coin.change7d ?? 0;
+  
   // Calculate trend strength based on multiple factors + MTF
   let trendScore = 0;
   
   // Factor 1: 24h price change (weight: 30%)
-  const changeScore = Math.max(-1, Math.min(1, coin.change24h / 10));
+  const changeScore = Math.max(-1, Math.min(1, change24h / 10));
   trendScore += changeScore * 0.3;
   
   // Factor 2: Price position in daily range (weight: 20%)
@@ -718,8 +722,8 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   trendScore += positionScore * 0.2;
   
   // Factor 3: Momentum alignment (weight: 20%)
-  const momentumAlignment = coin.change24h > 0 && pricePosition > 0.5 ? 1 :
-                            coin.change24h < 0 && pricePosition < 0.5 ? -1 : 0;
+  const momentumAlignment = change24h > 0 && pricePosition > 0.5 ? 1 :
+                            change24h < 0 && pricePosition < 0.5 ? -1 : 0;
   trendScore += momentumAlignment * 0.2;
   
   // Factor 4: Multi-timeframe bias (weight: 30%) - NEW
@@ -738,26 +742,26 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
   if (trendScore >= 0.5) {
     trend = 'strong_uptrend';
     shouldTrade = true;
-    reason = `🚀 Strong uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
+    reason = `🚀 Strong uptrend: +${change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore >= 0.1) {
     trend = 'uptrend';
     shouldTrade = true; // Trade uptrends too
-    reason = `📈 Uptrend: +${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
+    reason = `📈 Uptrend: +${change24h.toFixed(1)}% | ${mtf.reasoning}`;
   } else if (trendScore <= -0.7) {
     trend = 'strong_downtrend';
     shouldTrade = false;
     // Analyze for potential reversal entry timing
     const reversalPotential = mtf.entryScore > 60 ? 'HIGH' : mtf.entryScore > 40 ? 'MEDIUM' : 'LOW';
     const watchSignal = pricePosition < 0.2 ? '👀 Near support - watching for bounce' : '⏳ Waiting for capitulation';
-    reason = `⚠️ Strong downtrend: ${coin.change24h.toFixed(1)}% - WATCHING | Reversal potential: ${reversalPotential} | ${watchSignal}`;
+    reason = `⚠️ Strong downtrend: ${change24h.toFixed(1)}% - WATCHING | Reversal potential: ${reversalPotential} | ${watchSignal}`;
   } else if (trendScore <= -0.3) {
     trend = 'downtrend';
     shouldTrade = false;
-    reason = `📉 Downtrend: ${coin.change24h.toFixed(1)}% - AVOIDING`;
+    reason = `📉 Downtrend: ${change24h.toFixed(1)}% - AVOIDING`;
   } else {
     trend = 'neutral';
     shouldTrade = false; // Skip neutral markets
-    reason = `➡️ Neutral (skipping): ${coin.change24h.toFixed(1)}% | ${mtf.reasoning}`;
+    reason = `➡️ Neutral (skipping): ${change24h.toFixed(1)}% | ${mtf.reasoning}`;
   }
   
   return {
@@ -799,16 +803,20 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   // - Have positive 7-day trend (overall uptrend)
   // - But have pulled back in 24h (negative or low 24h change = buying the dip)
   const dipBuyCandidates = eligibleCoins.filter(coin => {
-    const has7dUptrend = coin.change7d > 2; // Asset is up >2% over 7 days (uptrend)
-    const hasDip = coin.change24h < 1 && coin.change24h > -8; // Recent pullback (-8% to +1%)
-    const notCrashing = coin.change24h > -8; // Avoid free-falling assets
+    const change24h = coin.change24h ?? 0;
+    const change7d = coin.change7d ?? 0;
+    const has7dUptrend = change7d > 2; // Asset is up >2% over 7 days (uptrend)
+    const hasDip = change24h < 1 && change24h > -8; // Recent pullback (-8% to +1%)
+    const notCrashing = change24h > -8; // Avoid free-falling assets
     return has7dUptrend && hasDip && notCrashing;
   });
   
   // Also include strong momentum plays (positive 24h AND 7d)
   const momentumPlays = eligibleCoins.filter(coin => {
-    const strongMomentum = coin.change24h > 3 && coin.change7d > 5;
-    const notOverbought = coin.change24h < 15; // Avoid parabolic moves
+    const change24h = coin.change24h ?? 0;
+    const change7d = coin.change7d ?? 0;
+    const strongMomentum = change24h > 3 && change7d > 5;
+    const notOverbought = change24h < 15; // Avoid parabolic moves
     return strongMomentum && notOverbought;
   });
   
@@ -825,14 +833,16 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   // Step 2: Analyze trends for candidates
   const trendAnalysis = combinedCandidates.map(coin => {
     const analysis = analyzeTrend(coin);
+    const change24h = coin.change24h ?? 0;
+    const change7d = coin.change7d ?? 0;
     // For dip-buying, we want to trade even on slight pullbacks in uptrending assets
-    const isDipBuy = coin.change7d > 2 && coin.change24h < 1;
-    if (isDipBuy && coin.change24h > -5) {
+    const isDipBuy = change7d > 2 && change24h < 1;
+    if (isDipBuy && change24h > -5) {
       // Override to allow trading dips in uptrending assets
       return {
         ...analysis,
         shouldTrade: true,
-        reason: `🔄 DIP-BUY: 7d: +${coin.change7d.toFixed(1)}% uptrend, 24h: ${coin.change24h.toFixed(1)}% pullback | Entry opportunity`,
+        reason: `🔄 DIP-BUY: 7d: +${change7d.toFixed(1)}% uptrend, 24h: ${change24h.toFixed(1)}% pullback | Entry opportunity`,
       };
     }
     return analysis;
