@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Check, Zap, Crown, ArrowRight, Sparkles } from 'lucide-react';
+import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
+import { useCurrency } from '@/hooks/useCurrency';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+
 const tiers = [
   {
     name: 'Free',
     description: 'Practice trading with virtual money',
-    price: 0,
+    priceUsd: 0,
     period: 'forever',
     features: [
       'Unlimited paper trading',
@@ -27,7 +35,7 @@ const tiers = [
   {
     name: 'Pro',
     description: 'Live trading with 1 exchange',
-    price: 49,
+    priceUsd: 49,
     period: '/month',
     features: [
       'Everything in Free',
@@ -46,7 +54,7 @@ const tiers = [
   {
     name: 'Unlimited',
     description: 'Maximum power, all exchanges',
-    price: 99,
+    priceUsd: 99,
     period: '/month',
     features: [
       'Everything in Pro',
@@ -64,17 +72,20 @@ const tiers = [
   },
 ];
 
+// Popular currencies to show in dropdown
+const POPULAR_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'INR', 'BRL', 'MXN', 'SGD'];
+
 export default function Pricing() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { isAdmin } = useIsAdmin();
+  const { currency, formatPrice, changeCurrency, isLoading: currencyLoading } = useCurrency();
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
 
   const handleSelectPlan = (tierName: string) => {
     if (!isAuthenticated) {
       navigate('/auth');
     } else {
-      // For now, just navigate to settings - Stripe integration would go here
       navigate('/settings');
     }
   };
@@ -131,6 +142,28 @@ export default function Pricing() {
             </span>
           </Link>
           <div className="flex items-center gap-4">
+            {/* Currency Selector */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-2">
+                  <Globe className="w-4 h-4" />
+                  <span>{currency.code}</span>
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
+                {POPULAR_CURRENCIES.map((code) => (
+                  <DropdownMenuItem 
+                    key={code} 
+                    onClick={() => changeCurrency(code)}
+                    className={cn(currency.code === code && 'bg-primary/10')}
+                  >
+                    {code}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            
             {isAuthenticated ? (
               <Button variant="outline" asChild>
                 <Link to="/dashboard">Dashboard</Link>
@@ -193,9 +226,17 @@ export default function Pricing() {
         {/* Pricing Cards */}
         <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
           {tiers.map((tier) => {
-            const displayPrice = billingPeriod === 'yearly' && tier.price > 0 
-              ? Math.round(tier.price * 0.8) 
-              : tier.price;
+            const basePrice = billingPeriod === 'yearly' && tier.priceUsd > 0 
+              ? Math.round(tier.priceUsd * 0.8) 
+              : tier.priceUsd;
+            
+            const displayPrice = tier.priceUsd === 0 
+              ? (currency.code === 'USD' ? '$0' : formatPrice(0))
+              : formatPrice(basePrice);
+            
+            const yearlyTotal = billingPeriod === 'yearly' && tier.priceUsd > 0
+              ? formatPrice(basePrice * 12)
+              : null;
             
             return (
               <div
@@ -228,17 +269,21 @@ export default function Pricing() {
                 </p>
 
                 <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-bold text-foreground">
-                    ${displayPrice}
+                  <span className={cn(
+                    "font-bold text-foreground",
+                    currencyLoading ? 'animate-pulse' : '',
+                    displayPrice.length > 8 ? 'text-2xl' : 'text-4xl'
+                  )}>
+                    {displayPrice}
                   </span>
                   <span className="text-muted-foreground">
-                    {tier.price === 0 ? tier.period : billingPeriod === 'yearly' ? '/month' : tier.period}
+                    {tier.priceUsd === 0 ? tier.period : billingPeriod === 'yearly' ? '/month' : tier.period}
                   </span>
                 </div>
 
-                {billingPeriod === 'yearly' && tier.price > 0 && (
+                {yearlyTotal && (
                   <p className="text-sm text-profit mb-4">
-                    Billed ${displayPrice * 12}/year
+                    Billed {yearlyTotal}/year
                   </p>
                 )}
 
@@ -264,8 +309,15 @@ export default function Pricing() {
           })}
         </div>
 
+        {/* Currency Note */}
+        <div className="mt-8 text-center text-sm text-muted-foreground">
+          <p>
+            Prices shown in {currency.code}. All payments processed in USD.
+          </p>
+        </div>
+
         {/* FAQ or Trust Section */}
-        <div className="mt-20 text-center">
+        <div className="mt-12 text-center">
           <p className="text-muted-foreground">
             Questions? <Link to="/auth" className="text-primary hover:underline">Contact us</Link> or start with the free plan—no credit card required.
           </p>
