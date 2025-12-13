@@ -48,12 +48,12 @@ export function RiskSettingsPanel() {
 
   const { settings } = riskStatus;
 
-  const getValue = (key: string): number => {
+  const getValue = (key: string): any => {
     if (pendingChanges[key] !== undefined) return pendingChanges[key];
-    return (settings as any)[key] || 0;
+    return (settings as any)[key] ?? (key === 'targetEquity' ? 1000000 : key === 'riskTolerance' ? 'moderate' : 0);
   };
 
-  const handleChange = (key: string, value: number) => {
+  const handleChange = (key: string, value: any) => {
     setPendingChanges(prev => ({ ...prev, [key]: value }));
   };
 
@@ -195,6 +195,77 @@ export function RiskSettingsPanel() {
       )}
 
       <div className="space-y-6">
+        {/* Target Equity Goal */}
+        <div className="space-y-3 p-4 rounded-lg bg-primary/5 border border-primary/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-foreground">Target Equity Goal</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs text-xs">Your target equity goal. AI will optimize trading to help reach this target while respecting risk limits.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <span className="font-mono font-medium text-sm text-primary">
+              ${(getValue('targetEquity') || 1000000).toLocaleString()}
+            </span>
+          </div>
+          <Slider
+            value={[getValue('targetEquity') || 1000000]}
+            onValueChange={([v]) => handleChange('targetEquity', v)}
+            min={100000}
+            max={10000000}
+            step={100000}
+            className="w-full"
+          />
+          <p className="text-xs text-muted-foreground">
+            AI will adapt position sizing and trade frequency based on progress toward this goal
+          </p>
+        </div>
+
+        {/* Risk Tolerance */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-foreground">Risk Tolerance</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs text-xs">Controls how aggressively AI trades. Conservative = smaller positions, fewer trades. Aggressive = larger positions, more trades.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {['conservative', 'moderate', 'aggressive', 'ultra_aggressive'].map((level) => (
+              <button
+                key={level}
+                onClick={() => handleChange('riskTolerance', level as any)}
+                className={cn(
+                  'px-3 py-2 rounded-lg text-xs font-medium transition-all capitalize',
+                  (pendingChanges['riskTolerance'] || settings.riskTolerance) === level
+                    ? level === 'conservative' ? 'bg-success/20 text-success border border-success/30'
+                    : level === 'moderate' ? 'bg-primary/20 text-primary border border-primary/30'
+                    : level === 'aggressive' ? 'bg-warning/20 text-warning border border-warning/30'
+                    : 'bg-destructive/20 text-destructive border border-destructive/30'
+                    : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                )}
+              >
+                {level.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Position Size */}
         <SettingRow
           label="Max Position Size"

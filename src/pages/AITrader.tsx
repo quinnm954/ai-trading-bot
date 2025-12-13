@@ -488,93 +488,30 @@ export default function AITrader() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Capital Allocation */}
-        <div className="glass-panel p-6">
-          <div className="flex items-center gap-2 mb-6">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Capital Allocation</h3>
-          </div>
-
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-muted-foreground">Max Capital for AI</span>
-                <span className="font-mono font-medium text-foreground">{aiSettings.maxCapitalUsage}%</span>
-              </div>
-              <Slider
-                value={[aiSettings.maxCapitalUsage]}
-                onValueChange={([value]) => updateSettings({ maxCapitalUsage: value })}
-                max={100}
-                step={5}
-                className="w-full"
-                disabled={isSaving}
-              />
-              <p className="text-xs text-muted-foreground mt-2">
-                AI can use up to ${(currentBalance * aiSettings.maxCapitalUsage / 100).toLocaleString()} of your balance
-              </p>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-muted-foreground">Max Position Size</span>
-                <span className="font-mono font-medium text-foreground">{aiSettings.maxPositionSize}%</span>
-              </div>
-              <Slider
-                value={[aiSettings.maxPositionSize]}
-                onValueChange={([value]) => updateSettings({ maxPositionSize: value })}
-                max={25}
-                step={1}
-                className="w-full"
-                disabled={isSaving}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Risk Controls */}
-        <div className="glass-panel p-6">
-          <div className="flex items-center gap-2 mb-6">
+      {/* Risk Settings Link */}
+      <div className="glass-panel p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <Shield className="w-5 h-5 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Risk Controls</h3>
-          </div>
-
-          <div className="space-y-6">
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-muted-foreground">Max Daily Loss</span>
-                <span className="font-mono font-medium text-destructive">-{aiSettings.maxDailyLoss}%</span>
-              </div>
-              <Slider
-                value={[aiSettings.maxDailyLoss]}
-                onValueChange={([value]) => updateSettings({ maxDailyLoss: value })}
-                max={10}
-                step={0.5}
-                className="w-full"
-                disabled={isSaving}
-              />
-              <p className="text-xs text-muted-foreground mt-2">
-                Trading stops if losses reach ${(currentBalance * aiSettings.maxDailyLoss / 100).toLocaleString()}
+              <p className="font-medium text-foreground">Risk & Trading Settings</p>
+              <p className="text-sm text-muted-foreground">
+                All trading limits are configured in Risk Management
               </p>
             </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-muted-foreground">Max Open Trades</span>
-                <span className="font-mono font-medium text-foreground">{aiSettings.maxConcurrentTrades}</span>
-              </div>
-              <Slider
-                value={[aiSettings.maxConcurrentTrades]}
-                onValueChange={([value]) => updateSettings({ maxConcurrentTrades: value })}
-                max={20}
-                step={1}
-                className="w-full"
-                disabled={isSaving}
-              />
-            </div>
           </div>
+          <Button 
+            variant="outline" 
+            onClick={() => navigate('/risk-management')}
+            className="gap-2"
+          >
+            <Settings className="w-4 h-4" />
+            Configure Settings
+          </Button>
         </div>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Allowed Markets */}
         <div className="glass-panel p-6">
           <div className="flex items-center gap-2 mb-6">
@@ -640,36 +577,34 @@ export default function AITrader() {
             <div className="p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-medium text-foreground">Analysis Interval</span>
-                <span className="text-sm text-muted-foreground">Every 5 minutes</span>
+                <span className="text-sm text-muted-foreground">Every 1 minute</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                AI reviews market conditions and adjusts strategies
+                AI reviews market conditions and adjusts strategies continuously
               </p>
             </div>
 
             <div className="p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-medium text-foreground">Strategy Selection</span>
-                <span className="text-sm text-muted-foreground">Automatic</span>
+                <span className="text-sm text-muted-foreground">AI Autonomous</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                AI picks the best strategy based on current conditions
+                AI picks the best strategy for current market regime based on historical performance
               </p>
             </div>
 
-            {!isLiveMode && (
-              <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 text-primary mt-0.5" />
-                  <div>
-                    <p className="font-medium text-foreground">Paper Trading Mode</p>
-                    <p className="text-xs text-muted-foreground">
-                      All trades are simulated. Switch to Live Trading to use real funds.
-                    </p>
-                  </div>
+            <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <div className="flex items-start gap-2">
+                <Zap className="w-5 h-5 text-primary mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">Risk-First Philosophy</p>
+                  <p className="text-xs text-muted-foreground">
+                    AI respects all limits set in Risk Management. Capital preservation is the priority.
+                  </p>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
