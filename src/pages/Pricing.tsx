@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown } from 'lucide-react';
+import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -22,10 +22,16 @@ const tiers = [
     features: [
       'Unlimited paper trading',
       '$100k virtual balance',
-      'All trading strategies',
-      'AI market analysis',
-      'Real-time market data',
-      'Performance tracking',
+      'All 8 trading strategies',
+      'AI market regime detection',
+      'Real-time crypto prices',
+      'Performance tracking & analytics',
+      'Equity curve visualization',
+      'Strategy backtesting',
+    ],
+    limitations: [
+      'Paper trading only',
+      'No live exchange connections',
     ],
     cta: 'Start Free',
     icon: Sparkles,
@@ -38,14 +44,19 @@ const tiers = [
     priceUsd: 49,
     period: '/month',
     features: [
-      'Everything in Free',
+      'Everything in Free, plus:',
       'Live trading with real money',
       '1 exchange connection',
-      'Autonomous AI trader',
+      'Fully autonomous AI trader',
       'Auto take-profit & stop-loss',
       '24/7 automated execution',
+      'Risk management controls',
+      'Kill switch protection',
+      'Daily/weekly loss limits',
+      'Max drawdown protection',
       'Email support',
     ],
+    supportedExchanges: ['Choose 1 exchange'],
     cta: 'Get Pro',
     icon: Zap,
     popular: true,
@@ -57,14 +68,19 @@ const tiers = [
     priceUsd: 99,
     period: '/month',
     features: [
-      'Everything in Pro',
+      'Everything in Pro, plus:',
       'All 8 exchanges supported',
       'Priority AI processing',
-      'Advanced learning engine',
+      'Advanced AI learning engine',
       'Custom strategy builder',
+      'Moonshot scanner access',
+      'Multi-exchange arbitrage',
+      'Advanced position rotation',
       'Priority support',
-      'Early access to features',
+      'Early access to new features',
+      'Dedicated account manager',
     ],
+    supportedExchanges: ['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Gate.io', 'Bitget'],
     cta: 'Go Unlimited',
     icon: Crown,
     popular: false,
@@ -296,7 +312,7 @@ export default function Pricing() {
                   <ArrowRight className="w-4 h-4" />
                 </Button>
 
-                <ul className="space-y-3">
+                <ul className="space-y-3 mb-6">
                   {tier.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-3">
                       <Check className="w-5 h-5 text-profit shrink-0 mt-0.5" />
@@ -304,20 +320,88 @@ export default function Pricing() {
                     </li>
                   ))}
                 </ul>
+
+                {/* Limitations for Free tier */}
+                {'limitations' in tier && tier.limitations && (
+                  <div className="pt-4 border-t border-border">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-3">Limitations</p>
+                    <ul className="space-y-2">
+                      {tier.limitations.map((limitation: string) => (
+                        <li key={limitation} className="flex items-start gap-3">
+                          <X className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                          <span className="text-sm text-muted-foreground">{limitation}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Supported Exchanges for paid tiers */}
+                {'supportedExchanges' in tier && tier.supportedExchanges && (
+                  <div className="pt-4 border-t border-border">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-3">Exchanges</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tier.supportedExchanges.map((exchange: string) => (
+                        <span 
+                          key={exchange} 
+                          className="px-2 py-1 text-xs bg-muted rounded-md text-muted-foreground"
+                        >
+                          {exchange}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
+        {/* Feature Highlights */}
+        <div className="mt-20 max-w-4xl mx-auto">
+          <h2 className="text-2xl font-bold text-foreground text-center mb-10">
+            Why Choose TitanAI?
+          </h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                <Bot className="w-7 h-7 text-primary" />
+              </div>
+              <h3 className="font-semibold text-foreground mb-2">Fully Autonomous</h3>
+              <p className="text-sm text-muted-foreground">
+                AI trades 24/7 without intervention. Set your risk limits and let it work.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-xl bg-profit/20 flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-7 h-7 text-profit" />
+              </div>
+              <h3 className="font-semibold text-foreground mb-2">Risk-First Design</h3>
+              <p className="text-sm text-muted-foreground">
+                Kill switch, loss limits, and drawdown protection built into every trade.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center mx-auto mb-4">
+                <BarChart3 className="w-7 h-7 text-amber-500" />
+              </div>
+              <h3 className="font-semibold text-foreground mb-2">Learning Engine</h3>
+              <p className="text-sm text-muted-foreground">
+                AI continuously learns which strategies perform best in each market regime.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Currency Note */}
-        <div className="mt-8 text-center text-sm text-muted-foreground">
+        <div className="mt-12 text-center text-sm text-muted-foreground">
           <p>
             Prices shown in {currency.code}. All payments processed in USD.
           </p>
         </div>
 
         {/* FAQ or Trust Section */}
-        <div className="mt-12 text-center">
+        <div className="mt-8 text-center">
           <p className="text-muted-foreground">
             Questions? <Link to="/auth" className="text-primary hover:underline">Contact us</Link> or start with the free plan—no credit card required.
           </p>
