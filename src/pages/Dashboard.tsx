@@ -233,7 +233,7 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
           <MilestoneProgressCard />
           <EquityChart />
-          <PositionsTable positions={positions} isLoading={isLoading} />
+          <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
         </div>
         <div className="space-y-6">
           <AIStatusCard />
