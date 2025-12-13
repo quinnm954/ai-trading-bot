@@ -55,75 +55,102 @@ const CURRENCY_DATA: Record<string, CurrencyInfo> = {
   KWD: { code: 'KWD', symbol: 'د.ك', rate: 0.31 },
 };
 
-// Country code to currency code mapping
-const COUNTRY_TO_CURRENCY: Record<string, string> = {
-  US: 'USD', GB: 'GBP', DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR',
-  BE: 'EUR', AT: 'EUR', IE: 'EUR', PT: 'EUR', FI: 'EUR', GR: 'EUR', LU: 'EUR',
-  CA: 'CAD', AU: 'AUD', JP: 'JPY', CH: 'CHF', CN: 'CNY', IN: 'INR', BR: 'BRL',
-  MX: 'MXN', KR: 'KRW', SG: 'SGD', HK: 'HKD', SE: 'SEK', NO: 'NOK', DK: 'DKK',
-  PL: 'PLN', ZA: 'ZAR', NZ: 'NZD', AE: 'AED', TH: 'THB', PH: 'PHP', ID: 'IDR',
-  MY: 'MYR', VN: 'VND', TW: 'TWD', TR: 'TRY', RU: 'RUB', IL: 'ILS', CZ: 'CZK',
-  HU: 'HUF', RO: 'RON', CL: 'CLP', CO: 'COP', AR: 'ARS', PE: 'PEN', NG: 'NGN',
-  EG: 'EGP', PK: 'PKR', BD: 'BDT', UA: 'UAH', SA: 'SAR', QA: 'QAR', KW: 'KWD',
-  SK: 'EUR', SI: 'EUR', EE: 'EUR', LV: 'EUR', LT: 'EUR', MT: 'EUR', CY: 'EUR',
+// Language/locale to currency code mapping
+const LOCALE_TO_CURRENCY: Record<string, string> = {
+  'en-US': 'USD', 'en-GB': 'GBP', 'en-AU': 'AUD', 'en-CA': 'CAD', 'en-NZ': 'NZD',
+  'en-SG': 'SGD', 'en-HK': 'HKD', 'en-IN': 'INR', 'en-PH': 'PHP', 'en-ZA': 'ZAR',
+  'de': 'EUR', 'de-DE': 'EUR', 'de-AT': 'EUR', 'de-CH': 'CHF',
+  'fr': 'EUR', 'fr-FR': 'EUR', 'fr-CA': 'CAD', 'fr-CH': 'CHF', 'fr-BE': 'EUR',
+  'es': 'EUR', 'es-ES': 'EUR', 'es-MX': 'MXN', 'es-AR': 'ARS', 'es-CL': 'CLP', 'es-CO': 'COP', 'es-PE': 'PEN',
+  'it': 'EUR', 'it-IT': 'EUR', 'it-CH': 'CHF',
+  'pt': 'EUR', 'pt-PT': 'EUR', 'pt-BR': 'BRL',
+  'nl': 'EUR', 'nl-NL': 'EUR', 'nl-BE': 'EUR',
+  'ja': 'JPY', 'ja-JP': 'JPY',
+  'ko': 'KRW', 'ko-KR': 'KRW',
+  'zh': 'CNY', 'zh-CN': 'CNY', 'zh-TW': 'TWD', 'zh-HK': 'HKD',
+  'ru': 'RUB', 'ru-RU': 'RUB',
+  'ar': 'SAR', 'ar-SA': 'SAR', 'ar-AE': 'AED', 'ar-EG': 'EGP',
+  'hi': 'INR', 'hi-IN': 'INR',
+  'th': 'THB', 'th-TH': 'THB',
+  'vi': 'VND', 'vi-VN': 'VND',
+  'id': 'IDR', 'id-ID': 'IDR',
+  'ms': 'MYR', 'ms-MY': 'MYR',
+  'tr': 'TRY', 'tr-TR': 'TRY',
+  'pl': 'PLN', 'pl-PL': 'PLN',
+  'uk': 'UAH', 'uk-UA': 'UAH',
+  'cs': 'CZK', 'cs-CZ': 'CZK',
+  'ro': 'RON', 'ro-RO': 'RON',
+  'hu': 'HUF', 'hu-HU': 'HUF',
+  'sv': 'SEK', 'sv-SE': 'SEK',
+  'no': 'NOK', 'nb': 'NOK', 'nn': 'NOK',
+  'da': 'DKK', 'da-DK': 'DKK',
+  'fi': 'EUR', 'fi-FI': 'EUR',
+  'el': 'EUR', 'el-GR': 'EUR',
+  'he': 'ILS', 'he-IL': 'ILS',
+  'bn': 'BDT', 'bn-BD': 'BDT', 'bn-IN': 'INR',
+  'ta': 'INR', 'ta-IN': 'INR',
+  'ur': 'PKR', 'ur-PK': 'PKR',
+  'fil': 'PHP', 'tl': 'PHP',
 };
 
 export function useCurrency() {
   const [currency, setCurrency] = useState<CurrencyInfo>(CURRENCY_DATA.USD);
   const [isLoading, setIsLoading] = useState(true);
-  const [countryCode, setCountryCode] = useState<string>('US');
+  const [userLocale, setUserLocale] = useState<string>('en-US');
 
   useEffect(() => {
-    async function detectCurrency() {
-      try {
-        // Check localStorage for user preference first
-        const savedCurrency = localStorage.getItem('preferred_currency');
-        if (savedCurrency && CURRENCY_DATA[savedCurrency]) {
-          setCurrency(CURRENCY_DATA[savedCurrency]);
-          setIsLoading(false);
-          return;
-        }
+    function detectCurrencyFromDevice() {
+      // Get browser language/locale
+      const browserLocale = navigator.language || navigator.languages?.[0] || 'en-US';
+      setUserLocale(browserLocale);
 
-        // Use free IP geolocation API
-        const response = await fetch('https://ipapi.co/json/', {
-          signal: AbortSignal.timeout(3000),
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const detectedCountry = data.country_code || 'US';
-          setCountryCode(detectedCountry);
-          
-          const currencyCode = COUNTRY_TO_CURRENCY[detectedCountry] || 'USD';
-          const detectedCurrency = CURRENCY_DATA[currencyCode] || CURRENCY_DATA.USD;
-          
-          setCurrency(detectedCurrency);
-          localStorage.setItem('preferred_currency', detectedCurrency.code);
-        }
-      } catch (error) {
-        // Fallback to USD on error
-        console.log('Currency detection failed, using USD');
-      } finally {
+      // Check localStorage for user preference first
+      const savedCurrency = localStorage.getItem('preferred_currency');
+      if (savedCurrency && CURRENCY_DATA[savedCurrency]) {
+        setCurrency(CURRENCY_DATA[savedCurrency]);
         setIsLoading(false);
+        return;
       }
+
+      // Try exact locale match first, then language code only
+      let currencyCode = LOCALE_TO_CURRENCY[browserLocale];
+      if (!currencyCode) {
+        const langCode = browserLocale.split('-')[0];
+        currencyCode = LOCALE_TO_CURRENCY[langCode];
+      }
+
+      if (currencyCode && CURRENCY_DATA[currencyCode]) {
+        setCurrency(CURRENCY_DATA[currencyCode]);
+        localStorage.setItem('preferred_currency', currencyCode);
+      }
+
+      setIsLoading(false);
     }
 
-    detectCurrency();
+    detectCurrencyFromDevice();
   }, []);
 
   const formatPrice = (usdAmount: number): string => {
     const convertedAmount = usdAmount * currency.rate;
     
-    // Format based on currency
-    if (currency.rate >= 100) {
-      // For currencies with high rates (JPY, KRW, IDR, etc.), show no decimals
-      return `${currency.symbol}${Math.round(convertedAmount).toLocaleString()}`;
+    try {
+      // Use Intl.NumberFormat with user's locale for proper formatting
+      return new Intl.NumberFormat(userLocale, {
+        style: 'currency',
+        currency: currency.code,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: convertedAmount >= 1000 ? 0 : 2,
+      }).format(convertedAmount);
+    } catch {
+      // Fallback if currency code not supported by Intl
+      if (currency.rate >= 100) {
+        return `${currency.symbol}${Math.round(convertedAmount).toLocaleString(userLocale)}`;
+      }
+      return `${currency.symbol}${convertedAmount.toLocaleString(userLocale, { 
+        minimumFractionDigits: 0, 
+        maximumFractionDigits: 2 
+      })}`;
     }
-    
-    return `${currency.symbol}${convertedAmount.toLocaleString(undefined, { 
-      minimumFractionDigits: 0, 
-      maximumFractionDigits: 2 
-    })}`;
   };
 
   const changeCurrency = (code: string) => {
@@ -135,7 +162,7 @@ export function useCurrency() {
 
   return {
     currency,
-    countryCode,
+    userLocale,
     isLoading,
     formatPrice,
     changeCurrency,
