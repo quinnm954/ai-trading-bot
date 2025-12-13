@@ -8,9 +8,20 @@ import { Share2, Copy, Plus, Users, Check, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 
 export const InviteManager = () => {
-  const { isAdmin } = useIsAdmin();
+  const { isAdmin, isLoading: adminLoading } = useIsAdmin();
   const { invites, loading, generateInviteCode, shareInvite, getInviteLink } = useInvites();
   const [generating, setGenerating] = useState(false);
+
+  // Show loading state while checking admin status
+  if (adminLoading) {
+    return (
+      <Card className="border-border/50 bg-card/50 backdrop-blur">
+        <CardContent className="p-6">
+          <p className="text-muted-foreground">Checking admin status...</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!isAdmin) {
     return null;
