@@ -67,6 +67,8 @@ interface RiskSettings {
   weeklyLossCurrent: number;
   currentDrawdown: number;
   peakEquity: number;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
+  targetEquity: number;
 }
 
 // =============================================================================
@@ -406,6 +408,8 @@ serve(async (req) => {
       weeklyLossCurrent: settingsData.weekly_loss_current || 0,
       currentDrawdown: settingsData.current_drawdown || 0,
       peakEquity: settingsData.peak_equity || 100000,
+      riskTolerance: settingsData.risk_tolerance || 'moderate',
+      targetEquity: settingsData.target_equity || 1000000,
     };
 
     // Reset daily/weekly losses if needed

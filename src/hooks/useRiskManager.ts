@@ -23,6 +23,8 @@ export interface RiskSettings {
   peakEquity: number;
   killSwitchTriggeredAt: string | null;
   liveModeConfirmedAt: string | null;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
+  targetEquity: number;
 }
 
 export interface RiskEvent {
@@ -176,6 +178,8 @@ export function useRiskManager() {
       if (updates.maxConcurrentTrades !== undefined) dbUpdates.max_concurrent_trades = updates.maxConcurrentTrades;
       if (updates.maxCapitalUsage !== undefined) dbUpdates.max_capital_usage = updates.maxCapitalUsage;
       if (updates.maxLeverage !== undefined) dbUpdates.max_leverage = updates.maxLeverage;
+      if (updates.riskTolerance !== undefined) dbUpdates.risk_tolerance = updates.riskTolerance;
+      if (updates.targetEquity !== undefined) dbUpdates.target_equity = updates.targetEquity;
 
       const { error } = await supabase
         .from('ai_settings')
