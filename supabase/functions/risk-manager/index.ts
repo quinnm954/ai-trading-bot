@@ -84,7 +84,8 @@ function validateTrade(
   settings: RiskSettings,
   currentEquity: number,
   openPositionsCount: number,
-  openPositionsValue: number
+  openPositionsValue: number,
+  openPositionsUnrealizedPnl: number = 0  // Total unrealized P&L of open positions
 ): RiskCheckResult {
   const violations: string[] = [];
   let approved = true;
@@ -129,12 +130,20 @@ function validateTrade(
   }
 
   // ==========================================================================
-  // CHECK 4: Max Drawdown - Trigger kill switch if exceeded
+  // CHECK 4: Max Drawdown - Only trigger if OPEN POSITIONS have losses exceeding threshold
+  // Kill switch activates based on actual realized + unrealized losses, not peak-to-current equity
   // ==========================================================================
-  if (settings.currentDrawdown >= settings.maxDrawdown) {
+  // Calculate loss percentage based on unrealized P&L of open positions
+  const totalInvested = openPositionsValue; // Total invested in positions
+  const unrealizedLossPercent = totalInvested > 0 
+    ? Math.abs(Math.min(0, openPositionsUnrealizedPnl)) / currentEquity * 100
+    : 0;
+  
+  // Only trigger kill switch if open positions are losing beyond the threshold
+  if (unrealizedLossPercent >= settings.maxDrawdown) {
     return {
       approved: false,
-      reason: `MAX DRAWDOWN HIT: Current drawdown ${settings.currentDrawdown.toFixed(2)}% exceeds limit of ${settings.maxDrawdown}%. Kill switch triggered.`,
+      reason: `MAX DRAWDOWN HIT: Open positions down ${unrealizedLossPercent.toFixed(2)}% (limit: ${settings.maxDrawdown}%). Kill switch triggered.`,
       severity: 'critical',
       violations: ['max_drawdown_exceeded'],
     };
@@ -249,19 +258,21 @@ async function updateDrawdownTracking(
   supabase: any,
   userId: string,
   currentEquity: number,
-  settings: RiskSettings
+  settings: RiskSettings,
+  openPositionsUnrealizedPnl: number = 0  // Total unrealized P&L of open positions
 ): Promise<{ killSwitchTriggered: boolean; newDrawdown: number }> {
   // Update peak equity if current is higher
   const newPeak = Math.max(settings.peakEquity || currentEquity, currentEquity);
   
-  // Calculate current drawdown from peak
-  const drawdownAmount = newPeak - currentEquity;
-  const newDrawdown = (drawdownAmount / newPeak) * 100;
+  // Calculate drawdown based on OPEN POSITION LOSSES, not peak-to-current equity
+  // Only count losses (negative P&L), not gains
+  const unrealizedLoss = Math.abs(Math.min(0, openPositionsUnrealizedPnl));
+  const lossBasedDrawdown = currentEquity > 0 ? (unrealizedLoss / currentEquity) * 100 : 0;
   
   let killSwitchTriggered = false;
   
-  // Check if kill switch should trigger
-  if (newDrawdown >= settings.maxDrawdown && !settings.killSwitchActive) {
+  // Check if kill switch should trigger based on position losses
+  if (lossBasedDrawdown >= settings.maxDrawdown && !settings.killSwitchActive) {
     killSwitchTriggered = true;
     
     // Trigger kill switch
@@ -270,7 +281,7 @@ async function updateDrawdownTracking(
       kill_switch_triggered_at: new Date().toISOString(),
       enabled: false,  // Disable trading
       peak_equity: newPeak,
-      current_drawdown: newDrawdown,
+      current_drawdown: lossBasedDrawdown,
     }).eq('user_id', userId);
     
     // Log critical event
@@ -278,25 +289,26 @@ async function updateDrawdownTracking(
       user_id: userId,
       event_type: 'kill_switch_triggered',
       severity: 'critical',
-      message: `Kill switch triggered: Drawdown of ${newDrawdown.toFixed(2)}% exceeded ${settings.maxDrawdown}% limit`,
+      message: `Kill switch triggered: Open positions down ${lossBasedDrawdown.toFixed(2)}% (limit: ${settings.maxDrawdown}%)`,
       details: {
         peak_equity: newPeak,
         current_equity: currentEquity,
-        drawdown_percent: newDrawdown,
+        unrealized_pnl: openPositionsUnrealizedPnl,
+        loss_percent: lossBasedDrawdown,
         max_drawdown: settings.maxDrawdown,
       },
     });
     
-    console.log(`🛑 KILL SWITCH TRIGGERED: Drawdown ${newDrawdown.toFixed(2)}% exceeded ${settings.maxDrawdown}%`);
+    console.log(`🛑 KILL SWITCH TRIGGERED: Position losses ${lossBasedDrawdown.toFixed(2)}% exceeded ${settings.maxDrawdown}%`);
   } else {
     // Just update tracking
     await supabase.from('ai_settings').update({
       peak_equity: newPeak,
-      current_drawdown: newDrawdown,
+      current_drawdown: lossBasedDrawdown,
     }).eq('user_id', userId);
   }
   
-  return { killSwitchTriggered, newDrawdown };
+  return { killSwitchTriggered, newDrawdown: lossBasedDrawdown };
 }
 
 /**
@@ -390,7 +402,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await req.json();
-    const { action, userId, tradeProposal, currentEquity, openPositionsCount, openPositionsValue } = body;
+    const { action, userId, tradeProposal, currentEquity, openPositionsCount, openPositionsValue, openPositionsUnrealizedPnl } = body;
 
     console.log(`🛡️ RiskManager: ${action} for user ${userId?.slice(0, 8)}...`);
 
@@ -451,7 +463,8 @@ serve(async (req) => {
           settings,
           currentEquity,
           openPositionsCount || 0,
-          openPositionsValue || 0
+          openPositionsValue || 0,
+          openPositionsUnrealizedPnl || 0
         );
 
         // Log blocked trades
@@ -478,6 +491,7 @@ serve(async (req) => {
       case 'update_drawdown': {
         // =======================================================================
         // UPDATE DRAWDOWN - Track equity changes and trigger kill switch if needed
+        // Kill switch now based on OPEN POSITION LOSSES, not peak-to-current equity
         // =======================================================================
         if (currentEquity === undefined) {
           return new Response(
@@ -486,7 +500,20 @@ serve(async (req) => {
           );
         }
 
-        const result = await updateDrawdownTracking(supabase, userId, currentEquity, settings);
+        // Fetch open positions to calculate unrealized P&L if not provided
+        let unrealizedPnl = openPositionsUnrealizedPnl;
+        if (unrealizedPnl === undefined) {
+          const isPaperMode = settings.tradingMode === 'paper';
+          const { data: positions } = await supabase
+            .from('positions')
+            .select('unrealized_pnl')
+            .eq('user_id', userId)
+            .eq('is_paper', isPaperMode);
+          
+          unrealizedPnl = (positions || []).reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0);
+        }
+
+        const result = await updateDrawdownTracking(supabase, userId, currentEquity, settings, unrealizedPnl);
         
         return new Response(
           JSON.stringify(result),
