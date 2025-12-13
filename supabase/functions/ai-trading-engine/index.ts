@@ -36,7 +36,8 @@ async function validateTradeWithRiskManager(
   },
   currentEquity: number,
   openPositionsCount: number,
-  openPositionsValue: number
+  openPositionsValue: number,
+  openPositionsUnrealizedPnl: number = 0
 ): Promise<RiskValidationResult> {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -55,6 +56,7 @@ async function validateTradeWithRiskManager(
         currentEquity,
         openPositionsCount,
         openPositionsValue,
+        openPositionsUnrealizedPnl,
       }),
     });
 
@@ -1685,15 +1687,20 @@ serve(async (req) => {
       console.log(`✅ Pre-validated: ${decision.symbol} qty=${preRoundedQty} ($${prePositionValue.toFixed(2)})`);
 
       // 🛡️ RISK MANAGER VALIDATION - Must pass before execution
-      // Calculate current open positions value for risk check
+      // Calculate current open positions value and unrealized P&L for risk check
       const { data: currentPositions } = await supabase
         .from('positions')
-        .select('quantity, avg_entry_price')
+        .select('quantity, avg_entry_price, unrealized_pnl')
         .eq('user_id', user.id)
         .eq('is_paper', isPaperMode);
       
       const openPositionsValue = (currentPositions || []).reduce(
         (sum, p) => sum + (p.quantity * p.avg_entry_price), 
+        0
+      );
+      
+      const openPositionsUnrealizedPnl = (currentPositions || []).reduce(
+        (sum, p) => sum + (p.unrealized_pnl || 0),
         0
       );
       
@@ -1713,7 +1720,8 @@ serve(async (req) => {
         },
         balance,
         openPositions || 0,
-        openPositionsValue
+        openPositionsValue,
+        openPositionsUnrealizedPnl
       );
 
       if (!riskValidation.approved) {
