@@ -1,13 +1,71 @@
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { useState } from 'react';
+import { TrendingUp, TrendingDown, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DashboardPosition } from '@/hooks/useDashboardData';
+import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface PositionsTableProps {
   positions: DashboardPosition[];
   isLoading: boolean;
+  isLiveMode?: boolean;
+  onRefresh?: () => void;
 }
 
-export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
+export function PositionsTable({ positions, isLoading, isLiveMode = false, onRefresh }: PositionsTableProps) {
+  const { toast } = useToast();
+  const [sellingId, setSellingId] = useState<string | null>(null);
+
+  const handleSellPosition = async (position: DashboardPosition) => {
+    if (!confirm(`Sell ${position.quantity.toFixed(6)} ${position.symbol}?`)) return;
+    
+    setSellingId(position.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast({ title: 'Not authenticated', variant: 'destructive' });
+        return;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ 
+            action: 'force-sell',
+            positionId: position.id 
+          }),
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.status === 'success') {
+        const pnl = result.pnl || 0;
+        toast({
+          title: `Sold ${position.symbol}`,
+          description: `P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}${result.coinbaseSell?.success ? ` | Received: $${result.coinbaseSell.usdValue?.toFixed(2)}` : ''}`,
+        });
+        onRefresh?.();
+      } else {
+        toast({ 
+          title: 'Sell failed', 
+          description: result.error || 'Unknown error',
+          variant: 'destructive' 
+        });
+      }
+    } catch (error) {
+      toast({ title: 'Sell failed', variant: 'destructive' });
+    } finally {
+      setSellingId(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="glass-panel p-6">
@@ -48,6 +106,7 @@ export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Invested</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Value</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">P&L</th>
+                {isLiveMode && <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Action</th>}
               </tr>
             </thead>
             <tbody>
@@ -55,6 +114,7 @@ export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
                 const pnl = position.unrealizedPnl || 0;
                 const pnlPercent = position.pnlPercent || 0;
                 const displaySide = position.side === 'buy' ? 'long' : 'short';
+                const isSelling = sellingId === position.id;
                 
                 return (
                   <tr 
@@ -98,6 +158,23 @@ export function PositionsTable({ positions, isLoading }: PositionsTableProps) {
                         </span>
                       </div>
                     </td>
+                    {isLiveMode && (
+                      <td className="py-4 px-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSellPosition(position)}
+                          disabled={isSelling}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          {isSelling ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <X className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
