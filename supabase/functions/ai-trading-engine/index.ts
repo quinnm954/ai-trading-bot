@@ -874,62 +874,72 @@ const strategyDescriptions: Record<string, string> = {
   custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
 };
 
-// AUTONOMOUS AI CONFIG - Full control to reach $1M target
-const AUTONOMOUS_CONFIG = {
-  MIN_CONFIDENCE: 0.50,      // AI decides confidence threshold
-  TARGET_PROFIT: 1.0,        // 1% target per trade with leverage
-  MAX_HOLD_MINUTES: 60,      // AI can hold longer with leverage
-  AGGRESSIVE_MULTIPLIER: 2.0, // Boost for high-confidence trades
-  TOP_TRADES_PER_CYCLE: 15,  // More trades per cycle
-  TARGET_EQUITY: 1000000,    // $1M goal
+// AUTONOMOUS AI CONFIG - Risk tolerance drives behavior
+const RISK_TOLERANCE_CONFIG = {
+  conservative: {
+    MIN_CONFIDENCE: 0.70,
+    TARGET_PROFIT: 0.5,
+    MAX_HOLD_MINUTES: 30,
+    TOP_TRADES_PER_CYCLE: 3,
+    POSITION_SIZE_MULT: 0.5,
+    LEVERAGE_MULT: 0.25,
+  },
+  moderate: {
+    MIN_CONFIDENCE: 0.60,
+    TARGET_PROFIT: 1.0,
+    MAX_HOLD_MINUTES: 60,
+    TOP_TRADES_PER_CYCLE: 8,
+    POSITION_SIZE_MULT: 1.0,
+    LEVERAGE_MULT: 0.5,
+  },
+  aggressive: {
+    MIN_CONFIDENCE: 0.50,
+    TARGET_PROFIT: 1.5,
+    MAX_HOLD_MINUTES: 120,
+    TOP_TRADES_PER_CYCLE: 12,
+    POSITION_SIZE_MULT: 1.5,
+    LEVERAGE_MULT: 0.75,
+  },
+  ultra_aggressive: {
+    MIN_CONFIDENCE: 0.45,
+    TARGET_PROFIT: 2.0,
+    MAX_HOLD_MINUTES: 180,
+    TOP_TRADES_PER_CYCLE: 15,
+    POSITION_SIZE_MULT: 2.0,
+    LEVERAGE_MULT: 1.0,
+  },
 };
 
-// Calculate optimal leverage based on balance and target
-function calculateOptimalLeverage(balance: number, targetEquity: number, maxLeverage: number, riskTolerance: string): number {
-  const distanceToTarget = targetEquity / balance;
-  
-  // More aggressive leverage when further from target
-  let optimalLeverage = 1;
-  
-  if (riskTolerance === 'aggressive') {
-    if (distanceToTarget > 1000) optimalLeverage = maxLeverage; // Very far, max leverage
-    else if (distanceToTarget > 100) optimalLeverage = Math.min(maxLeverage, 10);
-    else if (distanceToTarget > 10) optimalLeverage = Math.min(maxLeverage, 5);
-    else optimalLeverage = Math.min(maxLeverage, 3);
-  } else if (riskTolerance === 'moderate') {
-    optimalLeverage = Math.min(maxLeverage, Math.max(1, Math.floor(distanceToTarget / 100)));
-  } else {
-    optimalLeverage = 1; // Conservative = no leverage
-  }
-  
-  return Math.min(optimalLeverage, maxLeverage);
+// Calculate optimal leverage based on risk tolerance
+function calculateOptimalLeverage(maxLeverage: number, riskTolerance: string): number {
+  const config = RISK_TOLERANCE_CONFIG[riskTolerance as keyof typeof RISK_TOLERANCE_CONFIG] || RISK_TOLERANCE_CONFIG.moderate;
+  return Math.max(1, Math.floor(maxLeverage * config.LEVERAGE_MULT));
 }
 
-// AI decides optimal position size based on market conditions and distance to goal
+// AI decides optimal position size based on risk tolerance and market conditions
 function calculateOptimalPositionSize(
-  balance: number, 
-  targetEquity: number, 
+  maxPositionSize: number,
   confidence: number, 
   leverage: number,
-  trendStrength: number
+  trendStrength: number,
+  riskTolerance: string
 ): number {
-  const distanceToTarget = targetEquity / balance;
+  const config = RISK_TOLERANCE_CONFIG[riskTolerance as keyof typeof RISK_TOLERANCE_CONFIG] || RISK_TOLERANCE_CONFIG.moderate;
   
   // Base position size scales with confidence and trend strength
-  let baseSize = 10 + (confidence * 30) + (Math.max(0, trendStrength) * 20);
+  let baseSize = 10 + (confidence * 20) + (Math.max(0, trendStrength) * 15);
   
-  // Scale up when far from target
-  if (distanceToTarget > 1000) baseSize *= 2;
-  else if (distanceToTarget > 100) baseSize *= 1.5;
+  // Apply risk tolerance multiplier
+  baseSize *= config.POSITION_SIZE_MULT;
   
   // Apply leverage multiplier (notional exposure)
   const leveragedSize = baseSize * leverage;
   
-  // Cap at 80% of balance per position
-  return Math.min(80, leveragedSize);
+  // Cap at max position size setting
+  return Math.min(maxPositionSize, leveragedSize);
 }
 
-// AI-powered market analysis with FULL AUTONOMY - using Lovable AI
+// AI-powered market analysis - using Lovable AI
 async function analyzeWithAI(
   marketData: MarketData[], 
   balance: number, 
@@ -938,7 +948,7 @@ async function analyzeWithAI(
   bestStrategy: string, 
   regime: string,
   leverage: number = 1,
-  targetEquity: number = 1000000
+  riskTolerance: string = 'moderate'
 ): Promise<AITradingDecision[]> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   
@@ -947,30 +957,31 @@ async function analyzeWithAI(
     return [];
   }
 
+  const config = RISK_TOLERANCE_CONFIG[riskTolerance as keyof typeof RISK_TOLERANCE_CONFIG] || RISK_TOLERANCE_CONFIG.moderate;
+
   // Build trend context for AI
   const trendContext = trendAnalysis.map(t => `${t.symbol}: ${t.trend} (${t.reason})`).join('\n');
   
   // Get strategy description
   const strategyDesc = strategyDescriptions[bestStrategy] || strategyDescriptions.custom;
-  
-  const distanceToTarget = targetEquity / balance;
 
-  const prompt = `You are an AUTONOMOUS AI trading system with FULL CONTROL to reach $1,000,000.
+  const prompt = `You are an AI trading system optimized to MAXIMIZE PROFIT and MINIMIZE LOSS.
 
-MISSION: Grow balance from $${balance.toFixed(2)} to $${targetEquity.toFixed(0)} ($1M target)
-DISTANCE TO TARGET: ${distanceToTarget.toFixed(0)}x growth needed
+OBJECTIVE: Identify the best trading opportunities to grow capital while managing risk.
+CURRENT BALANCE: $${balance.toFixed(2)}
+RISK TOLERANCE: ${riskTolerance.toUpperCase()}
 
-YOU HAVE FULL CONTROL OVER:
-- Position sizing (up to ${maxPositionSize}% per trade)
-- Leverage (up to ${leverage}x available)
-- Entry timing and exit targets
-- Risk management and strategy selection
+RISK-BASED PARAMETERS:
+- Min confidence for trade: ${(config.MIN_CONFIDENCE * 100).toFixed(0)}%
+- Target profit per trade: ${config.TARGET_PROFIT}%
+- Max trades this cycle: ${config.TOP_TRADES_PER_CYCLE}
+- Position sizing multiplier: ${config.POSITION_SIZE_MULT}x
 
-CURRENT STRATEGY: ${bestStrategy.toUpperCase()}
-${strategyDesc}
-
-MARKET REGIME: ${regime.toUpperCase()}
-LEVERAGE AVAILABLE: ${leverage}x (use notional exposure = position * leverage)
+CONSTRAINTS:
+- Max position size: ${maxPositionSize}% per trade
+- Leverage available: ${leverage}x
+- Strategy: ${bestStrategy.toUpperCase()} - ${strategyDesc}
+- Market regime: ${regime.toUpperCase()}
 
 TREND ANALYSIS:
 ${trendContext}
@@ -978,30 +989,25 @@ ${trendContext}
 LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
-AUTONOMOUS DECISION RULES:
-1. You decide optimal position size based on confidence and trend strength
-2. Use leverage to amplify returns on high-conviction trades
-3. Only trade UPTRENDS - skip neutral and downtrends
-4. Maximize expected value: higher confidence = larger position
-5. Target ${leverage > 1 ? '1-3%' : '0.5-1%'} profit per trade with ${leverage}x leverage
+TRADING RULES:
+1. Only trade assets in UPTREND or STRONG_UPTREND
+2. Higher confidence = larger position (within limits)
+3. Target ${config.TARGET_PROFIT}% profit per trade
+4. Use ${leverage}x leverage on high-conviction trades only
+5. Prioritize trades with best risk/reward ratio
 
-CALCULATE:
-- Effective position = size_percent * ${leverage} (leverage multiplier)
-- Take profit = 0.5% * ${leverage} (amplified by leverage)
-- Stop loss = 0.1% (tight stops to protect capital)
-
-Return ONLY JSON array with your TOP ${Math.min(15, Math.ceil(balance / 5))} autonomous decisions:
-[{"symbol":"BTC","action":"buy","confidence":0.95,"reason":"Strong uptrend, momentum surge, ${leverage}x leverage","pattern":"leveraged_momentum","size_percent":${Math.min(50, maxPositionSize)},"leverage":${leverage}}]
+Return ONLY JSON array with your TOP ${config.TOP_TRADES_PER_CYCLE} trade decisions:
+[{"symbol":"BTC","action":"buy","confidence":0.85,"reason":"Strong uptrend with momentum","pattern":"trend_continuation","size_percent":${Math.min(30, maxPositionSize)},"leverage":${leverage}}]
 
 Rules:
-- confidence: 0.50 to 0.99
-- action: "buy" only (we scalp longs)
-- size_percent: 10-${maxPositionSize} (aggressive sizing for $1M goal)
-- leverage: 1-${leverage} (your choice based on conviction)
+- confidence: ${config.MIN_CONFIDENCE} to 0.99
+- action: "buy" only
+- size_percent: 5-${maxPositionSize}
+- leverage: 1-${leverage}
 - If no uptrends available, return []`;
 
   try {
-    console.log(`🤖 AI Autonomous Mode: ${leverage}x leverage, targeting $${targetEquity}`);
+    console.log(`🤖 AI Trading Mode: ${leverage}x leverage, Risk: ${riskTolerance}`);
     
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -1250,14 +1256,14 @@ function analyzeWithRules(
     }
     
     // SPEED BOOST: Regime multipliers
-    if (regime === 'trending') confidence *= AUTONOMOUS_CONFIG.AGGRESSIVE_MULTIPLIER;
+    if (regime === 'trending') confidence *= 1.5;
     if (regime === 'high_volatility' && (bestStrategy === 'volatility_breakout' || bestStrategy === 'grid')) {
       confidence *= 1.2;
     }
     if (regime === 'ranging' && bestStrategy === 'rsi') confidence *= 1.15;
     
     // Lower threshold for more trades
-    if (action !== 'hold' && confidence >= AUTONOMOUS_CONFIG.MIN_CONFIDENCE) {
+    if (action !== 'hold' && confidence >= 0.50) {
       const positionValue = balance * (maxPositionSize / 100) * confidence;
       const quantity = positionValue / coin.price;
       
@@ -1272,8 +1278,8 @@ function analyzeWithRules(
     }
   }
   
-  // Return MORE trades for speed scalping
-  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, AUTONOMOUS_CONFIG.TOP_TRADES_PER_CYCLE);
+  // Return top trades
+  return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 15);
 }
 
 serve(async (req) => {
@@ -1565,13 +1571,13 @@ serve(async (req) => {
     const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
     console.log(`🎯 Selected strategy for ${regime}: ${bestStrategy}`);
 
-    // 🧠 AI AUTONOMOUS MODE - Full control with leverage
+    // 🧠 AI TRADING MODE - Risk tolerance drives behavior
     const leverage = settings.max_leverage || 3;
-    const targetEquity = settings.target_equity || 1000000;
-    const optimalLeverage = calculateOptimalLeverage(balance, targetEquity, leverage, settings.risk_tolerance || 'aggressive');
+    const riskTolerance = settings.risk_tolerance || 'moderate';
+    const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
     
-    console.log(`🚀 AI Autonomous Mode: ${optimalLeverage}x leverage, $${balance.toFixed(2)} → $${targetEquity} target`);
-    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, targetEquity);
+    console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
+    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance);
     
     // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {

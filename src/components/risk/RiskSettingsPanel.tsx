@@ -50,7 +50,7 @@ export function RiskSettingsPanel() {
 
   const getValue = (key: string): any => {
     if (pendingChanges[key] !== undefined) return pendingChanges[key];
-    return (settings as any)[key] ?? (key === 'targetEquity' ? 1000000 : key === 'riskTolerance' ? 'moderate' : 0);
+    return (settings as any)[key] ?? (key === 'riskTolerance' ? 'moderate' : 0);
   };
 
   const handleChange = (key: string, value: any) => {
@@ -195,37 +195,18 @@ export function RiskSettingsPanel() {
       )}
 
       <div className="space-y-6">
-        {/* Target Equity Goal */}
-        <div className="space-y-3 p-4 rounded-lg bg-primary/5 border border-primary/20">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">Target Equity Goal</span>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="w-3.5 h-3.5 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="max-w-xs text-xs">Your target equity goal. AI will optimize trading to help reach this target while respecting risk limits.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+        {/* Trading Goal Info */}
+        <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+          <div className="flex items-start gap-3">
+            <Shield className="w-5 h-5 text-primary mt-0.5" />
+            <div>
+              <p className="font-medium text-foreground">Goal: Maximize Profit, Minimize Loss</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                The AI will automatically optimize trading to maximize returns while respecting your risk limits below.
+                Connect your brokerage, configure these settings, and let it run.
+              </p>
             </div>
-            <span className="font-mono font-medium text-sm text-primary">
-              ${(getValue('targetEquity') || 1000000).toLocaleString()}
-            </span>
           </div>
-          <Slider
-            value={[getValue('targetEquity') || 1000000]}
-            onValueChange={([v]) => handleChange('targetEquity', v)}
-            min={100000}
-            max={10000000}
-            step={100000}
-            className="w-full"
-          />
-          <p className="text-xs text-muted-foreground">
-            AI will adapt position sizing and trade frequency based on progress toward this goal
-          </p>
         </div>
 
         {/* Risk Tolerance */}
@@ -239,7 +220,7 @@ export function RiskSettingsPanel() {
                     <Info className="w-3.5 h-3.5 text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="max-w-xs text-xs">Controls how aggressively AI trades. Conservative = smaller positions, fewer trades. Aggressive = larger positions, more trades.</p>
+                    <p className="max-w-xs text-xs">Controls how aggressively AI trades. Conservative = smaller positions, fewer trades, tighter stops. Aggressive = larger positions, more trades, wider targets.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -264,6 +245,12 @@ export function RiskSettingsPanel() {
               </button>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground">
+            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'conservative' && 'Smaller positions, tighter stops, fewer trades. Best for capital preservation.'}
+            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'moderate' && 'Balanced approach between growth and safety.'}
+            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'aggressive' && 'Larger positions, wider stops, more trades. Higher growth potential with more risk.'}
+            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'ultra_aggressive' && 'Maximum position sizes and leverage. Highest potential returns but significant risk.'}
+          </p>
         </div>
 
         {/* Position Size */}
