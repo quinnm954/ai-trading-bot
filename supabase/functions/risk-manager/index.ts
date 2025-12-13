@@ -161,11 +161,28 @@ function validateTrade(
 
   // ==========================================================================
   // CHECK 7: Total Capital Usage - Don't over-commit
+  // For capital usage, we check if the NEW trade would exceed limits relative to AVAILABLE cash
+  // Not total equity (which includes existing positions already invested)
   // ==========================================================================
-  const totalExposure = openPositionsValue + proposal.positionValue;
-  const exposurePercent = (totalExposure / currentEquity) * 100;
-  if (exposurePercent > settings.maxCapitalUsage) {
-    violations.push(`capital_usage: ${exposurePercent.toFixed(2)}% exceeds limit of ${settings.maxCapitalUsage}%`);
+  // Only check if there's enough cash for the new trade, not if total exposure exceeds equity
+  // The maxCapitalUsage limit should apply to how much of available cash we're willing to deploy
+  const availableCash = currentEquity; // This is the available cash, not total portfolio
+  const totalPortfolioValue = availableCash + openPositionsValue;
+  
+  // Check if new trade value exceeds available cash
+  if (proposal.positionValue > availableCash) {
+    violations.push(`insufficient_funds: Trade value $${proposal.positionValue.toFixed(2)} exceeds available cash $${availableCash.toFixed(2)}`);
+    approved = false;
+    severity = 'warning';
+  }
+  
+  // Check if we're deploying more than maxCapitalUsage of our total portfolio
+  const totalExposureAfterTrade = openPositionsValue + proposal.positionValue;
+  const exposurePercentOfPortfolio = (totalExposureAfterTrade / totalPortfolioValue) * 100;
+  
+  // Only block if maxCapitalUsage is below 100% AND we'd exceed it
+  if (settings.maxCapitalUsage < 100 && exposurePercentOfPortfolio > settings.maxCapitalUsage) {
+    violations.push(`capital_usage: ${exposurePercentOfPortfolio.toFixed(2)}% exceeds limit of ${settings.maxCapitalUsage}%`);
     approved = false;
     severity = 'warning';
   }
