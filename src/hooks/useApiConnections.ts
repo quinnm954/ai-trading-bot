@@ -1,9 +1,34 @@
+/**
+ * =============================================================================
+ * BROKER/EXCHANGE API CONNECTIONS HOOK
+ * =============================================================================
+ * 
+ * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+ * PATENT REFERENCE: No Custody of User Funds (Patent Claim 5)
+ * 
+ * This hook manages API connections to various brokers and exchanges.
+ * The platform supports BOTH crypto exchanges AND stock brokers to enable
+ * the patent's multi-asset class trading capability.
+ * 
+ * SUPPORTED PROVIDERS:
+ * - alpaca: US stocks and crypto (commission-free)
+ * - coinbase: Cryptocurrency trading
+ * - binance, kraken, kucoin, bybit, okx, gateio, bitget: Crypto exchanges
+ * 
+ * NO CUSTODY MODEL:
+ * All trading occurs through user-owned broker accounts. TitanAI never holds
+ * custody of user funds - we only execute trades via secure API connections.
+ * 
+ * =============================================================================
+ */
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
-export type ExchangeProvider = 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
+// Extended to include stock broker (Alpaca) for multi-asset support
+export type ExchangeProvider = 'alpaca' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
 
 export interface ApiConnection {
   id: string;
