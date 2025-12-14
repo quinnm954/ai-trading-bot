@@ -60,6 +60,7 @@ export type Database = {
           current_regime: Database["public"]["Enums"]["market_regime"] | null
           daily_loss_today: number | null
           enabled: boolean | null
+          execution_mode: string
           id: string
           kill_switch_active: boolean | null
           kill_switch_triggered_at: string | null
@@ -90,6 +91,7 @@ export type Database = {
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
           daily_loss_today?: number | null
           enabled?: boolean | null
+          execution_mode?: string
           id?: string
           kill_switch_active?: boolean | null
           kill_switch_triggered_at?: string | null
@@ -120,6 +122,7 @@ export type Database = {
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
           daily_loss_today?: number | null
           enabled?: boolean | null
+          execution_mode?: string
           id?: string
           kill_switch_active?: boolean | null
           kill_switch_triggered_at?: string | null
@@ -383,6 +386,63 @@ export type Database = {
           initial_balance?: number
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      pending_trades: {
+        Row: {
+          ai_reasoning: string
+          confidence: number
+          created_at: string
+          expires_at: string
+          id: string
+          market_regime: string | null
+          position_value: number
+          price: number
+          quantity: number
+          review_notes: string | null
+          reviewed_at: string | null
+          side: string
+          status: string
+          strategy: string | null
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          ai_reasoning: string
+          confidence?: number
+          created_at?: string
+          expires_at?: string
+          id?: string
+          market_regime?: string | null
+          position_value: number
+          price: number
+          quantity: number
+          review_notes?: string | null
+          reviewed_at?: string | null
+          side: string
+          status?: string
+          strategy?: string | null
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          ai_reasoning?: string
+          confidence?: number
+          created_at?: string
+          expires_at?: string
+          id?: string
+          market_regime?: string | null
+          position_value?: number
+          price?: number
+          quantity?: number
+          review_notes?: string | null
+          reviewed_at?: string | null
+          side?: string
+          status?: string
+          strategy?: string | null
+          symbol?: string
+          user_id?: string
         }
         Relationships: []
       }

@@ -6,11 +6,13 @@ import type { RiskSettings } from '@/types/trading';
 
 type TradingMode = 'paper' | 'live';
 type BotStatus = 'idle' | 'learning' | 'trading' | 'paused' | 'error';
+type ExecutionMode = 'autonomous' | 'user_confirmed';
 
 interface AISettings {
   enabled: boolean;
   botStatus: BotStatus;
   tradingMode: TradingMode;
+  executionMode: ExecutionMode;
   maxCapitalUsage: number;
   maxPositionSize: number;
   maxDailyLoss: number;
@@ -39,6 +41,7 @@ export function useAITraderData() {
     enabled: false,
     botStatus: 'idle',
     tradingMode: 'paper',
+    executionMode: 'autonomous',
     maxCapitalUsage: 80,
     maxPositionSize: 10,
     maxDailyLoss: 5,
@@ -79,6 +82,7 @@ export function useAITraderData() {
           enabled: settingsData.enabled ?? false,
           botStatus: (settingsData.bot_status as BotStatus) ?? 'idle',
           tradingMode: (settingsData.trading_mode as TradingMode) ?? 'paper',
+          executionMode: (settingsData.execution_mode as ExecutionMode) ?? 'autonomous',
           maxCapitalUsage: Number(settingsData.max_capital_usage) ?? 80,
           maxPositionSize: Number(settingsData.max_position_size) ?? 10,
           maxDailyLoss: Number(settingsData.max_daily_loss) ?? 5,
@@ -205,6 +209,7 @@ export function useAITraderData() {
     if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
     if (updates.botStatus !== undefined) dbUpdates.bot_status = updates.botStatus;
     if (updates.tradingMode !== undefined) dbUpdates.trading_mode = updates.tradingMode;
+    if (updates.executionMode !== undefined) dbUpdates.execution_mode = updates.executionMode;
     if (updates.maxCapitalUsage !== undefined) dbUpdates.max_capital_usage = updates.maxCapitalUsage;
     if (updates.maxPositionSize !== undefined) dbUpdates.max_position_size = updates.maxPositionSize;
     if (updates.maxDailyLoss !== undefined) dbUpdates.max_daily_loss = updates.maxDailyLoss;
@@ -398,6 +403,18 @@ export function useAITraderData() {
     // Sum up all live account equities
     return liveAccounts.reduce((sum, acc) => sum + acc.equity, 0);
   }, [aiSettings.tradingMode, paperAccount.balance, liveAccounts]);
+  // Set execution mode
+  const setExecutionMode = useCallback(async (mode: ExecutionMode) => {
+    await updateSettings({ executionMode: mode });
+    
+    toast({
+      title: mode === 'autonomous' ? 'Autonomous Mode' : 'User-Confirmed Mode',
+      description: mode === 'autonomous' 
+        ? 'AI will execute trades automatically without requiring approval.'
+        : 'All trades will require your approval before execution.',
+    });
+  }, [updateSettings, toast]);
+
   return {
     aiSettings,
     paperAccount,
@@ -408,9 +425,11 @@ export function useAITraderData() {
     lastUpdated,
     isRealtimeUpdate,
     tradingMode: aiSettings.tradingMode,
+    executionMode: aiSettings.executionMode,
     isEnabled: aiSettings.enabled,
     currentBalance: getCurrentBalance(),
     setTradingMode,
+    setExecutionMode,
     toggleEnabled,
     updateSettings,
     refetch: fetchData,
