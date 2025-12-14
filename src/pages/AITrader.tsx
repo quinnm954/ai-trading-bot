@@ -27,6 +27,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
 import { LiveModeConfirmDialog } from '@/components/risk/LiveModeConfirmDialog';
 import { useRiskManager } from '@/hooks/useRiskManager';
+import { ExecutionModeToggle } from '@/components/trading/ExecutionModeToggle';
+import { PendingTradesPanel } from '@/components/trading/PendingTradesPanel';
 
 export default function AITrader() {
   const navigate = useNavigate();
@@ -43,9 +45,11 @@ export default function AITrader() {
     lastUpdated,
     isRealtimeUpdate,
     tradingMode,
+    executionMode,
     isEnabled,
     currentBalance,
     setTradingMode,
+    setExecutionMode,
     toggleEnabled,
     updateSettings,
     refetch,
@@ -222,6 +226,16 @@ export default function AITrader() {
           </div>
         )}
       </div>
+
+      {/* Execution Mode Toggle - Patent: Selectable Execution Control Modes */}
+      <ExecutionModeToggle
+        mode={executionMode}
+        onChange={setExecutionMode}
+        disabled={isSaving}
+      />
+
+      {/* Pending Trades Panel - Only show in user-confirmed mode */}
+      {executionMode === 'user_confirmed' && <PendingTradesPanel />}
 
       {/* Account Balances + Risk Status */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

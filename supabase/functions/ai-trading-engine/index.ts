@@ -1294,6 +1294,141 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Parse request body for action-based calls
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      // No body is fine for cron calls
+    }
+
+    // 🎛️ EXECUTE APPROVED TRADE - Patent: User-Confirmed Execution Mode
+    // Handle execution of user-approved trades from the pending queue
+    if (body.action === 'execute_approved_trade') {
+      const { tradeId, symbol, side, quantity, price } = body;
+      
+      console.log(`✅ EXECUTING APPROVED TRADE: ${side} ${quantity} ${symbol} @ $${price}`);
+      
+      // Get user from the pending trade
+      const { data: pendingTrade } = await supabase
+        .from('pending_trades')
+        .select('*')
+        .eq('id', tradeId)
+        .single();
+      
+      if (!pendingTrade) {
+        return new Response(JSON.stringify({ error: 'Pending trade not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const userId = pendingTrade.user_id;
+      
+      // Get user settings
+      const { data: settings } = await supabase
+        .from('ai_settings')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+      
+      const isPaperMode = settings?.trading_mode !== 'live';
+      let actualQuantity = quantity;
+      let actualPrice = price;
+      
+      // Execute real trade if in live mode
+      if (!isPaperMode && side === 'buy') {
+        const tradeValue = quantity * price;
+        console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${symbol}`);
+        const buyResult = await executeCoinbaseBuy(symbol, tradeValue);
+        
+        if (buyResult.success && buyResult.quantity && buyResult.price) {
+          actualQuantity = buyResult.quantity;
+          actualPrice = buyResult.price;
+          console.log(`✅ REAL TRADE SUCCESS: ${actualQuantity} ${symbol} @ $${actualPrice}`);
+        } else {
+          console.error(`❌ REAL BUY FAILED: ${buyResult.error}`);
+          return new Response(JSON.stringify({ 
+            error: 'Trade execution failed', 
+            details: buyResult.error 
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      
+      // Create trade record
+      const { error: tradeError } = await supabase
+        .from('trades')
+        .insert({
+          user_id: userId,
+          symbol,
+          side,
+          quantity: actualQuantity,
+          entry_price: actualPrice,
+          market_type: 'crypto',
+          is_paper: isPaperMode,
+          status: 'open',
+          strategy: pendingTrade.strategy,
+          ai_reasoning: pendingTrade.ai_reasoning,
+        });
+      
+      if (tradeError) {
+        console.error('Trade insert error:', tradeError);
+      }
+      
+      // Create position
+      const { error: positionError } = await supabase
+        .from('positions')
+        .insert({
+          user_id: userId,
+          symbol,
+          side,
+          quantity: actualQuantity,
+          avg_entry_price: actualPrice,
+          market_type: 'crypto',
+          is_paper: isPaperMode,
+          strategy: pendingTrade.strategy,
+        });
+      
+      if (positionError) {
+        console.error('Position insert error:', positionError);
+      }
+      
+      // Update paper account if in paper mode
+      if (isPaperMode) {
+        const { data: paperAccount } = await supabase
+          .from('paper_account')
+          .select('balance')
+          .eq('user_id', userId)
+          .single();
+        
+        if (paperAccount) {
+          const newBalance = paperAccount.balance - (actualQuantity * actualPrice);
+          await supabase
+            .from('paper_account')
+            .update({ balance: newBalance })
+            .eq('user_id', userId);
+        }
+      }
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Executed ${side} ${actualQuantity.toFixed(6)} ${symbol} @ $${actualPrice.toFixed(2)}`,
+        trade: {
+          symbol,
+          side,
+          quantity: actualQuantity,
+          price: actualPrice,
+          value: actualQuantity * actualPrice,
+          isPaperMode,
+        },
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Check if this is a cron call (no auth) or user call (with auth)
     const authHeader = req.headers.get('Authorization');
     let userIds: string[] = [];
@@ -1617,6 +1752,78 @@ serve(async (req) => {
     const limitedDecisions = decisions.slice(0, remainingSlots);
     console.log(`✅ Generated ${decisions.length} trading decisions, executing ${limitedDecisions.length} (limited by ${remainingSlots} slots) using ${bestStrategy} strategy`);
 
+    // 🎛️ EXECUTION MODE CHECK - Patent: Selectable Execution Control Modes
+    // If user_confirmed mode, queue trades for approval instead of executing
+    const executionMode = settings.execution_mode || 'autonomous';
+    
+    if (executionMode === 'user_confirmed') {
+      console.log(`🔔 USER-CONFIRMED MODE: Queueing ${limitedDecisions.length} trades for approval`);
+      
+      const pendingTrades: any[] = [];
+      
+      for (const decision of limitedDecisions) {
+        if (decision.action === 'hold') continue;
+        
+        const coinData = marketData.find(m => m.symbol === decision.symbol);
+        if (!coinData) continue;
+        
+        // Calculate position value
+        const maxCapitalUsage = settings.max_capital_usage || 80;
+        const availableCapital = balance * (maxCapitalUsage / 100);
+        const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
+        const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 5);
+        const quantity = tradeValue / coinData.price;
+        
+        // Insert pending trade for user approval
+        const { error: pendingError } = await supabase
+          .from('pending_trades')
+          .insert({
+            user_id: user.id,
+            symbol: decision.symbol,
+            side: decision.action,
+            quantity,
+            price: coinData.price,
+            position_value: tradeValue,
+            strategy: bestStrategy,
+            ai_reasoning: decision.reason,
+            confidence: decision.confidence,
+            market_regime: regime,
+            status: 'pending',
+            expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15 min expiry
+          });
+        
+        if (!pendingError) {
+          pendingTrades.push({
+            symbol: decision.symbol,
+            side: decision.action,
+            quantity,
+            price: coinData.price,
+            value: tradeValue,
+            confidence: decision.confidence,
+          });
+          console.log(`📋 Queued: ${decision.action.toUpperCase()} ${quantity.toFixed(6)} ${decision.symbol} @ $${coinData.price.toFixed(2)}`);
+        } else {
+          console.error(`Failed to queue pending trade for ${decision.symbol}:`, pendingError);
+        }
+      }
+      
+      return new Response(JSON.stringify({
+        status: 'queued_for_approval',
+        executionMode: 'user_confirmed',
+        message: `${pendingTrades.length} trade(s) queued for your approval`,
+        pendingTrades,
+        regime,
+        strategy: bestStrategy,
+        balance,
+        isPaperMode,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 🤖 AUTONOMOUS MODE - Execute trades directly
+    console.log(`🤖 AUTONOMOUS MODE: Executing ${limitedDecisions.length} trades directly`);
+    
     const executedTrades: any[] = [];
     let tradesExecuted = 0;
 
