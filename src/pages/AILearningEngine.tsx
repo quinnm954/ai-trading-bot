@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useLearningEngineData } from '@/hooks/useLearningEngineData';
 import type { MarketRegime } from '@/types/trading';
+import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 
 const regimeLabels: Record<MarketRegime, string> = {
   trending: 'Trending',
@@ -54,6 +55,7 @@ export default function AILearningEngine() {
   } = useLearningEngineData();
 
   return (
+    <FeatureGate feature="ai_learning_engine">
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
@@ -310,5 +312,6 @@ export default function AILearningEngine() {
         </p>
       </div>
     </div>
+    </FeatureGate>
   );
 }
