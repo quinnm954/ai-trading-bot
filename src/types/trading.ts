@@ -206,7 +206,7 @@ export interface SafetyGovernor {
 export interface ApiKey {
   id: string;
   /** Broker/exchange provider identifier */
-  provider: 'alpaca' | 'coinbase';
+  provider: 'alpaca' | 'coinbase' | 'ibkr' | 'tradier';
   name: string;
   isConnected: boolean;
   lastTested?: Date;
