@@ -16,6 +16,7 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react';
+import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
@@ -92,6 +93,7 @@ export default function AITrader() {
   const hasConnectedBrokers = connectedBrokers.length > 0;
 
   return (
+    <FeatureGate feature="autonomous_trading">
     <div className="space-y-6 animate-fade-in">
       {/* Live Mode Confirmation Dialog */}
       <LiveModeConfirmDialog
@@ -644,5 +646,6 @@ export default function AITrader() {
         </div>
       </div>
     </div>
+    </FeatureGate>
   );
 }

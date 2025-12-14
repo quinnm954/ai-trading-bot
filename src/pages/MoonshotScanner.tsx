@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Rocket, TrendingUp, RefreshCw, Info, Zap, Target, Activity, Users, BarChart3 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 
 interface MoonshotSignal {
   id: string;
@@ -240,6 +241,7 @@ export default function MoonshotScanner() {
   }, []);
 
   return (
+    <FeatureGate feature="moonshot_scanner">
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -408,5 +410,6 @@ export default function MoonshotScanner() {
         </CardContent>
       </Card>
     </div>
+    </FeatureGate>
   );
 }
