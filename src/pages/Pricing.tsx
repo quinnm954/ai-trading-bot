@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3, TrendingUp, Rocket, LineChart, Cpu, Minus } from 'lucide-react';
+import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3, TrendingUp, Rocket, LineChart, Cpu, Minus, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useCurrency } from '@/hooks/useCurrency';
+import { useSubscription } from '@/hooks/useSubscription';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -133,13 +135,37 @@ export default function Pricing() {
   const { isAuthenticated } = useAuth();
   const { isAdmin } = useIsAdmin();
   const { currency, formatPrice, changeCurrency, isLoading: currencyLoading } = useCurrency();
+  const { tier: currentTier, subscribed, startCheckout, isLoading: subscriptionLoading } = useSubscription();
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
-  const handleSelectPlan = (tierName: string) => {
+  const handleSelectPlan = async (tierName: string) => {
     if (!isAuthenticated) {
       navigate('/auth');
-    } else {
-      navigate('/settings');
+      return;
+    }
+
+    const tierKey = tierName.toLowerCase() as 'free' | 'pro' | 'unlimited';
+    
+    if (tierKey === 'free') {
+      navigate('/dashboard');
+      return;
+    }
+
+    // Already subscribed to this tier
+    if (subscribed && currentTier === tierKey) {
+      toast.info(`You're already on the ${tierName} plan`);
+      return;
+    }
+
+    try {
+      setCheckoutLoading(tierName);
+      await startCheckout(tierKey as 'pro' | 'unlimited');
+    } catch (error) {
+      console.error('Checkout error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
+    } finally {
+      setCheckoutLoading(null);
     }
   };
 
@@ -340,14 +366,45 @@ export default function Pricing() {
                   </p>
                 )}
 
-                <Button
-                  variant={tier.popular ? 'glow' : 'outline'}
-                  className="w-full mb-8 gap-2"
-                  onClick={() => handleSelectPlan(tier.name)}
-                >
-                  {tier.cta}
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
+                {(() => {
+                  const tierKey = tier.name.toLowerCase() as 'free' | 'pro' | 'unlimited';
+                  const isCurrentPlan = subscribed && currentTier === tierKey;
+                  const isLoading = checkoutLoading === tier.name;
+                  
+                  if (isCurrentPlan) {
+                    return (
+                      <Button
+                        variant="outline"
+                        className="w-full mb-8 gap-2 border-profit text-profit"
+                        disabled
+                      >
+                        <Check className="w-4 h-4" />
+                        Current Plan
+                      </Button>
+                    );
+                  }
+                  
+                  return (
+                    <Button
+                      variant={tier.popular ? 'glow' : 'outline'}
+                      className="w-full mb-8 gap-2"
+                      onClick={() => handleSelectPlan(tier.name)}
+                      disabled={isLoading || subscriptionLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          {tier.cta}
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </Button>
+                  );
+                })()}
 
                 <ul className="space-y-3 mb-6">
                   {tier.features.map((feature) => (
