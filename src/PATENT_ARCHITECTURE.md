@@ -14,19 +14,19 @@ This document maps the patent claims to their implementation in the TitanAI code
 
 **Patent Language:** "A system capable of trading across multiple asset classes including but not limited to equities, cryptocurrencies, forex, and commodities."
 
-**Implementation Status:** Architecture Ready, Crypto Active
+**Implementation Status:** Fully Implemented
 
 **Code Locations:**
 - `src/types/trading.ts` - Asset-agnostic type definitions with `allowedMarkets` supporting stocks/crypto
-- `supabase/functions/ai-trading-engine/index.ts` - Extensible asset routing
+- `supabase/functions/ai-trading-engine/index.ts` - Multi-broker trade routing
 - Database: `market_type` enum with `stocks | crypto` values
 
+**Supported Brokers:**
+- **Stocks:** Alpaca, Interactive Brokers (IBKR), Tradier
+- **Crypto:** Coinbase
+
 **Architecture Notes:**
-The system uses asset-class-agnostic interfaces that abstract exchange-specific logic. New asset classes can be added by:
-1. Extending the `market_type` enum
-2. Adding asset-specific data providers
-3. Implementing exchange/broker integrations
-4. Configuring asset-specific precision and lot requirements
+The system uses asset-class-agnostic interfaces that abstract exchange-specific logic. Trade routing automatically selects the appropriate broker based on asset type and user connections.
 
 ---
 
@@ -117,10 +117,15 @@ The system uses asset-class-agnostic interfaces that abstract exchange-specific 
 - `supabase/functions/sync-broker-balances/index.ts` - Balance synchronization
 - Database: `api_connections` table
 
+**Supported Brokers:**
+- **Stocks:** Alpaca, Interactive Brokers (IBKR), Tradier
+- **Crypto:** Coinbase
+
 **Custody Model:**
-- Users connect their own broker accounts (Coinbase, etc.)
+- Users connect their own broker accounts via secure API credentials
 - TitanAI syncs balances via read-only or trading APIs
 - All funds remain in user's broker account at all times
+- No funds are ever transferred to or held by TitanAI
 
 ---
 
