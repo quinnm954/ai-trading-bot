@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.moonshot-scanner]
 verify_jwt = false
+
+[functions.stock-data-provider]
+verify_jwt = false

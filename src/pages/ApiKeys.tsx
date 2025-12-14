@@ -28,7 +28,25 @@ interface ExchangeConfig {
   keyHint: string;
 }
 
+/**
+ * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+ * 
+ * Supported brokers and exchanges for multi-asset trading:
+ * - Alpaca: US stocks + crypto (commission-free stock trading)
+ * - Crypto exchanges: Coinbase, Binance, Kraken, etc.
+ */
 const exchanges: ExchangeConfig[] = [
+  // STOCK BROKER - Alpaca for US equities
+  {
+    provider: 'alpaca',
+    name: 'Alpaca',
+    logo: '🦙',
+    description: 'US Stocks & Crypto (Commission-free)',
+    docsUrl: 'https://docs.alpaca.markets/',
+    requiresPassphrase: false,
+    keyHint: 'PK... or AK... format API key',
+  },
+  // CRYPTO EXCHANGES
   {
     provider: 'coinbase',
     name: 'Coinbase',
@@ -138,10 +156,22 @@ export default function ApiKeys() {
     }
   };
 
-  // Auto-detect exchange from key format
+  /**
+   * Auto-detect exchange/broker from API key format
+   * 
+   * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+   * Supports detection of both stock brokers (Alpaca) and crypto exchanges
+   */
   const detectExchangeFromKey = (apiKey: string, secretKey: string): string | null => {
     if (!apiKey && !secretKey) return null;
     
+    // STOCK BROKER DETECTION
+    // Alpaca keys start with PK (paper) or AK (live)
+    if (apiKey.startsWith('PK') || apiKey.startsWith('AK')) {
+      return 'Alpaca (Stocks & Crypto)';
+    }
+    
+    // CRYPTO EXCHANGE DETECTION
     if (apiKey.startsWith('organizations/') || secretKey.includes('-----BEGIN')) {
       return 'Coinbase CDP';
     }

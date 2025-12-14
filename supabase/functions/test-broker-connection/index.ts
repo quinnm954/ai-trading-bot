@@ -2,6 +2,25 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
+/**
+ * =============================================================================
+ * BROKER CONNECTION TEST - Multi-Asset Authentication Service
+ * =============================================================================
+ * 
+ * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+ * PATENT REFERENCE: No Custody of User Funds (Patent Claim 5)
+ * 
+ * This edge function validates API credentials for both stock brokers and
+ * crypto exchanges, enabling the patent's multi-asset trading capability.
+ * 
+ * SUPPORTED BROKERS/EXCHANGES:
+ * - Alpaca: US Stocks & Crypto (commission-free stock trading)
+ * - Coinbase: Cryptocurrency
+ * - Binance, Kraken, KuCoin, Bybit, OKX, Gate.io, Bitget: Crypto
+ * 
+ * =============================================================================
+ */
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -9,8 +28,23 @@ const corsHeaders = {
 
 // Exchange configurations with key detection patterns
 const EXCHANGES = {
+  // STOCK BROKER - US Equities + Crypto
+  alpaca: {
+    name: "Alpaca",
+    assetClasses: ["stocks", "crypto"],
+    keyPatterns: [
+      { pattern: /^PK[A-Z0-9]+$/, type: "paper" },  // Paper trading keys start with PK
+      { pattern: /^AK[A-Z0-9]+$/, type: "live" },   // Live trading keys start with AK
+    ],
+    endpoints: {
+      account: "https://api.alpaca.markets/v2/account",
+      paperAccount: "https://paper-api.alpaca.markets/v2/account",
+    },
+  },
+  // CRYPTO EXCHANGES
   coinbase: {
     name: "Coinbase",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^organizations\//, type: "cdp" },
       { pattern: /-----BEGIN.*PRIVATE KEY-----/, field: "secret", type: "cdp" },
@@ -21,6 +55,7 @@ const EXCHANGES = {
   },
   binance: {
     name: "Binance",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^[A-Za-z0-9]{64}$/, type: "hmac" },
     ],
@@ -30,6 +65,7 @@ const EXCHANGES = {
   },
   kraken: {
     name: "Kraken",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^[A-Za-z0-9+/=]{56}$/, type: "hmac" },
     ],
@@ -39,6 +75,7 @@ const EXCHANGES = {
   },
   kucoin: {
     name: "KuCoin",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^[a-f0-9]{24}$/, type: "hmac" },
     ],
@@ -48,6 +85,7 @@ const EXCHANGES = {
   },
   bybit: {
     name: "Bybit",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^[A-Za-z0-9]{18}$/, type: "hmac" },
     ],
@@ -57,6 +95,7 @@ const EXCHANGES = {
   },
   okx: {
     name: "OKX",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/, type: "hmac" },
     ],
@@ -66,6 +105,7 @@ const EXCHANGES = {
   },
   gateio: {
     name: "Gate.io",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^[a-f0-9]{32}$/, type: "hmac" },
     ],
@@ -75,6 +115,7 @@ const EXCHANGES = {
   },
   bitget: {
     name: "Bitget",
+    assetClasses: ["crypto"],
     keyPatterns: [
       { pattern: /^bg_[a-f0-9]{32}$/, type: "hmac" },
     ],
@@ -103,6 +144,15 @@ interface DetectionResult {
 function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
   console.log("Detecting exchange from key format...");
   
+  // STOCK BROKER DETECTION - Alpaca (check first for multi-asset support)
+  // Alpaca keys start with PK (paper) or AK (live)
+  if (apiKey.startsWith("PK") || apiKey.startsWith("AK")) {
+    const type = apiKey.startsWith("PK") ? "paper" : "live";
+    console.log(`Detected: Alpaca (${type} trading)`);
+    return { exchange: "alpaca", authType: type, confidence: 1.0 };
+  }
+  
+  // CRYPTO EXCHANGE DETECTION
   // Check for Coinbase CDP (most distinctive)
   if (apiKey.startsWith("organizations/") || 
       secretKey.includes("-----BEGIN") || 
@@ -156,6 +206,45 @@ function detectExchange(apiKey: string, secretKey: string): DetectionResult | nu
   // Default to Coinbase legacy if nothing else matches
   console.log("No specific pattern matched, trying Coinbase legacy");
   return { exchange: "coinbase", authType: "legacy", confidence: 0.3 };
+}
+
+/**
+ * Test Alpaca connection (US Stocks & Crypto)
+ * 
+ * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+ * Alpaca supports both stocks and crypto trading through a single API
+ */
+async function testAlpaca(apiKey: string, secretKey: string, authType: string) {
+  // Use paper or live API based on key type
+  const baseUrl = authType === "paper" 
+    ? "https://paper-api.alpaca.markets" 
+    : "https://api.alpaca.markets";
+  
+  console.log(`Testing Alpaca ${authType} connection...`);
+  
+  const response = await fetch(`${baseUrl}/v2/account`, {
+    headers: {
+      "APCA-API-KEY-ID": apiKey,
+      "APCA-API-SECRET-KEY": secretKey,
+    },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Alpaca error (${response.status}): ${errorText}`);
+  }
+  
+  const account = await response.json();
+  
+  return {
+    balance: parseFloat(account.cash || 0),
+    buying_power: parseFloat(account.buying_power || 0),
+    equity: parseFloat(account.equity || 0),
+    tradingMode: authType, // paper or live
+    patternDayTrader: account.pattern_day_trader || false,
+    daytradeCount: account.daytrade_count || 0,
+    status: account.status,
+  };
 }
 
 // Generate JWT for Coinbase CDP API
@@ -625,6 +714,9 @@ serve(async (req) => {
     let accountInfo;
     
     switch (detectedExchange) {
+      case "alpaca":
+        accountInfo = await testAlpaca(apiKey, secretKey, authType || "paper");
+        break;
       case "coinbase":
         accountInfo = await testCoinbase(apiKey, secretKey, passphrase, authType);
         break;
