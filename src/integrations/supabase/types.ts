@@ -176,6 +176,48 @@ export type Database = {
         }
         Relationships: []
       }
+      broker_credentials: {
+        Row: {
+          access_token_encrypted: string | null
+          api_key_encrypted: string
+          created_at: string
+          id: string
+          is_paper: boolean
+          last_used_at: string | null
+          passphrase_encrypted: string | null
+          provider: string
+          secret_key_encrypted: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_encrypted?: string | null
+          api_key_encrypted: string
+          created_at?: string
+          id?: string
+          is_paper?: boolean
+          last_used_at?: string | null
+          passphrase_encrypted?: string | null
+          provider: string
+          secret_key_encrypted?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_encrypted?: string | null
+          api_key_encrypted?: string
+          created_at?: string
+          id?: string
+          is_paper?: boolean
+          last_used_at?: string | null
+          passphrase_encrypted?: string | null
+          provider?: string
+          secret_key_encrypted?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_pnl: {
         Row: {
           created_at: string | null
