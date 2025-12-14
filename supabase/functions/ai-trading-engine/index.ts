@@ -511,33 +511,47 @@ function isStockMarketOpen(): boolean {
 }
 
 /**
- * Get user's connected stock broker credentials
+ * Get user's connected stock broker credentials from broker_credentials table
  */
-async function getConnectedStockBroker(supabase: any, userId: string): Promise<{ broker: string; apiKey: string; secretKey: string } | null> {
-  const stockBrokers = ['alpaca', 'ibkr', 'tradier'];
-  
-  for (const broker of stockBrokers) {
-    const { data: connection } = await supabase
-      .from('api_connections')
-      .select('*')
+async function getConnectedStockBroker(supabase: any, userId: string): Promise<{ 
+  broker: 'alpaca' | 'ibkr' | 'tradier'; 
+  apiKey: string; 
+  secretKey: string;
+  accessToken?: string;
+  isPaper: boolean;
+} | null> {
+  try {
+    // Query broker_credentials table for connected stock brokers
+    const { data: credentials, error } = await supabase
+      .from('broker_credentials')
+      .select('provider, api_key_encrypted, secret_key_encrypted, access_token_encrypted, is_paper')
       .eq('user_id', userId)
-      .eq('provider', broker)
-      .eq('is_connected', true)
-      .single();
+      .in('provider', ['alpaca', 'ibkr', 'tradier']);
     
-    if (connection) {
-      // Get credentials from secrets (stored during connection)
-      const secretPrefix = broker.toUpperCase();
-      const apiKey = Deno.env.get(`${secretPrefix}_API_KEY`) || '';
-      const secretKey = Deno.env.get(`${secretPrefix}_SECRET_KEY`) || '';
-      
-      if (apiKey && secretKey) {
-        return { broker, apiKey, secretKey };
+    if (error || !credentials || credentials.length === 0) {
+      console.log('No stock broker credentials found in database');
+      return null;
+    }
+    
+    // Return first available broker with valid credentials
+    for (const cred of credentials) {
+      if (cred.api_key_encrypted) {
+        console.log(`🏦 Found ${cred.provider} credentials for user`);
+        return {
+          broker: cred.provider as 'alpaca' | 'ibkr' | 'tradier',
+          apiKey: cred.api_key_encrypted,
+          secretKey: cred.secret_key_encrypted || '',
+          accessToken: cred.access_token_encrypted,
+          isPaper: cred.is_paper,
+        };
       }
     }
+    
+    return null;
+  } catch (err) {
+    console.error('Error fetching broker credentials:', err);
+    return null;
   }
-  
-  return null;
 }
 
 /**
@@ -780,15 +794,15 @@ async function executeStockTrade(
     return { success: false, error: 'No stock broker connected' };
   }
   
-  console.log(`🏦 Routing stock trade to: ${broker.broker}`);
+  console.log(`🏦 Routing stock trade to: ${broker.broker} (${broker.isPaper ? 'PAPER' : 'LIVE'} mode)`);
   
   switch (broker.broker) {
     case 'alpaca':
-      return executeAlpacaTrade(broker.apiKey, broker.secretKey, symbol, side, quantity, isPaper);
+      return executeAlpacaTrade(broker.apiKey, broker.secretKey, symbol, side, quantity, broker.isPaper || isPaper);
     case 'ibkr':
-      return executeIBKRTrade(broker.apiKey, symbol, side, quantity);
+      return executeIBKRTrade(broker.accessToken || broker.apiKey, symbol, side, quantity);
     case 'tradier':
-      return executeTradierTrade(broker.apiKey, symbol, side, quantity, isPaper);
+      return executeTradierTrade(broker.accessToken || broker.apiKey, symbol, side, quantity, broker.isPaper || isPaper);
     default:
       return { success: false, error: `Unsupported broker: ${broker.broker}` };
   }
