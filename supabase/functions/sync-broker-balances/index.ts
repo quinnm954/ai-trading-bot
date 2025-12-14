@@ -374,6 +374,152 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
   };
 }
 
+/**
+ * Fetch Alpaca account balance and positions
+ * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+ */
+async function fetchAlpacaBalanceAndHoldings(apiKey: string, secretKey: string): Promise<{
+  balance: number;
+  buying_power: number;
+  equity: number;
+  holdings: Array<{ symbol: string; quantity: number; value: number; entryPrice: number }>;
+}> {
+  // Determine if paper or live based on key prefix
+  const isPaper = apiKey.startsWith("PK");
+  const baseUrl = isPaper ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
+  
+  console.log(`📈 Fetching Alpaca ${isPaper ? 'paper' : 'live'} account...`);
+  
+  // Fetch account info
+  const accountResponse = await fetch(`${baseUrl}/v2/account`, {
+    headers: {
+      "APCA-API-KEY-ID": apiKey,
+      "APCA-API-SECRET-KEY": secretKey,
+    },
+  });
+  
+  if (!accountResponse.ok) {
+    throw new Error(`Alpaca account error: ${accountResponse.status}`);
+  }
+  
+  const account = await accountResponse.json();
+  
+  // Fetch positions
+  const positionsResponse = await fetch(`${baseUrl}/v2/positions`, {
+    headers: {
+      "APCA-API-KEY-ID": apiKey,
+      "APCA-API-SECRET-KEY": secretKey,
+    },
+  });
+  
+  const holdings: Array<{ symbol: string; quantity: number; value: number; entryPrice: number }> = [];
+  
+  if (positionsResponse.ok) {
+    const positions = await positionsResponse.json();
+    for (const pos of positions) {
+      holdings.push({
+        symbol: pos.symbol,
+        quantity: parseFloat(pos.qty),
+        value: parseFloat(pos.market_value),
+        entryPrice: parseFloat(pos.avg_entry_price),
+      });
+    }
+  }
+  
+  return {
+    balance: parseFloat(account.cash || 0),
+    buying_power: parseFloat(account.buying_power || 0),
+    equity: parseFloat(account.equity || 0),
+    holdings,
+  };
+}
+
+/**
+ * Fetch Tradier account balance and positions
+ * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+ */
+async function fetchTradierBalanceAndHoldings(accessToken: string): Promise<{
+  balance: number;
+  buying_power: number;
+  equity: number;
+  holdings: Array<{ symbol: string; quantity: number; value: number; entryPrice: number }>;
+}> {
+  console.log(`📈 Fetching Tradier account...`);
+  
+  // Get accounts list
+  const accountsResponse = await fetch("https://api.tradier.com/v1/accounts", {
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Accept": "application/json",
+    },
+  });
+  
+  if (!accountsResponse.ok) {
+    throw new Error(`Tradier accounts error: ${accountsResponse.status}`);
+  }
+  
+  const accountsData = await accountsResponse.json();
+  const accounts = accountsData?.accounts?.account;
+  const account = Array.isArray(accounts) ? accounts[0] : accounts;
+  
+  if (!account) {
+    throw new Error("No Tradier account found");
+  }
+  
+  const accountId = account.account_number;
+  
+  // Get account balances
+  const balanceResponse = await fetch(`https://api.tradier.com/v1/accounts/${accountId}/balances`, {
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Accept": "application/json",
+    },
+  });
+  
+  let balance = 0;
+  let buyingPower = 0;
+  let equity = 0;
+  
+  if (balanceResponse.ok) {
+    const balanceData = await balanceResponse.json();
+    const bal = balanceData?.balances;
+    balance = parseFloat(bal?.total_cash || bal?.cash?.cash_available || 0);
+    buyingPower = parseFloat(bal?.margin?.stock_buying_power || bal?.cash?.cash_available || 0);
+    equity = parseFloat(bal?.total_equity || bal?.market_value || 0);
+  }
+  
+  // Get positions
+  const positionsResponse = await fetch(`https://api.tradier.com/v1/accounts/${accountId}/positions`, {
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Accept": "application/json",
+    },
+  });
+  
+  const holdings: Array<{ symbol: string; quantity: number; value: number; entryPrice: number }> = [];
+  
+  if (positionsResponse.ok) {
+    const positionsData = await positionsResponse.json();
+    const positions = positionsData?.positions?.position;
+    
+    if (positions) {
+      const posArray = Array.isArray(positions) ? positions : [positions];
+      for (const pos of posArray) {
+        const qty = parseFloat(pos.quantity);
+        const costBasis = parseFloat(pos.cost_basis || 0);
+        holdings.push({
+          symbol: pos.symbol,
+          quantity: qty,
+          value: costBasis,
+          entryPrice: qty > 0 ? costBasis / qty : 0,
+        });
+      }
+    }
+  }
+  
+  return { balance, buying_power: buyingPower, equity, holdings };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -440,6 +586,7 @@ serve(async (req) => {
         try {
           console.log(`Syncing ${conn.provider} account for user ${userId}`);
           
+          // CRYPTO: Coinbase sync (uses global secrets)
           if (conn.provider === "coinbase") {
             const balanceData = await fetchCoinbaseBalanceAndHoldings();
             
@@ -632,6 +779,52 @@ serve(async (req) => {
               provider: conn.provider, 
               balance: balanceData.balance,
               holdings: balanceData.holdings.length,
+            };
+          }
+          
+          // STOCKS: Alpaca sync
+          // Note: Requires user to have stored credentials - will be implemented when 
+          // broker_credentials table is added for per-user encrypted credential storage
+          else if (conn.provider === "alpaca") {
+            console.log(`⚠️ Alpaca sync requires per-user credentials storage (not yet implemented)`);
+            // Future implementation:
+            // const creds = await getUserCredentials(serviceClient, userId, 'alpaca');
+            // const balanceData = await fetchAlpacaBalanceAndHoldings(creds.apiKey, creds.secretKey);
+            // ... sync logic similar to Coinbase
+            allResults[userId] = { 
+              provider: conn.provider, 
+              message: "Alpaca sync pending credential storage implementation",
+            };
+          }
+          
+          // STOCKS: Tradier sync
+          else if (conn.provider === "tradier") {
+            console.log(`⚠️ Tradier sync requires per-user credentials storage (not yet implemented)`);
+            // Future implementation:
+            // const creds = await getUserCredentials(serviceClient, userId, 'tradier');
+            // const balanceData = await fetchTradierBalanceAndHoldings(creds.accessToken);
+            // ... sync logic similar to Coinbase
+            allResults[userId] = { 
+              provider: conn.provider, 
+              message: "Tradier sync pending credential storage implementation",
+            };
+          }
+          
+          // STOCKS: Interactive Brokers sync
+          else if (conn.provider === "ibkr") {
+            console.log(`⚠️ IBKR sync requires OAuth flow (not yet implemented)`);
+            allResults[userId] = { 
+              provider: conn.provider, 
+              message: "IBKR requires OAuth authentication flow",
+            };
+          }
+          
+          // Other crypto exchanges (binance, kraken, etc.)
+          else {
+            console.log(`⚠️ ${conn.provider} sync not yet implemented`);
+            allResults[userId] = { 
+              provider: conn.provider, 
+              message: `${conn.provider} sync coming soon`,
             };
           }
         } catch (err: any) {

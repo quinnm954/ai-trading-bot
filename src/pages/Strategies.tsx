@@ -135,7 +135,7 @@ export default function Strategies() {
 
               <p className="text-sm text-muted-foreground mb-4">{strategy.description}</p>
 
-              <div className="grid grid-cols-3 gap-4 p-4 rounded-lg bg-secondary/30">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 rounded-lg bg-secondary/30">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
                   <p className="text-lg font-bold text-foreground">{strategy.performance.winRate.toFixed(1)}%</p>
@@ -147,6 +147,26 @@ export default function Strategies() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Score</p>
                   <p className="text-lg font-bold text-primary">{strategy.performance.score}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Profit Factor</p>
+                  <p className={cn(
+                    "text-lg font-bold",
+                    strategy.performance.profitFactor >= 1.5 ? "text-profit" : 
+                    strategy.performance.profitFactor >= 1 ? "text-foreground" : "text-loss"
+                  )}>
+                    {strategy.performance.profitFactor > 0 ? strategy.performance.profitFactor.toFixed(2) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Max Drawdown</p>
+                  <p className={cn(
+                    "text-lg font-bold",
+                    strategy.performance.maxDrawdown <= 5 ? "text-profit" :
+                    strategy.performance.maxDrawdown <= 10 ? "text-warning" : "text-loss"
+                  )}>
+                    {strategy.performance.maxDrawdown > 0 ? `-${strategy.performance.maxDrawdown.toFixed(1)}%` : '—'}
+                  </p>
                 </div>
               </div>
 

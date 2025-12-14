@@ -29,6 +29,8 @@ import { LiveModeConfirmDialog } from '@/components/risk/LiveModeConfirmDialog';
 import { useRiskManager } from '@/hooks/useRiskManager';
 import { ExecutionModeToggle } from '@/components/trading/ExecutionModeToggle';
 import { PendingTradesPanel } from '@/components/trading/PendingTradesPanel';
+import { StockMarketIndicator } from '@/components/trading/StockMarketIndicator';
+import { PDTWarning } from '@/components/trading/PDTWarning';
 
 export default function AITrader() {
   const navigate = useNavigate();
@@ -137,6 +139,25 @@ export default function AITrader() {
           </Button>
         </div>
       </div>
+
+      {/* Stock Market Hours Indicator & PDT Warning */}
+      {aiSettings.allowedMarkets.includes('stocks') && (
+        <div className="flex flex-wrap items-center gap-3">
+          <StockMarketIndicator />
+          {/* Show PDT warning for stock accounts under $25k */}
+          {liveAccounts
+            .filter(acc => acc.provider === 'alpaca' || acc.provider === 'ibkr' || acc.provider === 'tradier')
+            .filter(acc => acc.equity < 25000)
+            .map(acc => (
+              <PDTWarning 
+                key={acc.provider}
+                accountEquity={acc.equity}
+                dayTradesLast5Days={0} // TODO: Fetch from broker API
+              />
+            ))
+          }
+        </div>
+      )}
 
       {/* Kill Switch Banner - Show at top when active */}
       {isKillSwitchActive && (
