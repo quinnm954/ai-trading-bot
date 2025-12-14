@@ -1,67 +1,6 @@
 import { Link } from 'react-router-dom';
-import { Brain, Zap, Shield, TrendingUp, Bot, BarChart3, Clock, Target, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-
-const features = [
-  {
-    icon: Bot,
-    title: 'Autonomous AI Trading',
-    description: 'Our AI analyzes market conditions 24/7 and executes trades automatically based on proven strategies.',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Market Regime Detection',
-    description: 'Automatically detects trending, ranging, and volatile markets to select the optimal strategy.',
-  },
-  {
-    icon: Shield,
-    title: 'Risk Management',
-    description: 'Built-in safety controls including stop-loss, position limits, and daily loss caps protect your capital.',
-  },
-  {
-    icon: BarChart3,
-    title: 'Strategy Learning Engine',
-    description: 'The AI continuously learns which strategies perform best in different market conditions.',
-  },
-  {
-    icon: Clock,
-    title: '24/7 Automated Execution',
-    description: 'Never miss a trade. The bot runs continuously, executing trades even while you sleep.',
-  },
-  {
-    icon: Target,
-    title: 'Auto Take-Profit',
-    description: 'Automatically captures profits at optimal levels with intelligent exit strategies.',
-  },
-];
-
-const howItWorks = [
-  {
-    step: '1',
-    title: 'Start with Paper Trading',
-    description: 'Practice with $100k virtual balance. Test strategies risk-free and see how the AI performs.',
-  },
-  {
-    step: '2',
-    title: 'Connect Your Exchange',
-    description: 'Link your Coinbase, Binance, or other supported exchange using API keys. Your funds stay in your account.',
-  },
-  {
-    step: '3',
-    title: 'Set Your Risk Limits',
-    description: 'Define your maximum position size, daily loss limit, and allowed markets. The AI respects these as hard limits.',
-  },
-  {
-    step: '4',
-    title: 'Enable Autonomous Mode',
-    description: 'Turn on the AI trader and let it analyze markets, select strategies, and execute trades 24/7.',
-  },
-  {
-    step: '5',
-    title: 'Monitor & Withdraw Profits',
-    description: 'Track performance on your dashboard. The milestone system automatically helps you realize profits.',
-  },
-];
 
 export default function Landing() {
   return (
@@ -92,20 +31,23 @@ export default function Landing() {
       </header>
 
       {/* Hero Section */}
-      <section className="py-20 md:py-32">
-        <div className="container mx-auto px-4 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
+      <section className="py-24 md:py-36 relative overflow-hidden">
+        {/* Background gradient effect */}
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/10 rounded-full blur-3xl pointer-events-none opacity-30" />
+        
+        <div className="container mx-auto px-4 text-center relative z-10">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8">
             <Zap className="w-4 h-4" />
-            AI-Powered Crypto Trading
+            AI-Powered Stock & Crypto Trading
           </div>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-foreground mb-6 leading-tight">
             Autonomous Trading
             <br />
             <span className="text-primary">Powered by AI</span>
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-            Let our AI analyze markets, select strategies, and execute trades 24/7. 
-            Start with paper trading, then go live when you're ready.
+          <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto mb-12 leading-relaxed">
+            Stop watching charts. Let our AI trade for you 24/7 while you focus on what matters most.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button variant="glow" size="lg" className="gap-2 text-lg px-8" asChild>
@@ -118,117 +60,135 @@ export default function Landing() {
               <Link to="/pricing">View Pricing</Link>
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground mt-4">
+          <p className="text-sm text-muted-foreground mt-6">
             No credit card required • $100k virtual balance included
           </p>
         </div>
       </section>
 
-      {/* Features Grid */}
-      <section className="py-20 bg-muted/30">
+      {/* Emotional Hook - Pain Points */}
+      <section className="py-16 border-t border-border">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Everything You Need to Trade Smarter
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-8">
+              Tired of missing opportunities while you sleep?
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Titan AI combines advanced machine learning with proven trading strategies
-            </p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {features.map((feature) => (
-              <div
-                key={feature.title}
-                className="glass-panel p-6 rounded-2xl border border-border hover:border-primary/50 transition-colors"
-              >
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center mb-4">
-                  <feature.icon className="w-6 h-6 text-primary" />
-                </div>
-                <h3 className="text-xl font-semibold text-foreground mb-2">
-                  {feature.title}
-                </h3>
-                <p className="text-muted-foreground">
-                  {feature.description}
+            <div className="grid md:grid-cols-3 gap-8 text-left">
+              <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+                <Clock className="w-8 h-8 text-primary mb-4" />
+                <p className="text-foreground font-medium mb-2">Markets never sleep</p>
+                <p className="text-sm text-muted-foreground">
+                  Crypto trades 24/7. Stocks have pre-market and after-hours. You can't watch everything.
                 </p>
               </div>
-            ))}
+              <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+                <TrendingUp className="w-8 h-8 text-primary mb-4" />
+                <p className="text-foreground font-medium mb-2">Emotions kill profits</p>
+                <p className="text-sm text-muted-foreground">
+                  Fear and greed lead to bad decisions. AI trades based on data, not feelings.
+                </p>
+              </div>
+              <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+                <Shield className="w-8 h-8 text-primary mb-4" />
+                <p className="text-foreground font-medium mb-2">Risk is hard to manage</p>
+                <p className="text-sm text-muted-foreground">
+                  One bad trade can wipe out months of gains. Automated limits protect your capital.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="py-20">
+      {/* Trust Signals */}
+      <section className="py-16 bg-muted/20">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              How It Works
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-12">
+              Built for traders who value their time and money
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Get started in minutes with our simple 5-step process
-            </p>
-          </div>
-          <div className="max-w-4xl mx-auto space-y-6">
-            {howItWorks.map((item, index) => (
-              <div
-                key={item.step}
-                className="flex gap-6 items-start glass-panel p-6 rounded-2xl border border-border"
-              >
-                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg shrink-0">
-                  {item.step}
+            
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Trust Signal Cards */}
+              <div className="flex items-start gap-4 p-6 rounded-2xl bg-background border border-border">
+                <div className="w-12 h-12 rounded-full bg-profit/20 flex items-center justify-center shrink-0">
+                  <Lock className="w-6 h-6 text-profit" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
-                    {item.title}
-                  </h3>
-                  <p className="text-muted-foreground">
-                    {item.description}
+                  <h3 className="font-semibold text-foreground mb-1">Your Funds, Your Control</h3>
+                  <p className="text-sm text-muted-foreground">
+                    We never hold your money. Connect your own broker or exchange account. Withdraw anytime.
                   </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Supported Exchanges */}
-      <section className="py-20 bg-muted/30">
-        <div className="container mx-auto px-4 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            8 Exchanges Supported
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10">
-            Connect your favorite crypto exchange and start trading
-          </p>
-          <div className="flex flex-wrap justify-center gap-4 max-w-3xl mx-auto">
-            {['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Gate.io', 'Bitget'].map((exchange) => (
-              <div
-                key={exchange}
-                className="px-6 py-3 rounded-xl bg-background border border-border text-foreground font-medium"
-              >
-                {exchange}
+              
+              <div className="flex items-start gap-4 p-6 rounded-2xl bg-background border border-border">
+                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                  <Shield className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">Kill Switch Protection</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Automatic trading pause if losses exceed your limits. Capital preservation comes first.
+                  </p>
+                </div>
               </div>
-            ))}
+              
+              <div className="flex items-start gap-4 p-6 rounded-2xl bg-background border border-border">
+                <div className="w-12 h-12 rounded-full bg-warning/20 flex items-center justify-center shrink-0">
+                  <Users className="w-6 h-6 text-warning" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">Paper Trade First</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Test with $100k virtual balance before risking real money. See exactly how the AI performs.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-4 p-6 rounded-2xl bg-background border border-border">
+                <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+                  <Brain className="w-6 h-6 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">AI That Learns</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Continuously adapts to market conditions. Automatically picks the best strategy for the moment.
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Supported Platforms */}
+            <div className="mt-12 text-center">
+              <p className="text-sm text-muted-foreground mb-4">Supports stocks and crypto across 11+ brokers & exchanges</p>
+              <div className="flex flex-wrap justify-center gap-3">
+                {['Alpaca', 'Tradier', 'IBKR', 'Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit'].map((name) => (
+                  <span
+                    key={name}
+                    className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground"
+                  >
+                    {name}
+                  </span>
+                ))}
+                <span className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground">
+                  +3 more
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Risk Disclaimer */}
-      <section className="py-12 border-t border-border">
+      <section className="py-10 border-t border-border">
         <div className="container mx-auto px-4">
-          <div className="glass-panel p-6 rounded-2xl border border-border max-w-4xl mx-auto">
-            <div className="flex items-start gap-4">
-              <Shield className="w-8 h-8 text-muted-foreground shrink-0 mt-1" />
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Important Risk Disclosure
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Cryptocurrency trading involves substantial risk of loss. Titan AI is a trading tool that attempts to maximize 
-                  profits within your defined risk limits, but does not guarantee profits. Past performance is not indicative of 
-                  future results. Only trade with funds you can afford to lose. You maintain full custody of your funds at all times.
-                </p>
-              </div>
-            </div>
+          <div className="max-w-3xl mx-auto flex items-start gap-4 p-5 rounded-xl bg-muted/30 border border-border">
+            <Shield className="w-6 h-6 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Risk Disclosure:</span> Trading involves substantial risk of loss. 
+              Titan AI does not guarantee profits. Only trade with funds you can afford to lose.
+            </p>
           </div>
         </div>
       </section>
@@ -237,10 +197,10 @@ export default function Landing() {
       <section className="py-20">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Ready to Start Trading?
+            Start trading smarter today
           </h2>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">
-            Join Titan AI today. Start with free paper trading and upgrade when you're ready for live trading.
+            Free paper trading. No credit card. See results before you commit.
           </p>
           <Button variant="glow" size="lg" className="gap-2 text-lg px-8" asChild>
             <Link to="/auth">
