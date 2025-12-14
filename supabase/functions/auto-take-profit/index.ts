@@ -766,10 +766,156 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
   return prices;
 }
 
+// Execute stock sell on Alpaca
+async function executeAlpacaSell(symbol: string, quantity: number, userId: string, supabase: any): Promise<{ success: boolean; usdValue?: number; error?: string }> {
+  try {
+    // Get user's Alpaca credentials from broker_credentials
+    const { data: creds } = await supabase
+      .from('broker_credentials')
+      .select('api_key_encrypted, secret_key_encrypted, is_paper')
+      .eq('user_id', userId)
+      .eq('provider', 'alpaca')
+      .single();
+    
+    if (!creds) {
+      return { success: false, error: 'Alpaca credentials not found' };
+    }
+    
+    const baseUrl = creds.is_paper 
+      ? 'https://paper-api.alpaca.markets' 
+      : 'https://api.alpaca.markets';
+    
+    // Submit market sell order
+    const response = await fetch(`${baseUrl}/v2/orders`, {
+      method: 'POST',
+      headers: {
+        'APCA-API-KEY-ID': creds.api_key_encrypted,
+        'APCA-API-SECRET-KEY': creds.secret_key_encrypted,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        symbol: symbol,
+        qty: quantity.toString(),
+        side: 'sell',
+        type: 'market',
+        time_in_force: 'day',
+      }),
+    });
+    
+    if (!response.ok) {
+      const errText = await response.text();
+      return { success: false, error: `Alpaca error: ${errText}` };
+    }
+    
+    const order = await response.json();
+    console.log(`✅ Alpaca sell order submitted: ${symbol} x${quantity}`);
+    
+    // Estimate USD value (will be updated when order fills)
+    const estimatedValue = quantity * (order.filled_avg_price || order.limit_price || 0);
+    return { success: true, usdValue: estimatedValue };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+// Execute stock sell on Tradier
+async function executeTradierSell(symbol: string, quantity: number, userId: string, supabase: any): Promise<{ success: boolean; usdValue?: number; error?: string }> {
+  try {
+    // Get user's Tradier credentials
+    const { data: creds } = await supabase
+      .from('broker_credentials')
+      .select('access_token_encrypted')
+      .eq('user_id', userId)
+      .eq('provider', 'tradier')
+      .single();
+    
+    if (!creds?.access_token_encrypted) {
+      return { success: false, error: 'Tradier credentials not found' };
+    }
+    
+    // Get account ID first
+    const accountsResponse = await fetch('https://api.tradier.com/v1/user/profile', {
+      headers: {
+        'Authorization': `Bearer ${creds.access_token_encrypted}`,
+        'Accept': 'application/json',
+      },
+    });
+    
+    if (!accountsResponse.ok) {
+      return { success: false, error: 'Failed to get Tradier account' };
+    }
+    
+    const accountData = await accountsResponse.json();
+    const accountId = accountData.profile?.account?.account_number;
+    
+    if (!accountId) {
+      return { success: false, error: 'No Tradier account found' };
+    }
+    
+    // Submit market sell order
+    const response = await fetch(`https://api.tradier.com/v1/accounts/${accountId}/orders`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${creds.access_token_encrypted}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        class: 'equity',
+        symbol: symbol,
+        side: 'sell',
+        quantity: quantity.toString(),
+        type: 'market',
+        duration: 'day',
+      }),
+    });
+    
+    if (!response.ok) {
+      const errText = await response.text();
+      return { success: false, error: `Tradier error: ${errText}` };
+    }
+    
+    const order = await response.json();
+    console.log(`✅ Tradier sell order submitted: ${symbol} x${quantity}`);
+    
+    return { success: true, usdValue: 0 }; // Value updated on fill
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+// Fetch stock prices from a free API
+async function fetchStockPrices(symbols: string[]): Promise<Record<string, number>> {
+  const prices: Record<string, number> = {};
+  if (symbols.length === 0) return prices;
+  
+  try {
+    // Use Yahoo Finance API (unofficial but reliable)
+    for (const symbol of symbols) {
+      try {
+        const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`);
+        if (response.ok) {
+          const data = await response.json();
+          const price = data.chart?.result?.[0]?.meta?.regularMarketPrice;
+          if (price) {
+            prices[symbol.toUpperCase()] = price;
+          }
+        }
+      } catch {
+        // Skip individual symbol errors
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching stock prices:', error);
+  }
+  
+  return prices;
+}
+
 async function processUserPositions(supabase: any, userId: string, isPaperMode: boolean, availablePairs: Set<string>) {
   console.log(`Processing user: ${userId}, paper mode: ${isPaperMode}`);
   
-  // Fetch all open positions for this user
+  // Fetch ALL open positions for this user (both crypto AND stocks)
   const { data: positions, error: posError } = await supabase
     .from('positions')
     .select('*')
@@ -780,9 +926,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     return { takeProfitCount: 0, stopLossCount: 0, conversions: 0 };
   }
 
-  // Fetch live prices for all position symbols
-  const symbols: string[] = [...new Set(positions.map((p: any) => p.symbol))] as string[];
-  const livePrices = await fetchLivePrices(symbols);
+  // Separate positions by market type
+  const cryptoPositions = positions.filter((p: any) => p.market_type === 'crypto');
+  const stockPositions = positions.filter((p: any) => p.market_type === 'stocks');
+  
+  // Fetch live prices for crypto
+  const cryptoSymbols: string[] = [...new Set(cryptoPositions.map((p: any) => p.symbol))] as string[];
+  const cryptoPrices = await fetchLivePrices(cryptoSymbols);
+  
+  // Fetch live prices for stocks
+  const stockSymbols: string[] = [...new Set(stockPositions.map((p: any) => p.symbol))] as string[];
+  const stockPrices = await fetchStockPrices(stockSymbols);
+  
+  // Merge all prices
+  const livePrices = { ...cryptoPrices, ...stockPrices };
 
   // Get account balance
   let cashBalance = 0;
@@ -835,16 +992,26 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       
       let actualExitPrice = currentPrice;
       
-      // Execute REAL sell on Coinbase if in live mode
+      // Execute REAL sell based on market type
       if (!isPaperMode) {
-        console.log(`💰 Executing REAL Coinbase sell: ${quantity} ${position.symbol}`);
-        const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        const isStock = position.market_type === 'stocks';
+        console.log(`💰 Executing REAL ${isStock ? 'stock' : 'crypto'} sell: ${quantity} ${position.symbol}`);
+        
+        let sellResult: { success: boolean; usdValue?: number; error?: string };
+        if (isStock) {
+          // Try Alpaca first, then Tradier
+          sellResult = await executeAlpacaSell(position.symbol, quantity, userId, supabase);
+          if (!sellResult.success) {
+            sellResult = await executeTradierSell(position.symbol, quantity, userId, supabase);
+          }
+        } else {
+          sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        }
         
         if (sellResult.success && sellResult.usdValue) {
-          // Use actual USD received from Coinbase
           actualExitPrice = sellResult.usdValue / quantity;
           pnl = sellResult.usdValue - (entryPrice * quantity);
-          console.log(`✅ Real sell completed: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)} USDC`);
+          console.log(`✅ Real sell completed: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)}`);
         } else {
           console.error(`❌ Real sell failed for ${position.symbol}: ${sellResult.error}`);
         }
@@ -898,18 +1065,28 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       const shouldSellLegacy = positionValue >= 10; // Sell if worth $10+
       
       if (shouldSellLegacy && !isPaperMode) {
-        console.log(`💰 SELLING LEGACY POSITION: ${quantity} ${position.symbol} worth $${positionValue.toFixed(2)} (no entry price)`);
+        const isStock = position.market_type === 'stocks';
+        console.log(`💰 SELLING LEGACY POSITION: ${quantity} ${position.symbol} worth $${positionValue.toFixed(2)} (no entry price, ${isStock ? 'stock' : 'crypto'})`);
         
-        const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        let sellResult: { success: boolean; usdValue?: number; error?: string };
+        if (isStock) {
+          sellResult = await executeAlpacaSell(position.symbol, quantity, userId, supabase);
+          if (!sellResult.success) {
+            sellResult = await executeTradierSell(position.symbol, quantity, userId, supabase);
+          }
+        } else {
+          sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        }
         
-        if (sellResult.success && sellResult.usdValue) {
-          console.log(`✅ Legacy position sold: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)} USDC`);
+        if (sellResult.success && (sellResult.usdValue || isStock)) {
+          const soldValue = sellResult.usdValue || positionValue;
+          console.log(`✅ Legacy position sold: ${position.symbol} -> $${soldValue.toFixed(2)}`);
           
           // Close trade and delete position
           await supabase.from('trades').update({
             status: 'closed',
             exit_price: currentPrice,
-            pnl: sellResult.usdValue, // Treat entire value as profit since no cost basis
+            pnl: soldValue, // Treat entire value as profit since no cost basis
             closed_at: new Date().toISOString(),
           }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
           
@@ -922,7 +1099,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
             decision_type: 'legacy_position_sold',
             symbol: position.symbol,
             action: 'sell',
-            reasoning: `Sold legacy position (no entry price): ${quantity.toFixed(6)} ${position.symbol} for $${sellResult.usdValue.toFixed(2)} USDC`,
+            reasoning: `Sold legacy position (no entry price): ${quantity.toFixed(6)} ${position.symbol} for $${soldValue.toFixed(2)}`,
           });
         } else {
           console.log(`⚠️ Could not sell legacy ${position.symbol}: ${sellResult.error}`);
@@ -1043,15 +1220,26 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           }
         }
         
-        // Fall back to USDC sell if no direct conversion (or for stop-loss)
+        // Fall back to cash sell if no direct conversion (or for stop-loss)
         if (!didDirectConversion) {
-          console.log(`💰 Selling to USDC: ${quantity} ${position.symbol}`);
-          const sellResult = await executeCoinbaseSell(position.symbol, quantity);
+          const isStock = position.market_type === 'stocks';
+          console.log(`💰 Selling to cash: ${quantity} ${position.symbol} (${isStock ? 'stock' : 'crypto'})`);
           
-          if (sellResult.success && sellResult.usdValue) {
-            actualExitPrice = sellResult.usdValue / quantity;
-            actualPnl = sellResult.usdValue - (entryPrice * quantity);
-            console.log(`✅ Sold to USDC: ${position.symbol} -> $${sellResult.usdValue.toFixed(2)}`);
+          let sellResult: { success: boolean; usdValue?: number; error?: string };
+          if (isStock) {
+            sellResult = await executeAlpacaSell(position.symbol, quantity, userId, supabase);
+            if (!sellResult.success) {
+              sellResult = await executeTradierSell(position.symbol, quantity, userId, supabase);
+            }
+          } else {
+            sellResult = await executeCoinbaseSell(position.symbol, quantity);
+          }
+          
+          if (sellResult.success) {
+            const soldValue = sellResult.usdValue || positionValue;
+            actualExitPrice = soldValue / quantity;
+            actualPnl = soldValue - (entryPrice * quantity);
+            console.log(`✅ Sold to cash: ${position.symbol} -> $${soldValue.toFixed(2)}`);
           } else {
             console.error(`❌ Sell failed for ${position.symbol}: ${sellResult.error}`);
           }
