@@ -272,9 +272,9 @@ export default function ApiKeys() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Key className="w-7 h-7 text-primary" />
-            Connect Exchange
+            Connect Broker / Exchange
           </h1>
-          <p className="text-muted-foreground">Connect your crypto exchange with auto-detection</p>
+          <p className="text-muted-foreground">Connect your stock broker or crypto exchange with auto-detection</p>
         </div>
       </div>
 
@@ -304,7 +304,7 @@ export default function ApiKeys() {
           <div>
             <h2 className="text-lg font-semibold text-foreground">Auto-Detect & Connect</h2>
             <p className="text-sm text-muted-foreground">
-              Paste your API key and we'll automatically detect your exchange
+              Paste your API key and we'll automatically detect your broker or exchange
             </p>
           </div>
         </div>
@@ -384,6 +384,12 @@ export default function ApiKeys() {
             <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary">
               <CheckCircle className="w-4 h-4" />
               <span className="text-sm font-medium">Detected: {detectedExchange}</span>
+              {(detectedExchange.includes('Alpaca') || detectedExchange.includes('Tradier') || detectedExchange.includes('IBKR')) && (
+                <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full ml-2">Stock Broker</span>
+              )}
+              {!detectedExchange.includes('Alpaca') && !detectedExchange.includes('Tradier') && !detectedExchange.includes('IBKR') && (
+                <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded-full ml-2">Crypto Exchange</span>
+              )}
             </div>
           )}
 
@@ -408,10 +414,10 @@ export default function ApiKeys() {
         </div>
       </div>
 
-      {/* Connected Exchanges */}
+      {/* Connected Brokers/Exchanges */}
       {connectedExchanges.length > 0 && (
         <div className="glass-panel p-6">
-          <h3 className="text-lg font-semibold text-foreground mb-4">Connected Exchanges</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4">Connected Brokers & Exchanges</h3>
           <div className="space-y-3">
             {connectedExchanges.map((conn) => {
               const exchange = exchanges.find(e => e.provider === conn.provider);
@@ -475,9 +481,9 @@ export default function ApiKeys() {
         </div>
       )}
 
-      {/* Supported Exchanges */}
+      {/* Supported Brokers & Exchanges */}
       <div className="glass-panel p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">Supported Exchanges</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-4">Supported Brokers & Exchanges</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {exchanges.map((exchange) => {
             const isConnected = connections.some(c => c.provider === exchange.provider && c.is_connected);
