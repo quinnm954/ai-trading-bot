@@ -34,15 +34,18 @@ The system uses asset-class-agnostic interfaces that abstract exchange-specific 
 
 **Patent Language:** "An AI trading engine that applies asset-class-specific trading logic, adapting strategies and parameters based on the unique characteristics of each asset class."
 
-**Implementation Status:** Partially Implemented
+**Implementation Status:** Fully Implemented
 
 **Code Locations:**
-- `supabase/functions/ai-trading-engine/index.ts` - Asset-aware analysis
+- `supabase/functions/ai-trading-engine/index.ts` - Asset-aware analysis with market hours detection
 - `src/types/trading.ts` - MarketRegime detection for condition-based trading
+- `src/lib/stockMarketHours.ts` - Stock market hours, sessions, and holiday detection
+- `src/components/trading/StockMarketIndicator.tsx` - UI for market hours display
+- `src/components/trading/PDTWarning.tsx` - Pattern Day Trader rule warnings
 
 **Asset-Specific Logic:**
 - **Crypto:** 24/7 trading, high volatility handling, precision mapping for 100+ coins
-- **Stocks (planned):** Market hours awareness, SEC compliance, lot-based trading
+- **Stocks:** Market hours awareness (pre-market, regular, after-hours), PDT rule compliance, lot-based trading
 
 ---
 

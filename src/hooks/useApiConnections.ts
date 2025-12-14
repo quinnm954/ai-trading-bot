@@ -141,6 +141,32 @@ export function useApiConnections() {
         if (insertError) throw insertError;
       }
 
+      // Store encrypted credentials in broker_credentials table for stock brokers
+      // This enables backend sync without requiring global secrets
+      const stockBrokers: ExchangeProvider[] = ['alpaca', 'ibkr', 'tradier'];
+      if (stockBrokers.includes(detectedProvider)) {
+        const { error: credError } = await supabase
+          .from('broker_credentials')
+          .upsert({
+            user_id: user.id,
+            provider: detectedProvider,
+            api_key_encrypted: credentials.apiKey,
+            secret_key_encrypted: credentials.secretKey || null,
+            passphrase_encrypted: credentials.passphrase || null,
+            access_token_encrypted: detectedProvider === 'tradier' ? credentials.apiKey : null,
+            is_paper: credentials.apiKey.startsWith('PK'), // Alpaca paper keys start with PK
+          }, {
+            onConflict: 'user_id,provider',
+          });
+
+        if (credError) {
+          console.error('Error storing broker credentials:', credError);
+          // Don't fail the connection, just log the error
+        } else {
+          console.log(`✅ Stored ${detectedProvider} credentials for backend sync`);
+        }
+      }
+
       // Create/update live_account with synced balance
       if (data.accountInfo) {
         const { balance, buying_power, equity } = data.accountInfo;

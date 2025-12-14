@@ -520,6 +520,35 @@ async function fetchTradierBalanceAndHoldings(accessToken: string): Promise<{
   return { balance, buying_power: buyingPower, equity, holdings };
 }
 
+/**
+ * Get user's broker credentials from the database
+ * PATENT REFERENCE: No Custody of User Funds (Patent Claim 5)
+ */
+async function getUserBrokerCredentials(
+  serviceClient: any, 
+  userId: string, 
+  provider: string
+): Promise<{ apiKey: string; secretKey: string; accessToken?: string; isPaper: boolean } | null> {
+  const { data, error } = await serviceClient
+    .from('broker_credentials')
+    .select('api_key_encrypted, secret_key_encrypted, access_token_encrypted, is_paper')
+    .eq('user_id', userId)
+    .eq('provider', provider)
+    .single();
+  
+  if (error || !data) {
+    console.log(`No credentials found for ${provider} user ${userId}`);
+    return null;
+  }
+  
+  return {
+    apiKey: data.api_key_encrypted,
+    secretKey: data.secret_key_encrypted || '',
+    accessToken: data.access_token_encrypted || undefined,
+    isPaper: data.is_paper,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -782,32 +811,112 @@ serve(async (req) => {
             };
           }
           
-          // STOCKS: Alpaca sync
-          // Note: Requires user to have stored credentials - will be implemented when 
-          // broker_credentials table is added for per-user encrypted credential storage
+          // STOCKS: Alpaca sync - reads credentials from broker_credentials table
           else if (conn.provider === "alpaca") {
-            console.log(`⚠️ Alpaca sync requires per-user credentials storage (not yet implemented)`);
-            // Future implementation:
-            // const creds = await getUserCredentials(serviceClient, userId, 'alpaca');
-            // const balanceData = await fetchAlpacaBalanceAndHoldings(creds.apiKey, creds.secretKey);
-            // ... sync logic similar to Coinbase
-            allResults[userId] = { 
-              provider: conn.provider, 
-              message: "Alpaca sync pending credential storage implementation",
-            };
+            const creds = await getUserBrokerCredentials(serviceClient, userId, 'alpaca');
+            if (!creds) {
+              console.log(`⚠️ No Alpaca credentials found for user ${userId}`);
+              allResults[userId] = { provider: conn.provider, error: "No credentials stored" };
+              continue;
+            }
+            
+            try {
+              const balanceData = await fetchAlpacaBalanceAndHoldings(creds.apiKey, creds.secretKey);
+              
+              console.log(`✅ Alpaca synced: $${balanceData.balance.toFixed(2)} cash, ${balanceData.holdings.length} holdings`);
+              
+              // Update live_account
+              await serviceClient
+                .from("live_account")
+                .upsert({
+                  user_id: userId,
+                  provider: conn.provider,
+                  balance: balanceData.balance,
+                  buying_power: balanceData.buying_power,
+                  equity: balanceData.equity,
+                  last_synced_at: new Date().toISOString(),
+                }, { onConflict: "user_id,provider" });
+              
+              // Sync positions
+              for (const holding of balanceData.holdings) {
+                await serviceClient
+                  .from("positions")
+                  .upsert({
+                    user_id: userId,
+                    symbol: holding.symbol,
+                    side: "buy",
+                    quantity: holding.quantity,
+                    avg_entry_price: holding.entryPrice,
+                    current_price: holding.value / holding.quantity,
+                    market_type: "stocks",
+                    is_paper: creds.isPaper,
+                    unrealized_pnl: holding.value - (holding.entryPrice * holding.quantity),
+                  }, { onConflict: "user_id,symbol,is_paper" });
+              }
+              
+              allResults[userId] = { 
+                provider: conn.provider, 
+                balance: balanceData.balance,
+                holdings: balanceData.holdings.length,
+              };
+            } catch (err: any) {
+              console.error(`Alpaca sync failed: ${err.message}`);
+              allResults[userId] = { provider: conn.provider, error: err.message };
+            }
           }
           
           // STOCKS: Tradier sync
           else if (conn.provider === "tradier") {
-            console.log(`⚠️ Tradier sync requires per-user credentials storage (not yet implemented)`);
-            // Future implementation:
-            // const creds = await getUserCredentials(serviceClient, userId, 'tradier');
-            // const balanceData = await fetchTradierBalanceAndHoldings(creds.accessToken);
-            // ... sync logic similar to Coinbase
-            allResults[userId] = { 
-              provider: conn.provider, 
-              message: "Tradier sync pending credential storage implementation",
-            };
+            const creds = await getUserBrokerCredentials(serviceClient, userId, 'tradier');
+            if (!creds) {
+              console.log(`⚠️ No Tradier credentials found for user ${userId}`);
+              allResults[userId] = { provider: conn.provider, error: "No credentials stored" };
+              continue;
+            }
+            
+            try {
+              const balanceData = await fetchTradierBalanceAndHoldings(creds.accessToken || creds.apiKey);
+              
+              console.log(`✅ Tradier synced: $${balanceData.balance.toFixed(2)} cash, ${balanceData.holdings.length} holdings`);
+              
+              // Update live_account
+              await serviceClient
+                .from("live_account")
+                .upsert({
+                  user_id: userId,
+                  provider: conn.provider,
+                  balance: balanceData.balance,
+                  buying_power: balanceData.buying_power,
+                  equity: balanceData.equity,
+                  last_synced_at: new Date().toISOString(),
+                }, { onConflict: "user_id,provider" });
+              
+              // Sync positions
+              for (const holding of balanceData.holdings) {
+                await serviceClient
+                  .from("positions")
+                  .upsert({
+                    user_id: userId,
+                    symbol: holding.symbol,
+                    side: "buy",
+                    quantity: holding.quantity,
+                    avg_entry_price: holding.entryPrice,
+                    current_price: holding.value / holding.quantity,
+                    market_type: "stocks",
+                    is_paper: false,
+                    unrealized_pnl: holding.value - (holding.entryPrice * holding.quantity),
+                  }, { onConflict: "user_id,symbol,is_paper" });
+              }
+              
+              allResults[userId] = { 
+                provider: conn.provider, 
+                balance: balanceData.balance,
+                holdings: balanceData.holdings.length,
+              };
+            } catch (err: any) {
+              console.error(`Tradier sync failed: ${err.message}`);
+              allResults[userId] = { provider: conn.provider, error: err.message };
+            }
           }
           
           // STOCKS: Interactive Brokers sync
