@@ -33,10 +33,12 @@ interface ExchangeConfig {
  * 
  * Supported brokers and exchanges for multi-asset trading:
  * - Alpaca: US stocks + crypto (commission-free stock trading)
+ * - Interactive Brokers: Global stocks, options, futures, forex
+ * - Tradier: US stocks & options (commission-free options)
  * - Crypto exchanges: Coinbase, Binance, Kraken, etc.
  */
 const exchanges: ExchangeConfig[] = [
-  // STOCK BROKER - Alpaca for US equities
+  // STOCK BROKERS - US & Global Equities
   {
     provider: 'alpaca',
     name: 'Alpaca',
@@ -45,6 +47,24 @@ const exchanges: ExchangeConfig[] = [
     docsUrl: 'https://docs.alpaca.markets/',
     requiresPassphrase: false,
     keyHint: 'PK... or AK... format API key',
+  },
+  {
+    provider: 'ibkr',
+    name: 'Interactive Brokers',
+    logo: '🏦',
+    description: 'Global Stocks, Options, Futures, Forex',
+    docsUrl: 'https://interactivebrokers.github.io/cpwebapi/',
+    requiresPassphrase: false,
+    keyHint: 'Client Portal API or TWS credentials',
+  },
+  {
+    provider: 'tradier',
+    name: 'Tradier',
+    logo: '📈',
+    description: 'US Stocks & Options (Commission-free options)',
+    docsUrl: 'https://documentation.tradier.com/',
+    requiresPassphrase: false,
+    keyHint: 'Access token from developer portal',
   },
   // CRYPTO EXCHANGES
   {
@@ -160,7 +180,7 @@ export default function ApiKeys() {
    * Auto-detect exchange/broker from API key format
    * 
    * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
-   * Supports detection of both stock brokers (Alpaca) and crypto exchanges
+   * Supports detection of stock brokers (Alpaca, IBKR, Tradier) and crypto exchanges
    */
   const detectExchangeFromKey = (apiKey: string, secretKey: string): string | null => {
     if (!apiKey && !secretKey) return null;
@@ -169,6 +189,13 @@ export default function ApiKeys() {
     // Alpaca keys start with PK (paper) or AK (live)
     if (apiKey.startsWith('PK') || apiKey.startsWith('AK')) {
       return 'Alpaca (Stocks & Crypto)';
+    }
+    
+    // Tradier access tokens are typically long alphanumeric strings
+    // They often start with specific patterns or have OAuth-style format
+    if (/^[A-Za-z0-9]{20,}$/.test(apiKey) && apiKey.length >= 20 && apiKey.length <= 40) {
+      // Could be Tradier - will be confirmed server-side
+      return 'Tradier (possible)';
     }
     
     // CRYPTO EXCHANGE DETECTION
@@ -182,6 +209,9 @@ export default function ApiKeys() {
     if (/^[a-f0-9]{24}$/i.test(apiKey)) return 'KuCoin';
     if (/^[A-Za-z0-9]{18}$/.test(apiKey)) return 'Bybit';
     if (/^[a-f0-9]{32}$/i.test(apiKey)) return 'Gate.io';
+    
+    // IBKR detection requires server-side validation
+    // Keys don't have a distinctive pattern - detected via API test
     
     return null;
   };
