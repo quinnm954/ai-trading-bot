@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3, TrendingUp, Rocket, LineChart, Cpu } from 'lucide-react';
+import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3, TrendingUp, Rocket, LineChart, Cpu, Minus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -92,6 +92,38 @@ const tiers = [
     gradient: 'from-amber-500 to-amber-500/50',
   },
 ];
+
+// Feature comparison row component
+const FeatureRow = ({ 
+  feature, 
+  free, 
+  pro, 
+  unlimited 
+}: { 
+  feature: string; 
+  free: boolean | string; 
+  pro: boolean | string; 
+  unlimited: boolean | string;
+}) => {
+  const renderValue = (value: boolean | string) => {
+    if (value === true) {
+      return <Check className="w-5 h-5 text-profit mx-auto" />;
+    }
+    if (value === false) {
+      return <Minus className="w-5 h-5 text-muted-foreground mx-auto" />;
+    }
+    return <span className="text-sm text-muted-foreground">{value}</span>;
+  };
+
+  return (
+    <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+      <td className="py-3 px-6 text-sm text-foreground">{feature}</td>
+      <td className="py-3 px-4 text-center">{renderValue(free)}</td>
+      <td className="py-3 px-4 text-center bg-primary/5">{renderValue(pro)}</td>
+      <td className="py-3 px-4 text-center">{renderValue(unlimited)}</td>
+    </tr>
+  );
+};
 
 // Popular currencies to show in dropdown
 const POPULAR_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'INR', 'BRL', 'MXN', 'SGD'];
@@ -379,7 +411,126 @@ export default function Pricing() {
           })}
         </div>
 
-        {/* Feature Highlights */}
+        {/* Feature Comparison Table */}
+        <div className="mt-20 max-w-5xl mx-auto">
+          <h2 className="text-2xl font-bold text-foreground text-center mb-4">
+            Compare All Features
+          </h2>
+          <p className="text-muted-foreground text-center mb-10">
+            A detailed side-by-side comparison of what each plan offers
+          </p>
+          
+          <div className="glass-panel rounded-2xl border border-border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="text-left py-4 px-6 font-semibold text-foreground">Feature</th>
+                    <th className="text-center py-4 px-4 font-semibold text-foreground">
+                      <div className="flex flex-col items-center gap-1">
+                        <Sparkles className="w-5 h-5 text-muted-foreground" />
+                        <span>Free</span>
+                      </div>
+                    </th>
+                    <th className="text-center py-4 px-4 font-semibold text-primary">
+                      <div className="flex flex-col items-center gap-1">
+                        <Zap className="w-5 h-5 text-primary" />
+                        <span>Pro</span>
+                      </div>
+                    </th>
+                    <th className="text-center py-4 px-4 font-semibold text-amber-500">
+                      <div className="flex flex-col items-center gap-1">
+                        <Crown className="w-5 h-5 text-amber-500" />
+                        <span>Unlimited</span>
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Trading Basics */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      Trading Basics
+                    </td>
+                  </tr>
+                  <FeatureRow feature="Paper Trading" free pro unlimited />
+                  <FeatureRow feature="Virtual Balance" free="$100k" pro="$100k" unlimited="$100k" />
+                  <FeatureRow feature="Live Trading" free={false} pro unlimited />
+                  <FeatureRow feature="Stock Trading" free="Paper only" pro unlimited />
+                  <FeatureRow feature="Crypto Trading" free="Paper only" pro unlimited />
+                  
+                  {/* Broker & Exchange Connections */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      Broker & Exchange Connections
+                    </td>
+                  </tr>
+                  <FeatureRow feature="Stock Brokers (Alpaca, Tradier, IBKR)" free={false} pro="1 broker" unlimited="Unlimited" />
+                  <FeatureRow feature="Crypto Exchanges (Coinbase, Binance, etc.)" free={false} pro="1 exchange" unlimited="All 8 exchanges" />
+                  <FeatureRow feature="Multi-Exchange Trading" free={false} pro={false} unlimited />
+                  
+                  {/* AI Features */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      AI Features
+                    </td>
+                  </tr>
+                  <FeatureRow feature="AI Market Regime Detection" free pro unlimited />
+                  <FeatureRow feature="AI Strategy Advisor" free pro unlimited />
+                  <FeatureRow feature="Autonomous AI Trader" free={false} pro unlimited />
+                  <FeatureRow feature="User-Confirmed Trade Mode" free={false} pro unlimited />
+                  <FeatureRow feature="AI Learning Engine" free="Basic" pro="Standard" unlimited="Advanced" />
+                  <FeatureRow feature="Priority AI Processing" free={false} pro={false} unlimited />
+                  
+                  {/* Trading Strategies */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      Trading Strategies
+                    </td>
+                  </tr>
+                  <FeatureRow feature="All 8 Trading Strategies" free pro unlimited />
+                  <FeatureRow feature="Strategy Performance Tracking" free="Basic" pro="Standard" unlimited="Advanced" />
+                  <FeatureRow feature="Position Rotation Strategy" free={false} pro={false} unlimited />
+                  <FeatureRow feature="Advanced Capital Allocation" free={false} pro={false} unlimited />
+                  
+                  {/* Risk Management */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      Risk Management
+                    </td>
+                  </tr>
+                  <FeatureRow feature="Risk Management Dashboard" free pro unlimited />
+                  <FeatureRow feature="Auto Take-Profit & Stop-Loss" free={false} pro unlimited />
+                  <FeatureRow feature="Daily/Weekly Loss Limits" free={false} pro unlimited />
+                  <FeatureRow feature="Max Drawdown Protection" free={false} pro unlimited />
+                  <FeatureRow feature="Kill Switch Protection" free={false} pro unlimited />
+                  <FeatureRow feature="PDT Rule Compliance" free={false} pro unlimited />
+                  
+                  {/* Advanced Features */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      Advanced Features
+                    </td>
+                  </tr>
+                  <FeatureRow feature="Moonshot Scanner" free={false} pro={false} unlimited />
+                  <FeatureRow feature="24/7 Automated Execution" free={false} pro unlimited />
+                  <FeatureRow feature="Real-Time Price Data" free pro unlimited />
+                  <FeatureRow feature="Performance Analytics" free pro unlimited />
+                  <FeatureRow feature="Equity Curve Visualization" free pro unlimited />
+                  
+                  {/* Support */}
+                  <tr className="bg-muted/30">
+                    <td colSpan={4} className="py-3 px-6 font-semibold text-foreground text-sm uppercase tracking-wide">
+                      Support & Extras
+                    </td>
+                  </tr>
+                  <FeatureRow feature="Support" free="Community" pro="Email" unlimited="Priority" />
+                  <FeatureRow feature="Early Access to Features" free={false} pro={false} unlimited />
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
         <div className="mt-20 max-w-5xl mx-auto">
           <h2 className="text-2xl font-bold text-foreground text-center mb-10">
             Why Choose TitanAI?
