@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3 } from 'lucide-react';
+import { Brain, Check, Zap, Crown, ArrowRight, Sparkles, Globe, ChevronDown, X, Shield, Bot, BarChart3, TrendingUp, Rocket, LineChart, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,22 +16,24 @@ import {
 const tiers = [
   {
     name: 'Free',
-    description: 'Practice trading with virtual money',
+    description: 'Master trading risk-free with AI',
     priceUsd: 0,
     period: 'forever',
     features: [
       'Unlimited paper trading',
       '$100k virtual balance',
+      'Stocks & crypto support',
       'All 8 trading strategies',
       'AI market regime detection',
-      'Real-time crypto prices',
-      'Performance tracking & analytics',
+      'Real-time price data',
+      'AI Strategy Advisor',
+      'Performance analytics',
       'Equity curve visualization',
-      'Strategy backtesting',
+      'Risk management dashboard',
     ],
     limitations: [
       'Paper trading only',
-      'No live exchange connections',
+      'No live broker/exchange connections',
     ],
     cta: 'Start Free',
     icon: Sparkles,
@@ -40,23 +42,25 @@ const tiers = [
   },
   {
     name: 'Pro',
-    description: 'Live trading with 1 exchange',
+    description: 'Live trading with 1 broker/exchange',
     priceUsd: 49,
     period: '/month',
     features: [
       'Everything in Free, plus:',
       'Live trading with real money',
-      '1 exchange connection',
+      '1 broker or exchange connection',
+      'Stocks & crypto trading',
       'Fully autonomous AI trader',
+      'User-confirmed trade mode',
       'Auto take-profit & stop-loss',
       '24/7 automated execution',
-      'Risk management controls',
       'Kill switch protection',
       'Daily/weekly loss limits',
       'Max drawdown protection',
+      'PDT rule compliance',
       'Email support',
     ],
-    supportedExchanges: ['Choose 1 exchange'],
+    supportedBrokers: ['Choose 1: Alpaca, Tradier, IBKR, Coinbase, Binance, Kraken, or more'],
     cta: 'Get Pro',
     icon: Zap,
     popular: true,
@@ -64,22 +68,23 @@ const tiers = [
   },
   {
     name: 'Unlimited',
-    description: 'Maximum power, all exchanges',
+    description: 'Maximum power, all brokers & exchanges',
     priceUsd: 99,
     period: '/month',
     features: [
       'Everything in Pro, plus:',
-      'All 8 exchanges supported',
+      'Unlimited broker/exchange connections',
+      'Multi-asset portfolio trading',
       'Priority AI processing',
       'Advanced AI learning engine',
-      'Custom strategy builder',
-      'Moonshot scanner access',
-      'Multi-exchange arbitrage',
-      'Advanced position rotation',
+      'Moonshot Scanner access',
+      'Position rotation strategy',
+      'Advanced capital allocation',
+      'Strategy performance tracking',
       'Priority support',
       'Early access to new features',
-      'Dedicated account manager',
     ],
+    supportedBrokers: ['Alpaca', 'Tradier', 'IBKR'],
     supportedExchanges: ['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Gate.io', 'Bitget'],
     cta: 'Go Unlimited',
     icon: Crown,
@@ -336,15 +341,32 @@ export default function Pricing() {
                   </div>
                 )}
 
+                {/* Supported Brokers for paid tiers */}
+                {'supportedBrokers' in tier && tier.supportedBrokers && (
+                  <div className="pt-4 border-t border-border">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-3">Stock Brokers</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tier.supportedBrokers.map((broker: string) => (
+                        <span 
+                          key={broker} 
+                          className="px-2 py-1 text-xs bg-primary/10 rounded-md text-primary"
+                        >
+                          {broker}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Supported Exchanges for paid tiers */}
                 {'supportedExchanges' in tier && tier.supportedExchanges && (
-                  <div className="pt-4 border-t border-border">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-3">Exchanges</p>
+                  <div className="pt-4 border-t border-border mt-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-3">Crypto Exchanges</p>
                     <div className="flex flex-wrap gap-2">
                       {tier.supportedExchanges.map((exchange: string) => (
                         <span 
                           key={exchange} 
-                          className="px-2 py-1 text-xs bg-muted rounded-md text-muted-foreground"
+                          className="px-2 py-1 text-xs bg-warning/10 rounded-md text-warning"
                         >
                           {exchange}
                         </span>
@@ -358,36 +380,63 @@ export default function Pricing() {
         </div>
 
         {/* Feature Highlights */}
-        <div className="mt-20 max-w-4xl mx-auto">
+        <div className="mt-20 max-w-5xl mx-auto">
           <h2 className="text-2xl font-bold text-foreground text-center mb-10">
             Why Choose TitanAI?
           </h2>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             <div className="text-center">
               <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center mx-auto mb-4">
-                <Bot className="w-7 h-7 text-primary" />
+                <TrendingUp className="w-7 h-7 text-primary" />
               </div>
-              <h3 className="font-semibold text-foreground mb-2">Fully Autonomous</h3>
+              <h3 className="font-semibold text-foreground mb-2">Multi-Asset Trading</h3>
               <p className="text-sm text-muted-foreground">
-                AI trades 24/7 without intervention. Set your risk limits and let it work.
+                Trade stocks via Alpaca, Tradier, IBKR and crypto on 8+ major exchanges.
               </p>
             </div>
             <div className="text-center">
               <div className="w-14 h-14 rounded-xl bg-profit/20 flex items-center justify-center mx-auto mb-4">
-                <Shield className="w-7 h-7 text-profit" />
+                <Bot className="w-7 h-7 text-profit" />
+              </div>
+              <h3 className="font-semibold text-foreground mb-2">Autonomous AI Trader</h3>
+              <p className="text-sm text-muted-foreground">
+                Fully autonomous 24/7 trading or user-confirmed mode for manual control.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-xl bg-warning/20 flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-7 h-7 text-warning" />
               </div>
               <h3 className="font-semibold text-foreground mb-2">Risk-First Design</h3>
               <p className="text-sm text-muted-foreground">
-                Kill switch, loss limits, and drawdown protection built into every trade.
+                Kill switch, daily/weekly loss limits, max drawdown protection, and PDT compliance.
               </p>
             </div>
             <div className="text-center">
               <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center mx-auto mb-4">
-                <BarChart3 className="w-7 h-7 text-amber-500" />
+                <Cpu className="w-7 h-7 text-amber-500" />
               </div>
-              <h3 className="font-semibold text-foreground mb-2">Learning Engine</h3>
+              <h3 className="font-semibold text-foreground mb-2">AI Learning Engine</h3>
               <p className="text-sm text-muted-foreground">
-                AI continuously learns which strategies perform best in each market regime.
+                Continuously learns which strategies perform best in each market regime.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-xl bg-destructive/20 flex items-center justify-center mx-auto mb-4">
+                <Rocket className="w-7 h-7 text-destructive" />
+              </div>
+              <h3 className="font-semibold text-foreground mb-2">Moonshot Scanner</h3>
+              <p className="text-sm text-muted-foreground">
+                Detect early signals of cryptocurrencies likely to experience significant gains.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-xl bg-muted flex items-center justify-center mx-auto mb-4">
+                <LineChart className="w-7 h-7 text-foreground" />
+              </div>
+              <h3 className="font-semibold text-foreground mb-2">8 Trading Strategies</h3>
+              <p className="text-sm text-muted-foreground">
+                RSI, EMA Crossover, MACD, Trend Breakout, Grid Bot, DCA, and more.
               </p>
             </div>
           </div>
