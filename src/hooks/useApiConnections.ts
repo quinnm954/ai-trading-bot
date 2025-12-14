@@ -27,8 +27,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
-// Extended to include stock broker (Alpaca) for multi-asset support
-export type ExchangeProvider = 'alpaca' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
+// Extended to include stock brokers (Alpaca, IBKR, Tradier) for multi-asset support
+export type ExchangeProvider = 'alpaca' | 'ibkr' | 'tradier' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
 
 export interface ApiConnection {
   id: string;
