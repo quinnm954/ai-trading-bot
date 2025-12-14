@@ -3,7 +3,6 @@ import {
   Settings as SettingsIcon, 
   Bell, 
   Shield, 
-  Palette,
   Database,
   Clock,
   Save
@@ -13,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { InviteManager } from '@/components/settings/InviteManager';
+import { SubscriptionManager } from '@/components/settings/SubscriptionManager';
 
 export default function Settings() {
   const [notifications, setNotifications] = useState({
@@ -215,6 +215,9 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* Subscription Management */}
+      <SubscriptionManager />
 
       {/* Invite Management - Admin Only */}
       <InviteManager />
