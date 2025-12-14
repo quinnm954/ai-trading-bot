@@ -471,6 +471,387 @@ async function getAvailableUsdcBalance(): Promise<{ usdcBalance: number; daiConv
   }
 }
 
+// =============================================================================
+// STOCK BROKER INTEGRATIONS - Multi-Asset Trading Support
+// PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+// =============================================================================
+
+interface StockBrokerBalance {
+  cash: number;
+  buyingPower: number;
+  equity: number;
+  broker: 'alpaca' | 'ibkr' | 'tradier';
+}
+
+interface StockTradeResult {
+  success: boolean;
+  orderId?: string;
+  quantity?: number;
+  price?: number;
+  error?: string;
+}
+
+/**
+ * Check if US stock market is currently open
+ * Stock trading is only available during market hours
+ */
+function isStockMarketOpen(): boolean {
+  const now = new Date();
+  const nyTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = nyTime.getDay();
+  const hour = nyTime.getHours();
+  const minute = nyTime.getMinutes();
+  const time = hour * 100 + minute;
+  
+  // Monday-Friday, 9:30 AM - 4:00 PM ET
+  if (day === 0 || day === 6) return false; // Weekend
+  if (time < 930 || time >= 1600) return false; // Outside hours
+  
+  return true;
+}
+
+/**
+ * Get user's connected stock broker credentials
+ */
+async function getConnectedStockBroker(supabase: any, userId: string): Promise<{ broker: string; apiKey: string; secretKey: string } | null> {
+  const stockBrokers = ['alpaca', 'ibkr', 'tradier'];
+  
+  for (const broker of stockBrokers) {
+    const { data: connection } = await supabase
+      .from('api_connections')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('provider', broker)
+      .eq('is_connected', true)
+      .single();
+    
+    if (connection) {
+      // Get credentials from secrets (stored during connection)
+      const secretPrefix = broker.toUpperCase();
+      const apiKey = Deno.env.get(`${secretPrefix}_API_KEY`) || '';
+      const secretKey = Deno.env.get(`${secretPrefix}_SECRET_KEY`) || '';
+      
+      if (apiKey && secretKey) {
+        return { broker, apiKey, secretKey };
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Execute stock trade via Alpaca
+ * Supports both paper and live trading
+ */
+async function executeAlpacaTrade(
+  apiKey: string,
+  secretKey: string,
+  symbol: string,
+  side: 'buy' | 'sell',
+  quantity: number,
+  isPaper: boolean = true
+): Promise<StockTradeResult> {
+  try {
+    const baseUrl = isPaper 
+      ? 'https://paper-api.alpaca.markets'
+      : 'https://api.alpaca.markets';
+    
+    console.log(`📈 Alpaca ${isPaper ? 'PAPER' : 'LIVE'} ${side.toUpperCase()}: ${quantity} ${symbol}`);
+    
+    const orderBody = {
+      symbol: symbol,
+      qty: quantity.toString(),
+      side: side,
+      type: 'market',
+      time_in_force: 'day',
+    };
+    
+    const response = await fetch(`${baseUrl}/v2/orders`, {
+      method: 'POST',
+      headers: {
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': secretKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderBody),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Alpaca order failed: ${errorText}`);
+      return { success: false, error: errorText };
+    }
+    
+    const order = await response.json();
+    console.log(`✅ Alpaca order placed: ${order.id}`);
+    
+    return {
+      success: true,
+      orderId: order.id,
+      quantity: parseFloat(order.qty),
+      price: parseFloat(order.filled_avg_price || order.limit_price || '0'),
+    };
+  } catch (error) {
+    console.error('Alpaca trade error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Execute stock trade via Interactive Brokers
+ * Uses IBKR Client Portal API
+ */
+async function executeIBKRTrade(
+  accessToken: string,
+  symbol: string,
+  side: 'buy' | 'sell',
+  quantity: number
+): Promise<StockTradeResult> {
+  try {
+    console.log(`📈 IBKR ${side.toUpperCase()}: ${quantity} ${symbol}`);
+    
+    // IBKR requires account ID first
+    const accountsResponse = await fetch('https://api.ibkr.com/v1/api/portfolio/accounts', {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+    
+    if (!accountsResponse.ok) {
+      return { success: false, error: 'Failed to get IBKR accounts' };
+    }
+    
+    const accounts = await accountsResponse.json();
+    if (!accounts || accounts.length === 0) {
+      return { success: false, error: 'No IBKR accounts found' };
+    }
+    
+    const accountId = accounts[0].id || accounts[0].accountId;
+    
+    // Place order
+    const orderBody = {
+      orders: [{
+        conid: 0, // Will need to lookup conid for symbol
+        orderType: 'MKT',
+        side: side.toUpperCase(),
+        quantity: quantity,
+        tif: 'DAY',
+      }],
+    };
+    
+    // Get contract ID for symbol
+    const searchResponse = await fetch(
+      `https://api.ibkr.com/v1/api/iserver/secdef/search?symbol=${symbol}`,
+      { headers: { 'Authorization': `Bearer ${accessToken}` } }
+    );
+    
+    if (searchResponse.ok) {
+      const contracts = await searchResponse.json();
+      if (contracts && contracts.length > 0) {
+        orderBody.orders[0].conid = contracts[0].conid;
+      }
+    }
+    
+    const response = await fetch(
+      `https://api.ibkr.com/v1/api/iserver/account/${accountId}/orders`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(orderBody),
+      }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText };
+    }
+    
+    const result = await response.json();
+    console.log(`✅ IBKR order placed`);
+    
+    return {
+      success: true,
+      orderId: result.orderId || result[0]?.id,
+      quantity,
+    };
+  } catch (error) {
+    console.error('IBKR trade error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Execute stock trade via Tradier
+ * Commission-free stock and options trading
+ */
+async function executeTradierTrade(
+  accessToken: string,
+  symbol: string,
+  side: 'buy' | 'sell',
+  quantity: number,
+  useSandbox: boolean = false
+): Promise<StockTradeResult> {
+  try {
+    const baseUrl = useSandbox 
+      ? 'https://sandbox.tradier.com'
+      : 'https://api.tradier.com';
+    
+    console.log(`📈 Tradier ${useSandbox ? 'SANDBOX' : 'LIVE'} ${side.toUpperCase()}: ${quantity} ${symbol}`);
+    
+    // Get account ID first
+    const accountsResponse = await fetch(`${baseUrl}/v1/user/profile`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+    
+    if (!accountsResponse.ok) {
+      return { success: false, error: 'Failed to get Tradier profile' };
+    }
+    
+    const profile = await accountsResponse.json();
+    const accountId = profile?.profile?.account?.account_number;
+    
+    if (!accountId) {
+      return { success: false, error: 'No Tradier account found' };
+    }
+    
+    // Place order using form data (Tradier API format)
+    const formData = new URLSearchParams();
+    formData.append('class', 'equity');
+    formData.append('symbol', symbol);
+    formData.append('side', side);
+    formData.append('quantity', quantity.toString());
+    formData.append('type', 'market');
+    formData.append('duration', 'day');
+    
+    const response = await fetch(
+      `${baseUrl}/v1/accounts/${accountId}/orders`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Tradier order failed: ${errorText}`);
+      return { success: false, error: errorText };
+    }
+    
+    const result = await response.json();
+    console.log(`✅ Tradier order placed: ${result.order?.id}`);
+    
+    return {
+      success: true,
+      orderId: result.order?.id?.toString(),
+      quantity,
+      price: result.order?.price,
+    };
+  } catch (error) {
+    console.error('Tradier trade error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Route stock trade to the appropriate broker
+ */
+async function executeStockTrade(
+  supabase: any,
+  userId: string,
+  symbol: string,
+  side: 'buy' | 'sell',
+  quantity: number,
+  isPaper: boolean
+): Promise<StockTradeResult> {
+  const broker = await getConnectedStockBroker(supabase, userId);
+  
+  if (!broker) {
+    console.log('⚠️ No stock broker connected, cannot execute stock trade');
+    return { success: false, error: 'No stock broker connected' };
+  }
+  
+  console.log(`🏦 Routing stock trade to: ${broker.broker}`);
+  
+  switch (broker.broker) {
+    case 'alpaca':
+      return executeAlpacaTrade(broker.apiKey, broker.secretKey, symbol, side, quantity, isPaper);
+    case 'ibkr':
+      return executeIBKRTrade(broker.apiKey, symbol, side, quantity);
+    case 'tradier':
+      return executeTradierTrade(broker.apiKey, symbol, side, quantity, isPaper);
+    default:
+      return { success: false, error: `Unsupported broker: ${broker.broker}` };
+  }
+}
+
+/**
+ * Fetch stock market data for trading analysis
+ * Uses Alpaca as primary, Yahoo Finance as fallback
+ */
+async function fetchStockMarketData(): Promise<MarketData[]> {
+  // Check if market is open
+  if (!isStockMarketOpen()) {
+    console.log('📊 Stock market closed - skipping stock data fetch');
+    return [];
+  }
+  
+  // Top stocks for trading (high liquidity, good for scalping)
+  const stocks = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'AMD', 'NFLX', 'CRM',
+    'SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLE', 'XLK', 'ARKK',
+    'PLTR', 'COIN', 'MARA', 'RIOT', 'SOFI', 'NIO', 'LCID', 'RIVN',
+    'INTC', 'MU', 'QCOM', 'AVGO', 'ORCL', 'IBM', 'CSCO',
+    'JPM', 'BAC', 'WFC', 'GS', 'MS', 'V', 'MA',
+  ];
+  
+  try {
+    // Try Yahoo Finance API (public, no key needed)
+    const stockData: MarketData[] = [];
+    
+    // Batch requests for efficiency
+    const symbolList = stocks.join(',');
+    const response = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      const quotes = data?.quoteResponse?.result || [];
+      
+      for (const quote of quotes) {
+        if (quote.regularMarketPrice) {
+          stockData.push({
+            symbol: quote.symbol,
+            price: quote.regularMarketPrice,
+            change24h: quote.regularMarketChangePercent || 0,
+            change7d: 0, // Yahoo doesn't provide 7d easily
+            volume: quote.regularMarketVolume || 0,
+            high24h: quote.regularMarketDayHigh || quote.regularMarketPrice,
+            low24h: quote.regularMarketDayLow || quote.regularMarketPrice,
+          });
+        }
+      }
+      
+      console.log(`📈 Fetched ${stockData.length} stocks from Yahoo Finance`);
+      return stockData;
+    }
+  } catch (error) {
+    console.error('Error fetching stock data:', error);
+  }
+  
+  return [];
+}
+
 interface MarketData {
   symbol: string;
   price: number;
@@ -1606,14 +1987,51 @@ serve(async (req) => {
     
     console.log(`📊 Daily P&L: $${todaysLoss.toFixed(2)} (limit: -$${maxDailyLossAmount.toFixed(2)})`)
 
-    // Fetch market data
-    const marketData = await fetchMarketData();
+    // ==========================================================================
+    // MULTI-ASSET MARKET DATA FETCHING
+    // PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+    // ==========================================================================
+    const allowedMarkets = settings.allowed_markets || ['crypto'];
+    let marketData: MarketData[] = [];
+    let stockData: MarketData[] = [];
+    
+    // Fetch crypto data if allowed
+    if (allowedMarkets.includes('crypto')) {
+      console.log('📊 Fetching crypto market data...');
+      const cryptoData = await fetchMarketData();
+      marketData.push(...cryptoData);
+    }
+    
+    // Fetch stock data if allowed AND market is open
+    if (allowedMarkets.includes('stocks')) {
+      if (isStockMarketOpen()) {
+        console.log('📈 Fetching stock market data (market is OPEN)...');
+        stockData = await fetchStockMarketData();
+        
+        // Check if user has a stock broker connected
+        const stockBroker = await getConnectedStockBroker(supabase, user.id);
+        if (stockBroker) {
+          console.log(`🏦 Stock broker connected: ${stockBroker.broker}`);
+          marketData.push(...stockData);
+        } else {
+          console.log('⚠️ No stock broker connected - skipping stock trades');
+        }
+      } else {
+        console.log('📊 Stock market CLOSED - only trading crypto');
+      }
+    }
+    
     if (marketData.length === 0) {
       return new Response(JSON.stringify({ error: 'Could not fetch market data', status: 'error' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    
+    console.log(`📊 Total tradeable assets: ${marketData.length} (Crypto: ${marketData.length - stockData.length}, Stocks: ${stockData.length})`);
+    
+    // Create a set of stock symbols for later routing
+    const stockSymbols = new Set(stockData.map(s => s.symbol));
 
     // Detect market regime
     const regime = detectMarketRegime(marketData);
@@ -1939,40 +2357,66 @@ serve(async (req) => {
       
       console.log(`✅ RISK APPROVED: ${decision.symbol} - ${riskValidation.reason}`);
 
-      // 💰 EXECUTE REAL COINBASE BUY if in LIVE mode
+      // ==========================================================================
+      // MULTI-ASSET TRADE EXECUTION
+      // PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+      // Route trades to appropriate broker based on asset type
+      // ==========================================================================
+      const isStock = stockSymbols.has(decision.symbol);
+      const marketType = isStock ? 'stocks' : 'crypto';
+      
       if (!isPaperMode && decision.action === 'buy') {
-        console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
-        const buyResult = await executeCoinbaseBuy(decision.symbol, tradeValue);
-        
-        if (buyResult.success && buyResult.quantity && buyResult.price) {
-          quantity = buyResult.quantity;
-          actualEntryPrice = buyResult.price;
+        if (isStock) {
+          // 📈 EXECUTE STOCK TRADE via connected broker (Alpaca/IBKR/Tradier)
+          console.log(`📈 EXECUTING STOCK ${decision.action.toUpperCase()}: ${quantity} ${decision.symbol}`);
+          const stockResult = await executeStockTrade(
+            supabase,
+            user.id,
+            decision.symbol,
+            decision.action,
+            Math.floor(quantity), // Stocks are whole shares
+            isPaperMode
+          );
           
-          // DUST PREVENTION: Verify the quantity we received is sellable
-          // Apply the same precision/minimum checks we use for selling
-          const precisionMap: Record<string, number> = {
-            'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
-            'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
-            'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
-            'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
-          };
-          const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
-          const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
-          const positionValue = roundedQty * actualEntryPrice;
-          
-          if (roundedQty <= 0 || positionValue < 2) {
-            console.error(`⚠️ DUST DETECTED: Bought ${quantity} ${decision.symbol} but sellable qty is ${roundedQty} ($${positionValue.toFixed(2)})`);
-            console.log(`⚠️ This trade will create dust - skipping position creation`);
-            // The buy already happened on Coinbase but we won't track it as a position
-            // It will become dust but at least we won't make more dust trades
+          if (stockResult.success && stockResult.quantity) {
+            quantity = stockResult.quantity;
+            if (stockResult.price) actualEntryPrice = stockResult.price;
+            console.log(`✅ STOCK TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice}`);
+          } else {
+            console.error(`❌ STOCK TRADE FAILED for ${decision.symbol}: ${stockResult.error}`);
             continue;
           }
-          
-          console.log(`✅ REAL TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice} (sellable: ${roundedQty})`);
         } else {
-          console.error(`❌ REAL BUY FAILED for ${decision.symbol}: ${buyResult.error}`);
-          // Skip this trade if real buy failed
-          continue;
+          // 💰 EXECUTE CRYPTO TRADE via Coinbase
+          console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
+          const buyResult = await executeCoinbaseBuy(decision.symbol, tradeValue);
+          
+          if (buyResult.success && buyResult.quantity && buyResult.price) {
+            quantity = buyResult.quantity;
+            actualEntryPrice = buyResult.price;
+            
+            // DUST PREVENTION: Verify the quantity we received is sellable
+            const precisionMap: Record<string, number> = {
+              'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
+              'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
+              'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
+              'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
+            };
+            const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
+            const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+            const positionValue = roundedQty * actualEntryPrice;
+            
+            if (roundedQty <= 0 || positionValue < 2) {
+              console.error(`⚠️ DUST DETECTED: Bought ${quantity} ${decision.symbol} but sellable qty is ${roundedQty} ($${positionValue.toFixed(2)})`);
+              console.log(`⚠️ This trade will create dust - skipping position creation`);
+              continue;
+            }
+            
+            console.log(`✅ REAL TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice} (sellable: ${roundedQty})`);
+          } else {
+            console.error(`❌ REAL BUY FAILED for ${decision.symbol}: ${buyResult.error}`);
+            continue;
+          }
         }
       }
 
@@ -1985,7 +2429,7 @@ serve(async (req) => {
         side: decision.action as 'buy' | 'sell',
         quantity,
         entry_price: actualEntryPrice,
-        market_type: 'crypto' as const,
+        market_type: marketType as 'crypto' | 'stocks',
         is_paper: isPaperMode,
         status: 'open' as const,
         strategy: strategyType,
@@ -2003,7 +2447,7 @@ serve(async (req) => {
         continue;
       }
 
-      // Create position
+      // Create position with correct market type
       const { error: positionError } = await supabase.from('positions').insert({
         user_id: user.id,
         symbol: decision.symbol,
@@ -2011,7 +2455,7 @@ serve(async (req) => {
         quantity,
         avg_entry_price: actualEntryPrice,
         current_price: coinData.price,
-        market_type: 'crypto',
+        market_type: marketType, // Dynamic based on asset type
         is_paper: isPaperMode,
         strategy: strategyType,
         unrealized_pnl: 0,
@@ -2020,7 +2464,8 @@ serve(async (req) => {
       if (positionError) {
         console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
       } else {
-        console.log(`📊 Created ${isPaperMode ? 'PAPER' : 'LIVE'} position: ${quantity} ${decision.symbol}`);
+        const assetIcon = isStock ? '📈' : '🪙';
+        console.log(`${assetIcon} Created ${isPaperMode ? 'PAPER' : 'LIVE'} ${marketType.toUpperCase()} position: ${quantity} ${decision.symbol}`);
       }
 
       // Update paper account balance (only for paper mode)
