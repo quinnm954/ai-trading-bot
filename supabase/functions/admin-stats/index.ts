@@ -56,9 +56,10 @@ serve(async (req) => {
     }
 
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Use UTC to ensure consistent date calculations regardless of server timezone
+    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const weekAgoUTC = new Date(todayUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgoUTC = new Date(todayUTC.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const userStats = users.users.map(u => ({
       id: u.id,
@@ -68,12 +69,13 @@ serve(async (req) => {
       email_confirmed_at: u.email_confirmed_at,
     }));
 
-    const signupsToday = userStats.filter(u => new Date(u.created_at) >= today).length;
-    const signupsThisWeek = userStats.filter(u => new Date(u.created_at) >= weekAgo).length;
-    const signupsThisMonth = userStats.filter(u => new Date(u.created_at) >= monthAgo).length;
+    // Compare dates in UTC
+    const signupsToday = userStats.filter(u => new Date(u.created_at).getTime() >= todayUTC.getTime()).length;
+    const signupsThisWeek = userStats.filter(u => new Date(u.created_at).getTime() >= weekAgoUTC.getTime()).length;
+    const signupsThisMonth = userStats.filter(u => new Date(u.created_at).getTime() >= monthAgoUTC.getTime()).length;
     
-    const activeToday = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at) >= today).length;
-    const activeThisWeek = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at) >= weekAgo).length;
+    const activeToday = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at).getTime() >= todayUTC.getTime()).length;
+    const activeThisWeek = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at).getTime() >= weekAgoUTC.getTime()).length;
 
     // Get trading activity stats
     const { data: tradesCount } = await supabaseAdmin
