@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { z } from 'zod';
-import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft, ShieldAlert } from 'lucide-react';
+import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft, ShieldAlert, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -56,9 +56,10 @@ export default function Auth() {
   const [mode, setMode] = useState<AuthMode>(isResetMode ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string; terms?: string }>({});
+  const [errors, setErrors] = useState<{ email?: string; password?: string; terms?: string; referral?: string }>({});
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -204,7 +205,23 @@ export default function Auth() {
           });
         }
       } else {
-        const { error } = await signUp(email, password);
+        // Validate referral code if provided
+        if (referralCode.trim()) {
+          const { data: validCode } = await supabase
+            .from('referral_codes')
+            .select('code')
+            .eq('code', referralCode.trim().toUpperCase())
+            .eq('is_active', true)
+            .maybeSingle();
+          
+          if (!validCode) {
+            setErrors({ referral: 'Invalid referral code' });
+            setIsSubmitting(false);
+            return;
+          }
+        }
+        
+        const { error, data } = await signUp(email, password);
         if (error) {
           if (error.message.includes('User already registered')) {
             toast({
@@ -222,6 +239,18 @@ export default function Auth() {
         } else {
           // Track signup conversion for Google Ads
           trackConversion();
+          
+          // Store referral code if provided
+          if (referralCode.trim() && data?.user?.id) {
+            try {
+              await supabase
+                .from('user_roles')
+                .update({ referred_by_code: referralCode.trim().toUpperCase() })
+                .eq('user_id', data.user.id);
+            } catch (refError) {
+              console.error('Failed to store referral code:', refError);
+            }
+          }
           
           // Create Stripe customer for new signup
           try {
@@ -375,6 +404,29 @@ export default function Auth() {
                 </div>
                 {errors.password && (
                   <p className="text-sm text-loss">{errors.password}</p>
+                )}
+              </div>
+            )}
+
+            {/* Referral code field - only on signup */}
+            {mode === 'signup' && (
+              <div className="space-y-2">
+                <Label htmlFor="referral">Referral Code (optional)</Label>
+                <div className="relative">
+                  <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    id="referral"
+                    type="text"
+                    placeholder="Enter code if you have one"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                    className="pl-10 uppercase"
+                    disabled={isSubmitting}
+                    maxLength={20}
+                  />
+                </div>
+                {errors.referral && (
+                  <p className="text-sm text-loss">{errors.referral}</p>
                 )}
               </div>
             )}
