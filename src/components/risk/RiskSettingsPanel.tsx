@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Shield,
   AlertTriangle,
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { useRiskManager } from '@/hooks/useRiskManager';
 import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Tooltip,
   TooltipContent,
@@ -22,19 +23,71 @@ import {
 // Risk Settings Panel - Configure risk management parameters
 // =============================================================================
 
+// Preset configurations for each risk tolerance level
+const RISK_PRESETS = {
+  conservative: {
+    maxPositionSize: 5,
+    maxDailyLoss: 3,
+    weeklyLossLimit: 10,
+    maxDrawdown: 20,
+    maxConcurrentTrades: 5,
+    maxCapitalUsage: 50,
+    maxLeverage: 1,
+  },
+  moderate: {
+    maxPositionSize: 10,
+    maxDailyLoss: 5,
+    weeklyLossLimit: 12,
+    maxDrawdown: 25,
+    maxConcurrentTrades: 8,
+    maxCapitalUsage: 70,
+    maxLeverage: 1,
+  },
+  aggressive: {
+    maxPositionSize: 20,
+    maxDailyLoss: 8,
+    weeklyLossLimit: 18,
+    maxDrawdown: 30,
+    maxConcurrentTrades: 12,
+    maxCapitalUsage: 85,
+    maxLeverage: 2,
+  },
+  ultra_aggressive: {
+    maxPositionSize: 30,
+    maxDailyLoss: 10,
+    weeklyLossLimit: 25,
+    maxDrawdown: 40,
+    maxConcurrentTrades: 20,
+    maxCapitalUsage: 95,
+    maxLeverage: 3,
+  },
+};
+
 // Warning thresholds for unsafe settings
 const UNSAFE_THRESHOLDS = {
   maxPositionSize: 25,     // > 25% per position is very risky
   maxDailyLoss: 10,        // > 10% daily loss is aggressive
   maxDrawdown: 30,         // > 30% max drawdown is risky
   maxCapitalUsage: 90,     // > 90% capital usage leaves no reserve
+  maxLeverage: 2,          // > 2x leverage is risky
 };
+
+type RiskTolerance = 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
 
 export function RiskSettingsPanel() {
   const { riskStatus, updateRiskSettings, isLoading } = useRiskManager();
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
+  const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
+  const [hasManualChanges, setHasManualChanges] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<RiskTolerance | null>(null);
+
+  // Initialize selected preset from current settings
+  useEffect(() => {
+    if (riskStatus?.settings?.riskTolerance) {
+      setSelectedPreset(riskStatus.settings.riskTolerance);
+    }
+  }, [riskStatus?.settings?.riskTolerance]);
 
   if (isLoading || !riskStatus) {
     return (
@@ -53,7 +106,24 @@ export function RiskSettingsPanel() {
     return (settings as any)[key] ?? (key === 'riskTolerance' ? 'moderate' : 0);
   };
 
-  const handleChange = (key: string, value: any) => {
+  const handlePresetSelect = (preset: RiskTolerance) => {
+    setSelectedPreset(preset);
+    setHasManualChanges(false);
+    const presetValues = RISK_PRESETS[preset];
+    setPendingChanges({
+      ...presetValues,
+      riskTolerance: preset,
+    });
+  };
+
+  const handleManualChange = (key: string, value: any) => {
+    // Check if this change deviates from the current preset
+    if (selectedPreset && key !== 'riskTolerance') {
+      const presetValue = (RISK_PRESETS[selectedPreset] as any)[key];
+      if (presetValue !== undefined && presetValue !== value) {
+        setHasManualChanges(true);
+      }
+    }
     setPendingChanges(prev => ({ ...prev, [key]: value }));
   };
 
@@ -70,6 +140,7 @@ export function RiskSettingsPanel() {
         description: 'Your risk settings have been updated.',
       });
       setPendingChanges({});
+      setHasManualChanges(false);
     } else {
       toast({
         title: 'Error',
@@ -83,7 +154,8 @@ export function RiskSettingsPanel() {
     getValue('maxPositionSize') > UNSAFE_THRESHOLDS.maxPositionSize ||
     getValue('maxDailyLoss') > UNSAFE_THRESHOLDS.maxDailyLoss ||
     getValue('maxDrawdown') > UNSAFE_THRESHOLDS.maxDrawdown ||
-    getValue('maxCapitalUsage') > UNSAFE_THRESHOLDS.maxCapitalUsage;
+    getValue('maxCapitalUsage') > UNSAFE_THRESHOLDS.maxCapitalUsage ||
+    getValue('maxLeverage') > UNSAFE_THRESHOLDS.maxLeverage;
 
   const hasChanges = Object.keys(pendingChanges).length > 0;
 
@@ -141,7 +213,7 @@ export function RiskSettingsPanel() {
         </div>
         <Slider
           value={[value]}
-          onValueChange={([v]) => handleChange(settingKey, v)}
+          onValueChange={([v]) => handleManualChange(settingKey, v)}
           min={min}
           max={max}
           step={step}
@@ -178,8 +250,18 @@ export function RiskSettingsPanel() {
         )}
       </div>
 
+      {/* Manual Changes Warning */}
+      {hasManualChanges && (
+        <Alert className="mb-6 border-warning/50 bg-warning/10">
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <AlertDescription className="text-warning">
+            <strong>Custom configuration:</strong> You've manually adjusted settings that deviate from the selected preset. These values may not align with standard risk tolerance profiles. Proceed with caution.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Unsafe Settings Warning */}
-      {hasUnsafeSettings && (
+      {hasUnsafeSettings && !hasManualChanges && (
         <div className="mb-6 p-4 rounded-lg bg-warning/10 border border-warning/30">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-warning mt-0.5" />
@@ -209,31 +291,31 @@ export function RiskSettingsPanel() {
           </div>
         </div>
 
-        {/* Risk Tolerance */}
+        {/* Risk Tolerance Presets */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">Risk Tolerance</span>
+              <span className="text-sm font-medium text-foreground">Risk Tolerance Profile</span>
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger>
                     <Info className="w-3.5 h-3.5 text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="max-w-xs text-xs">Controls how aggressively AI trades. Conservative = smaller positions, fewer trades, tighter stops. Aggressive = larger positions, more trades, wider targets.</p>
+                    <p className="max-w-xs text-xs">Select a preset to automatically configure all settings below. Manual adjustments will show a warning.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {['conservative', 'moderate', 'aggressive', 'ultra_aggressive'].map((level) => (
+            {(['conservative', 'moderate', 'aggressive', 'ultra_aggressive'] as RiskTolerance[]).map((level) => (
               <button
                 key={level}
-                onClick={() => handleChange('riskTolerance', level as any)}
+                onClick={() => handlePresetSelect(level)}
                 className={cn(
                   'px-3 py-2 rounded-lg text-xs font-medium transition-all capitalize',
-                  (pendingChanges['riskTolerance'] || settings.riskTolerance) === level
+                  selectedPreset === level && !hasManualChanges
                     ? level === 'conservative' ? 'bg-success/20 text-success border border-success/30'
                     : level === 'moderate' ? 'bg-primary/20 text-primary border border-primary/30'
                     : level === 'aggressive' ? 'bg-warning/20 text-warning border border-warning/30'
@@ -246,12 +328,16 @@ export function RiskSettingsPanel() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'conservative' && 'Smaller positions, tighter stops, fewer trades. Best for capital preservation.'}
-            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'moderate' && 'Balanced approach between growth and safety.'}
-            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'aggressive' && 'Larger positions, wider stops, more trades. Higher growth potential with more risk.'}
-            {(pendingChanges['riskTolerance'] || settings.riskTolerance) === 'ultra_aggressive' && 'Maximum position sizes and leverage. Highest potential returns but significant risk.'}
+            {selectedPreset === 'conservative' && 'Smaller positions, tighter stops, fewer trades. Best for capital preservation.'}
+            {selectedPreset === 'moderate' && 'Balanced approach between growth and safety.'}
+            {selectedPreset === 'aggressive' && 'Larger positions, wider stops, more trades. Higher growth potential with more risk.'}
+            {selectedPreset === 'ultra_aggressive' && 'Maximum position sizes and leverage. Highest potential returns but significant risk.'}
+            {!selectedPreset && 'Select a profile to auto-configure all settings below.'}
           </p>
         </div>
+
+        {/* Divider */}
+        <div className="border-t border-border" />
 
         {/* Position Size */}
         <SettingRow
@@ -322,16 +408,15 @@ export function RiskSettingsPanel() {
           min={1}
           max={10}
           unit="x"
-          warningThreshold={3}
+          warningThreshold={UNSAFE_THRESHOLDS.maxLeverage}
         />
       </div>
 
       {/* Conservative Defaults Info */}
       <div className="mt-6 p-4 rounded-lg bg-muted/50">
         <p className="text-xs text-muted-foreground">
-          <strong>Recommended conservative defaults:</strong> 5% max position, 3% daily loss, 10% weekly loss, 
-          20% max drawdown, 50% capital usage, 5 concurrent trades, 1x leverage. These settings prioritize 
-          capital preservation over aggressive growth.
+          <strong>Recommended:</strong> Start with Conservative or Moderate profiles until you're comfortable with the system. 
+          Higher risk profiles can lead to larger gains but also significant losses.
         </p>
       </div>
     </div>
