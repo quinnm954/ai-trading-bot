@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { InviteManager } from '@/components/settings/InviteManager';
 import { SubscriptionManager } from '@/components/settings/SubscriptionManager';
 import { LegalAndPrivacy } from '@/components/settings/LegalAndPrivacy';
+import { PasswordChange } from '@/components/settings/PasswordChange';
 
 export default function Settings() {
   const [notifications, setNotifications] = useState({
@@ -230,6 +231,9 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+
+            {/* Password Change */}
+            <PasswordChange />
           </div>
 
           {/* Subscription Management */}
