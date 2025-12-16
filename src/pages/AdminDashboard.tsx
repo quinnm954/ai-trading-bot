@@ -420,13 +420,33 @@ export default function AdminDashboard() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {user.last_sign_in_at ? (
-                          <span className="text-sm">
-                            {formatDistanceToNow(new Date(user.last_sign_in_at), { addSuffix: true })}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">Never</span>
-                        )}
+                        {(() => {
+                          const createdAt = new Date(user.created_at).getTime();
+                          const lastSignIn = user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() : null;
+                          // Consider "new" if last sign in is within 5 minutes of signup
+                          const isNewUser = !lastSignIn || Math.abs(lastSignIn - createdAt) < 5 * 60 * 1000;
+                          
+                          return (
+                            <div className="flex items-center gap-2">
+                              {user.last_sign_in_at ? (
+                                <span className="text-sm">
+                                  {formatDistanceToNow(new Date(user.last_sign_in_at), { addSuffix: true })}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">Never</span>
+                              )}
+                              {isNewUser ? (
+                                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-500 border-amber-500/30">
+                                  New
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/30">
+                                  Returning
+                                </Badge>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         {user.email_confirmed_at ? (
