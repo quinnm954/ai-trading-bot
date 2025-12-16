@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRateLimiter } from '@/hooks/useRateLimiter';
 import { trackConversion } from '@/components/GoogleAnalytics';
+import { supabase } from '@/integrations/supabase/client';
 
 // Enhanced password validation - requires complexity
 const passwordValidation = z
@@ -221,6 +222,14 @@ export default function Auth() {
         } else {
           // Track signup conversion for Google Ads
           trackConversion();
+          
+          // Create Stripe customer for new signup
+          try {
+            await supabase.functions.invoke('create-stripe-customer');
+          } catch (stripeError) {
+            console.error('Failed to create Stripe customer:', stripeError);
+            // Don't block signup if Stripe customer creation fails
+          }
           
           toast({
             title: 'Account created!',
