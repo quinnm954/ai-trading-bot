@@ -6,6 +6,51 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const REPORT_TZ = "America/New_York";
+
+function getPartsInTimeZone(date: Date, timeZone: string) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = dtf.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
+
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+    hour: Number(get("hour")),
+    minute: Number(get("minute")),
+    second: Number(get("second")),
+  };
+}
+
+function getStartOfDayUtcForTZ(year: number, month: number, day: number, timeZone: string) {
+  // Start with UTC midnight for the given Y-M-D, then shift back by the local time
+  // that instant represents in the requested timezone.
+  const utcMidnight = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+  const p1 = getPartsInTimeZone(utcMidnight, timeZone);
+  const delta1 = (((p1.hour % 24) * 60 + p1.minute) * 60 + p1.second) * 1000;
+  const candidate = new Date(utcMidnight.getTime() - delta1);
+
+  // One more normalization pass (DST / hour=24 edge cases)
+  const p2 = getPartsInTimeZone(candidate, timeZone);
+  if (p2.hour !== 0 || p2.minute !== 0 || p2.second !== 0) {
+    const delta2 = (((p2.hour % 24) * 60 + p2.minute) * 60 + p2.second) * 1000;
+    return new Date(candidate.getTime() - delta2);
+  }
+
+  return candidate;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -56,10 +101,13 @@ serve(async (req) => {
     }
 
     const now = new Date();
-    // Use UTC to ensure consistent date calculations regardless of server timezone
-    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const weekAgoUTC = new Date(todayUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const monthAgoUTC = new Date(todayUTC.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Report "today/this week/this month" in a single consistent business timezone (REPORT_TZ)
+    // so the admin dashboard matches what humans expect, not UTC midnight boundaries.
+    const { year, month, day } = getPartsInTimeZone(now, REPORT_TZ);
+    const todayStartUTC = getStartOfDayUtcForTZ(year, month, day, REPORT_TZ);
+    const weekAgoUTC = new Date(todayStartUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgoUTC = new Date(todayStartUTC.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const userStats = users.users.map(u => ({
       id: u.id,
@@ -69,12 +117,11 @@ serve(async (req) => {
       email_confirmed_at: u.email_confirmed_at,
     }));
 
-    // Compare dates in UTC
-    const signupsToday = userStats.filter(u => new Date(u.created_at).getTime() >= todayUTC.getTime()).length;
+    const signupsToday = userStats.filter(u => new Date(u.created_at).getTime() >= todayStartUTC.getTime()).length;
     const signupsThisWeek = userStats.filter(u => new Date(u.created_at).getTime() >= weekAgoUTC.getTime()).length;
     const signupsThisMonth = userStats.filter(u => new Date(u.created_at).getTime() >= monthAgoUTC.getTime()).length;
-    
-    const activeToday = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at).getTime() >= todayUTC.getTime()).length;
+
+    const activeToday = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at).getTime() >= todayStartUTC.getTime()).length;
     const activeThisWeek = userStats.filter(u => u.last_sign_in_at && new Date(u.last_sign_in_at).getTime() >= weekAgoUTC.getTime()).length;
 
     // Get trading activity stats
