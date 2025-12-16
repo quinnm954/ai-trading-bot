@@ -147,13 +147,38 @@ export function useSubscription() {
     }
   }, [authLoading, checkSubscription]);
 
-  // Auto-refresh subscription status every minute
+  // Auto-refresh subscription status every 30 seconds
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const interval = setInterval(checkSubscription, 60000);
+    const interval = setInterval(checkSubscription, 30000);
     return () => clearInterval(interval);
   }, [isAuthenticated, checkSubscription]);
+
+  // Listen for realtime subscription changes
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+
+    const channel = supabase
+      .channel('subscription-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'subscriptions',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          checkSubscription();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAuthenticated, user, checkSubscription]);
 
   // Check if user has access to a specific feature
   const canAccess = useCallback((feature: Feature): boolean => {
