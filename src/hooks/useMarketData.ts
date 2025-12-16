@@ -87,10 +87,23 @@ export function useMarketData() {
   useEffect(() => {
     fetchMarketData();
 
-    // Refresh every 60 seconds (CoinGecko free tier rate limit)
-    const intervalId = setInterval(fetchMarketData, 60000);
+    // Refresh every 30 seconds (balance between freshness and rate limits)
+    const intervalId = setInterval(fetchMarketData, 30000);
 
-    return () => clearInterval(intervalId);
+    // Refresh on visibility/focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchMarketData();
+    };
+    const handleFocus = () => fetchMarketData();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [fetchMarketData]);
 
   return { marketData, isLoading, error, refetch: fetchMarketData };
