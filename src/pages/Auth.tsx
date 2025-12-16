@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { z } from 'zod';
 import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -57,15 +57,18 @@ export default function Auth() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { signIn, signUp, resetPassword, updatePassword, isAuthenticated, isLoading } = useAuth();
   const { isLocked, getLockoutRemaining, getAttemptsRemaining, recordFailedAttempt, resetAttempts } = useRateLimiter();
 
+  const redirectTo = (location.state as { from?: string } | null)?.from;
+
   useEffect(() => {
     if (isAuthenticated && !isLoading && mode !== 'reset') {
-      navigate('/dashboard', { replace: true });
+      navigate(redirectTo || '/dashboard', { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate, mode]);
+  }, [isAuthenticated, isLoading, navigate, mode, redirectTo]);
 
   // Update mode if reset param changes
   useEffect(() => {
