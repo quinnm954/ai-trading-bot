@@ -36,21 +36,26 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Wait for both auth and admin checks to complete before any redirect
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
+    // Don't do anything while still loading
+    if (authLoading || adminLoading) return;
+    
+    // Not authenticated - go to auth
+    if (!isAuthenticated) {
       navigate('/auth');
+      return;
     }
-  }, [authLoading, isAuthenticated, navigate]);
-
-  useEffect(() => {
-    if (!adminLoading && !isAdmin && isAuthenticated) {
+    
+    // Authenticated but not admin - go to dashboard
+    if (!isAdmin) {
       navigate('/dashboard');
     }
-  }, [adminLoading, isAdmin, isAuthenticated, navigate]);
+  }, [authLoading, adminLoading, isAuthenticated, isAdmin, navigate]);
 
   useEffect(() => {
     async function fetchStats() {
-      if (!isAdmin) return;
+      if (adminLoading || !isAdmin) return;
       
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -74,11 +79,12 @@ export default function AdminDashboard() {
       }
     }
 
-    if (isAdmin) {
+    if (!adminLoading && isAdmin) {
       fetchStats();
     }
-  }, [isAdmin]);
+  }, [isAdmin, adminLoading]);
 
+  // Show loading while checking auth/admin status
   if (authLoading || adminLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -92,6 +98,7 @@ export default function AdminDashboard() {
     );
   }
 
+  // Don't render if not admin (redirect will happen via useEffect)
   if (!isAdmin) {
     return null;
   }
