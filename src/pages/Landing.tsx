@@ -230,9 +230,12 @@ export default function Landing() {
               Sign In
             </Link>
           </div>
-          <p className="text-sm text-muted-foreground">
-            © 2024 Titan AI. All rights reserved.
-          </p>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <span className="px-2 py-1 rounded bg-primary/10 text-primary text-xs font-medium">
+              Patent Pending
+            </span>
+            <p>© 2024 Titan AI. All rights reserved.</p>
+          </div>
         </div>
       </footer>
     </div>
