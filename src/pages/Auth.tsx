@@ -5,6 +5,7 @@ import { Brain, Mail, Lock, Loader2, ArrowRight, ArrowLeft, ShieldAlert } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRateLimiter } from '@/hooks/useRateLimiter';
@@ -53,8 +54,9 @@ export default function Auth() {
   const [mode, setMode] = useState<AuthMode>(isResetMode ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ email?: string; password?: string; terms?: string }>({});
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -77,7 +79,15 @@ export default function Auth() {
     }
   }, [isResetMode]);
 
+  // Reset terms checkbox when switching modes
+  useEffect(() => {
+    setAcceptedTerms(false);
+    setErrors({});
+  }, [mode]);
+
   const validateForm = () => {
+    const fieldErrors: { email?: string; password?: string; terms?: string } = {};
+    
     try {
       if (mode === 'forgot') {
         emailSchema.parse({ email: email.trim() });
@@ -90,19 +100,22 @@ export default function Auth() {
         // Signup requires strong password
         authSchema.parse({ email: email.trim(), password });
       }
-      setErrors({});
-      return true;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        const fieldErrors: { email?: string; password?: string } = {};
         error.errors.forEach((err) => {
           if (err.path[0] === 'email') fieldErrors.email = err.message;
           if (err.path[0] === 'password') fieldErrors.password = err.message;
         });
-        setErrors(fieldErrors);
       }
-      return false;
     }
+    
+    // Check terms acceptance for signup
+    if (mode === 'signup' && !acceptedTerms) {
+      fieldErrors.terms = 'You must agree to the Terms of Service and Privacy Policy';
+    }
+    
+    setErrors(fieldErrors);
+    return Object.keys(fieldErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -349,6 +362,38 @@ export default function Auth() {
                 </div>
                 {errors.password && (
                   <p className="text-sm text-loss">{errors.password}</p>
+                )}
+              </div>
+            )}
+
+            {/* Terms acceptance checkbox - only on signup */}
+            {mode === 'signup' && (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="terms"
+                    checked={acceptedTerms}
+                    onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                    disabled={isSubmitting}
+                    className="mt-0.5"
+                  />
+                  <Label htmlFor="terms" className="text-sm text-muted-foreground font-normal leading-tight cursor-pointer">
+                    I agree to the{' '}
+                    <Link to="/settings" className="text-primary hover:underline" target="_blank">
+                      Terms of Service
+                    </Link>{' '}
+                    and{' '}
+                    <Link to="/settings" className="text-primary hover:underline" target="_blank">
+                      Privacy Policy
+                    </Link>
+                    , and acknowledge the{' '}
+                    <Link to="/settings" className="text-primary hover:underline" target="_blank">
+                      Risk Disclosure
+                    </Link>
+                  </Label>
+                </div>
+                {errors.terms && (
+                  <p className="text-sm text-loss">{errors.terms}</p>
                 )}
               </div>
             )}
