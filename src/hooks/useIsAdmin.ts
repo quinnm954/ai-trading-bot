@@ -16,21 +16,29 @@ export function useIsAdmin() {
         return;
       }
 
+      // Set loading to true before starting the check
+      setIsLoading(true);
       console.log('[useIsAdmin] Checking admin status for user:', user.id, user.email);
       
-      const { data, error } = await supabase
-        .rpc('is_admin', { _user_id: user.id });
+      try {
+        const { data, error } = await supabase
+          .rpc('is_admin', { _user_id: user.id });
 
-      console.log('[useIsAdmin] RPC result:', { data, error });
+        console.log('[useIsAdmin] RPC result:', { data, error });
 
-      if (!error && data === true) {
-        console.log('[useIsAdmin] User IS admin');
-        setIsAdmin(true);
-      } else {
-        console.log('[useIsAdmin] User is NOT admin, error:', error);
+        if (!error && data === true) {
+          console.log('[useIsAdmin] User IS admin');
+          setIsAdmin(true);
+        } else {
+          console.log('[useIsAdmin] User is NOT admin, error:', error);
+          setIsAdmin(false);
+        }
+      } catch (err) {
+        console.error('[useIsAdmin] Error checking admin status:', err);
         setIsAdmin(false);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
     checkAdminStatus();
