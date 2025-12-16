@@ -236,6 +236,15 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               </div>
             </div>
           )}
+
+          {/* Patent Status */}
+          <div className="px-4 py-3 border-t border-sidebar-border">
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                Patent Pending
+              </span>
+            </div>
+          </div>
         </div>
       </aside>
     </>
