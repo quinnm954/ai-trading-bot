@@ -3,6 +3,7 @@ import { CreditCard, Crown, Zap, RefreshCw, ExternalLink, Calendar, CheckCircle2
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useSubscription, SubscriptionTier } from '@/hooks/useSubscription';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
@@ -24,6 +25,9 @@ export function SubscriptionManager() {
     startCheckout,
     openCustomerPortal,
   } = useSubscription();
+
+  const { isAdmin, isLoading: isAdminLoading } = useIsAdmin();
+  const isCreatorAdmin = isAdmin;
 
   const [refreshing, setRefreshing] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -62,7 +66,7 @@ export function SubscriptionManager() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isAdminLoading) {
     return (
       <div className="glass-panel p-6">
         <div className="flex items-center gap-2 mb-6">
@@ -107,11 +111,15 @@ export function SubscriptionManager() {
               <p className="font-medium text-foreground">Current Plan</p>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold text-foreground">{config.label}</span>
-                {isFreeAccess && (
+                {isCreatorAdmin ? (
+                  <Badge variant="secondary" className="text-xs">
+                    Creator Admin
+                  </Badge>
+                ) : isFreeAccess ? (
                   <Badge variant="secondary" className="text-xs">
                     Invited User
                   </Badge>
-                )}
+                ) : null}
                 {cancelAtPeriodEnd && (
                   <Badge variant="destructive" className="text-xs">
                     Canceling
@@ -138,11 +146,15 @@ export function SubscriptionManager() {
           </div>
         )}
 
-        {isFreeAccess && (
+        {isCreatorAdmin ? (
+          <p className="text-sm text-muted-foreground mt-2">
+            You have full access to all features as the creator admin account.
+          </p>
+        ) : isFreeAccess ? (
           <p className="text-sm text-muted-foreground mt-2">
             You have full access to all features through an invite.
           </p>
-        )}
+        ) : null}
       </div>
 
       {/* Actions */}
