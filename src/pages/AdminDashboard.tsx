@@ -71,36 +71,49 @@ export default function AdminDashboard() {
     }
   }, [authLoading, adminLoading, isAuthenticated, isAdmin, navigate]);
 
-  useEffect(() => {
-    async function fetchStats() {
-      if (adminLoading || !isAdmin) return;
-      
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
+  const fetchStats = async () => {
+    if (adminLoading || !isAdmin) return;
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-        const response = await supabase.functions.invoke('admin-stats', {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
+      const response = await supabase.functions.invoke('admin-stats', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
 
-        if (response.error) {
-          throw new Error(response.error.message);
-        }
-
-        setStats(response.data);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (response.error) {
+        throw new Error(response.error.message);
       }
-    }
 
+      setStats(response.data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial fetch
+  useEffect(() => {
     if (!adminLoading && isAdmin) {
       fetchStats();
       fetchReferralStats();
     }
+  }, [isAdmin, adminLoading]);
+
+  // Auto-refresh every 30 seconds for new users and stats
+  useEffect(() => {
+    if (!isAdmin || adminLoading) return;
+
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchReferralStats();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [isAdmin, adminLoading]);
 
   async function fetchReferralStats() {
