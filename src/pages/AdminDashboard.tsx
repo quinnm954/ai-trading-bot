@@ -5,7 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Users, UserPlus, Activity, TrendingUp, Calendar, Clock, RefreshCw, CreditCard } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Users, UserPlus, Activity, TrendingUp, Calendar, Clock, RefreshCw, CreditCard, Tag, Plus, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useAuth } from '@/hooks/useAuth';
@@ -30,6 +31,12 @@ interface AdminStats {
   }[];
 }
 
+interface ReferralStats {
+  code: string;
+  marketer_name: string;
+  signup_count: number;
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -39,6 +46,13 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Referral tracking state
+  const [referralStats, setReferralStats] = useState<ReferralStats[]>([]);
+  const [referralLoading, setReferralLoading] = useState(true);
+  const [newCode, setNewCode] = useState('');
+  const [newMarketerName, setNewMarketerName] = useState('');
+  const [creatingCode, setCreatingCode] = useState(false);
 
   // Wait for both auth and admin checks to complete before any redirect
   useEffect(() => {
@@ -85,8 +99,66 @@ export default function AdminDashboard() {
 
     if (!adminLoading && isAdmin) {
       fetchStats();
+      fetchReferralStats();
     }
   }, [isAdmin, adminLoading]);
+
+  async function fetchReferralStats() {
+    setReferralLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_referral_stats');
+      if (error) throw error;
+      setReferralStats(data || []);
+    } catch (err: any) {
+      console.error('Failed to fetch referral stats:', err);
+    } finally {
+      setReferralLoading(false);
+    }
+  }
+
+  const handleCreateReferralCode = async () => {
+    if (!newCode.trim() || !newMarketerName.trim()) {
+      toast({
+        title: 'Missing information',
+        description: 'Please enter both a code and marketer name.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setCreatingCode(true);
+    try {
+      const { error } = await supabase
+        .from('referral_codes')
+        .insert({
+          code: newCode.trim().toUpperCase(),
+          marketer_name: newMarketerName.trim(),
+        });
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('This code already exists');
+        }
+        throw error;
+      }
+
+      toast({
+        title: 'Referral code created',
+        description: `Code "${newCode.toUpperCase()}" created for ${newMarketerName}`,
+      });
+      setNewCode('');
+      setNewMarketerName('');
+      fetchReferralStats();
+    } catch (err: any) {
+      toast({
+        title: 'Failed to create code',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingCode(false);
+    }
+  };
 
   const handleSyncToStripe = async () => {
     setSyncing(true);
@@ -244,6 +316,78 @@ export default function AdminDashboard() {
               <CardContent>
                 <div className="text-2xl font-bold">{stats.activeThisWeek}</div>
                 <p className="text-xs text-muted-foreground">Active (7 days)</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Referral Tracking Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Create New Referral Code */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Tag className="h-5 w-5" />
+                  Create Referral Code
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder="Code (e.g. JOHN2024)"
+                    value={newCode}
+                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                    className="uppercase"
+                    maxLength={20}
+                  />
+                  <Input
+                    placeholder="Marketer name"
+                    value={newMarketerName}
+                    onChange={(e) => setNewMarketerName(e.target.value)}
+                  />
+                  <Button onClick={handleCreateReferralCode} disabled={creatingCode}>
+                    {creatingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Referral Stats */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Referral Signups
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {referralLoading ? (
+                  <Skeleton className="h-20" />
+                ) : referralStats.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No referral codes created yet</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Code</TableHead>
+                        <TableHead>Marketer</TableHead>
+                        <TableHead className="text-right">Signups</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {referralStats.map((ref) => (
+                        <TableRow key={ref.code}>
+                          <TableCell className="font-mono font-medium">{ref.code}</TableCell>
+                          <TableCell>{ref.marketer_name}</TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant={ref.signup_count > 0 ? 'default' : 'secondary'}>
+                              {ref.signup_count}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </div>

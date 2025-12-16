@@ -536,6 +536,30 @@ export type Database = {
         }
         Relationships: []
       }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          marketer_name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          marketer_name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          marketer_name?: string
+        }
+        Relationships: []
+      }
       risk_events: {
         Row: {
           created_at: string | null
@@ -704,6 +728,7 @@ export type Database = {
           has_free_access: boolean | null
           id: string
           invited_by: string | null
+          referred_by_code: string | null
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
@@ -712,6 +737,7 @@ export type Database = {
           has_free_access?: boolean | null
           id?: string
           invited_by?: string | null
+          referred_by_code?: string | null
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
@@ -720,6 +746,7 @@ export type Database = {
           has_free_access?: boolean | null
           id?: string
           invited_by?: string | null
+          referred_by_code?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
@@ -733,6 +760,14 @@ export type Database = {
       can_use_feature: {
         Args: { p_feature: string; p_user_id: string }
         Returns: boolean
+      }
+      get_referral_stats: {
+        Args: never
+        Returns: {
+          code: string
+          marketer_name: string
+          signup_count: number
+        }[]
       }
       get_user_subscription_tier: {
         Args: { p_user_id: string }
