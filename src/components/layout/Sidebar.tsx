@@ -14,9 +14,11 @@ import {
   RefreshCw,
   X,
   Shield,
-  Rocket
+  Rocket,
+  ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -51,6 +53,7 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const { user } = useAuth();
+  const { isAdmin } = useIsAdmin();
   const [liveAccount, setLiveAccount] = useState<LiveAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -191,6 +194,21 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 </NavLink>
               );
             })}
+            {isAdmin && (
+              <NavLink
+                to="/admin"
+                className={cn(
+                  'nav-item',
+                  location.pathname === '/admin' && 'active'
+                )}
+              >
+                <ShieldCheck className="w-5 h-5" />
+                <span>Admin</span>
+                <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded bg-destructive/20 text-destructive">
+                  ADMIN
+                </span>
+              </NavLink>
+            )}
           </nav>
 
           {/* Live Account Balance */}
