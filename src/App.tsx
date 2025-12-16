@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CookieConsent } from "./components/CookieConsent";
+import { GoogleAnalytics } from "./components/GoogleAnalytics";
 import Dashboard from "./pages/Dashboard";
 import Strategies from "./pages/Strategies";
 import AIAdvisor from "./pages/AIAdvisor";
@@ -30,6 +31,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <GoogleAnalytics />
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/auth" element={<Auth />} />
