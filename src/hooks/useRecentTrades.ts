@@ -67,6 +67,9 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4) {
   useEffect(() => {
     fetchTrades();
 
+    // Auto-refresh every 10 seconds
+    const intervalId = setInterval(fetchTrades, 10000);
+
     const channel = supabase
       .channel('trades-changes')
       .on(
@@ -82,7 +85,19 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4) {
       )
       .subscribe();
 
+    // Refresh on visibility/focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchTrades();
+    };
+    const handleFocus = () => fetchTrades();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
     return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
       supabase.removeChannel(channel);
     };
   }, [fetchTrades]);

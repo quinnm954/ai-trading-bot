@@ -46,6 +46,9 @@ export function useEquityHistory(days: number = 30) {
   useEffect(() => {
     fetchEquityHistory();
 
+    // Auto-refresh every 30 seconds
+    const intervalId = setInterval(fetchEquityHistory, 30000);
+
     const channel = supabase
       .channel('equity-history-changes')
       .on(
@@ -61,7 +64,19 @@ export function useEquityHistory(days: number = 30) {
       )
       .subscribe();
 
+    // Refresh on visibility/focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchEquityHistory();
+    };
+    const handleFocus = () => fetchEquityHistory();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
     return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
       supabase.removeChannel(channel);
     };
   }, [fetchEquityHistory]);
