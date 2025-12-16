@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRateLimiter } from '@/hooks/useRateLimiter';
+import { trackConversion } from '@/components/GoogleAnalytics';
 
 // Enhanced password validation - requires complexity
 const passwordValidation = z
@@ -218,6 +219,9 @@ export default function Auth() {
             });
           }
         } else {
+          // Track signup conversion for Google Ads
+          trackConversion();
+          
           toast({
             title: 'Account created!',
             description: 'You have been automatically logged in.',
