@@ -4,10 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, UserPlus, Activity, TrendingUp, Calendar, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Users, UserPlus, Activity, TrendingUp, Calendar, Clock, RefreshCw, CreditCard } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
 
 interface AdminStats {
@@ -32,8 +34,10 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { isAdmin, isLoading: adminLoading } = useIsAdmin();
+  const { toast } = useToast();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Wait for both auth and admin checks to complete before any redirect
@@ -84,6 +88,38 @@ export default function AdminDashboard() {
     }
   }, [isAdmin, adminLoading]);
 
+  const handleSyncToStripe = async () => {
+    setSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const response = await supabase.functions.invoke('sync-users-to-stripe', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      const { created, existing, failed, total } = response.data;
+      toast({
+        title: 'Stripe sync complete',
+        description: `${created} new customers created, ${existing} already existed, ${failed} failed out of ${total} users.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Sync failed',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Show loading while checking auth/admin status
   if (authLoading || adminLoading) {
     return (
@@ -107,9 +143,24 @@ export default function AdminDashboard() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-        <Badge variant="outline" className="text-xs">
-          Admin Only
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleSyncToStripe}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <CreditCard className="h-4 w-4 mr-2" />
+            )}
+            {syncing ? 'Syncing...' : 'Sync to Stripe'}
+          </Button>
+          <Badge variant="outline" className="text-xs">
+            Admin Only
+          </Badge>
+        </div>
       </div>
 
       {error && (
