@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getCookieConsent } from './CookieConsent';
 
-// Replace with your actual GA4 Measurement ID
-const GA_MEASUREMENT_ID = 'G-XXXXXXXXXX';
+// GA4 and Google Ads IDs
+const GA_MEASUREMENT_ID = 'G-C54B142ZJ0';
+const GOOGLE_ADS_ID = 'AW-17458461715';
 
 declare global {
   interface Window {
@@ -32,7 +33,7 @@ export function GoogleAnalytics() {
       const script = document.createElement('script');
       script.id = 'ga-script';
       script.async = true;
-      script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_ID}`;
       document.head.appendChild(script);
 
       // Initialize gtag
@@ -41,10 +42,15 @@ export function GoogleAnalytics() {
         window.dataLayer.push(args);
       };
       window.gtag('js', new Date());
+      
+      // Configure GA4
       window.gtag('config', GA_MEASUREMENT_ID, {
         anonymize_ip: true, // GDPR compliance
         cookie_flags: 'SameSite=None;Secure',
       });
+      
+      // Configure Google Ads
+      window.gtag('config', GOOGLE_ADS_ID);
 
       setIsLoaded(true);
     };
@@ -87,6 +93,16 @@ export const trackPageView = (pagePath: string, pageTitle?: string) => {
     window.gtag('config', GA_MEASUREMENT_ID, {
       page_path: pagePath,
       page_title: pageTitle,
+    });
+  }
+};
+
+// Track Google Ads conversion
+export const trackConversion = (conversionId?: string) => {
+  const consent = getCookieConsent();
+  if (consent?.marketing && typeof window.gtag === 'function') {
+    window.gtag('event', 'conversion', {
+      send_to: conversionId || `${GOOGLE_ADS_ID}/WWD2CPG9xNEbEJP464RB`,
     });
   }
 };
