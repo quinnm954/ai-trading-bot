@@ -218,6 +218,98 @@ export type Database = {
         }
         Relationships: []
       }
+      copy_trade_signals: {
+        Row: {
+          action: string
+          copied_at: string | null
+          created_at: string
+          entry_price: number | null
+          id: string
+          quantity: number | null
+          status: string | null
+          symbol: string
+          trade_value_usd: number | null
+          trader_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          copied_at?: string | null
+          created_at?: string
+          entry_price?: number | null
+          id?: string
+          quantity?: number | null
+          status?: string | null
+          symbol: string
+          trade_value_usd?: number | null
+          trader_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          copied_at?: string | null
+          created_at?: string
+          entry_price?: number | null
+          id?: string
+          quantity?: number | null
+          status?: string | null
+          symbol?: string
+          trade_value_usd?: number | null
+          trader_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "copy_trade_signals_trader_id_fkey"
+            columns: ["trader_id"]
+            isOneToOne: false
+            referencedRelation: "top_traders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      copy_trading_settings: {
+        Row: {
+          auto_copy: boolean | null
+          copy_percentage: number | null
+          created_at: string
+          enabled: boolean | null
+          id: string
+          max_concurrent_copies: number | null
+          max_copy_amount_usd: number | null
+          min_trader_trades: number | null
+          min_trader_win_rate: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auto_copy?: boolean | null
+          copy_percentage?: number | null
+          created_at?: string
+          enabled?: boolean | null
+          id?: string
+          max_concurrent_copies?: number | null
+          max_copy_amount_usd?: number | null
+          min_trader_trades?: number | null
+          min_trader_win_rate?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auto_copy?: boolean | null
+          copy_percentage?: number | null
+          created_at?: string
+          enabled?: boolean | null
+          id?: string
+          max_concurrent_copies?: number | null
+          max_copy_amount_usd?: number | null
+          min_trader_trades?: number | null
+          min_trader_win_rate?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_pnl: {
         Row: {
           created_at: string | null
@@ -260,6 +352,66 @@ export type Database = {
           updated_at?: string | null
           user_id?: string | null
           wins?: number | null
+        }
+        Relationships: []
+      }
+      defi_yields: {
+        Row: {
+          apy: number
+          asset_symbol: string
+          audited: boolean | null
+          chain: string
+          created_at: string
+          id: string
+          impermanent_loss_risk: boolean | null
+          min_deposit_usd: number | null
+          pool_name: string
+          protocol: string
+          rewards_apy: number | null
+          rewards_token: string | null
+          risk_level: string | null
+          total_apy: number | null
+          tvl_usd: number | null
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          apy: number
+          asset_symbol: string
+          audited?: boolean | null
+          chain?: string
+          created_at?: string
+          id?: string
+          impermanent_loss_risk?: boolean | null
+          min_deposit_usd?: number | null
+          pool_name: string
+          protocol: string
+          rewards_apy?: number | null
+          rewards_token?: string | null
+          risk_level?: string | null
+          total_apy?: number | null
+          tvl_usd?: number | null
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          apy?: number
+          asset_symbol?: string
+          audited?: boolean | null
+          chain?: string
+          created_at?: string
+          id?: string
+          impermanent_loss_risk?: boolean | null
+          min_deposit_usd?: number | null
+          pool_name?: string
+          protocol?: string
+          rewards_apy?: number | null
+          rewards_token?: string | null
+          risk_level?: string | null
+          total_apy?: number | null
+          tvl_usd?: number | null
+          updated_at?: string
+          url?: string | null
         }
         Relationships: []
       }
@@ -347,6 +499,51 @@ export type Database = {
           provider?: string
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      mev_opportunities: {
+        Row: {
+          chain: string | null
+          created_at: string
+          detected_at: string
+          dex_pair: string | null
+          estimated_profit_usd: number | null
+          expires_at: string | null
+          gas_cost_usd: number | null
+          id: string
+          net_profit_usd: number | null
+          opportunity_type: string
+          risk_level: string | null
+          symbol: string
+        }
+        Insert: {
+          chain?: string | null
+          created_at?: string
+          detected_at?: string
+          dex_pair?: string | null
+          estimated_profit_usd?: number | null
+          expires_at?: string | null
+          gas_cost_usd?: number | null
+          id?: string
+          net_profit_usd?: number | null
+          opportunity_type: string
+          risk_level?: string | null
+          symbol: string
+        }
+        Update: {
+          chain?: string | null
+          created_at?: string
+          detected_at?: string
+          dex_pair?: string | null
+          estimated_profit_usd?: number | null
+          expires_at?: string | null
+          gas_cost_usd?: number | null
+          id?: string
+          net_profit_usd?: number | null
+          opportunity_type?: string
+          risk_level?: string | null
+          symbol?: string
         }
         Relationships: []
       }
@@ -590,6 +787,51 @@ export type Database = {
         }
         Relationships: []
       }
+      sentiment_signals: {
+        Row: {
+          analyzed_at: string
+          bearish_count: number | null
+          bullish_count: number | null
+          created_at: string
+          id: string
+          influencer_mentions: number | null
+          mention_count: number | null
+          sample_posts: Json | null
+          sentiment_score: number
+          source: string
+          symbol: string
+          trending_rank: number | null
+        }
+        Insert: {
+          analyzed_at?: string
+          bearish_count?: number | null
+          bullish_count?: number | null
+          created_at?: string
+          id?: string
+          influencer_mentions?: number | null
+          mention_count?: number | null
+          sample_posts?: Json | null
+          sentiment_score: number
+          source: string
+          symbol: string
+          trending_rank?: number | null
+        }
+        Update: {
+          analyzed_at?: string
+          bearish_count?: number | null
+          bullish_count?: number | null
+          created_at?: string
+          id?: string
+          influencer_mentions?: number | null
+          mention_count?: number | null
+          sample_posts?: Json | null
+          sentiment_score?: number
+          source?: string
+          symbol?: string
+          trending_rank?: number | null
+        }
+        Relationships: []
+      }
       strategy_performance: {
         Row: {
           avg_profit: number | null
@@ -665,6 +907,57 @@ export type Database = {
           tier?: string
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      top_traders: {
+        Row: {
+          avg_trade_size_usd: number | null
+          best_performing_assets: string[] | null
+          created_at: string
+          display_name: string | null
+          followers_count: number | null
+          id: string
+          last_active_at: string | null
+          risk_score: number | null
+          total_pnl_usd: number | null
+          total_trades: number | null
+          trading_style: string | null
+          updated_at: string
+          wallet_address: string
+          win_rate: number | null
+        }
+        Insert: {
+          avg_trade_size_usd?: number | null
+          best_performing_assets?: string[] | null
+          created_at?: string
+          display_name?: string | null
+          followers_count?: number | null
+          id?: string
+          last_active_at?: string | null
+          risk_score?: number | null
+          total_pnl_usd?: number | null
+          total_trades?: number | null
+          trading_style?: string | null
+          updated_at?: string
+          wallet_address: string
+          win_rate?: number | null
+        }
+        Update: {
+          avg_trade_size_usd?: number | null
+          best_performing_assets?: string[] | null
+          created_at?: string
+          display_name?: string | null
+          followers_count?: number | null
+          id?: string
+          last_active_at?: string | null
+          risk_score?: number | null
+          total_pnl_usd?: number | null
+          total_trades?: number | null
+          trading_style?: string | null
+          updated_at?: string
+          wallet_address?: string
+          win_rate?: number | null
         }
         Relationships: []
       }
@@ -749,6 +1042,51 @@ export type Database = {
           referred_by_code?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      whale_signals: {
+        Row: {
+          action: string
+          amount: number
+          amount_usd: number | null
+          confidence: number | null
+          created_at: string
+          detected_at: string
+          from_exchange: boolean | null
+          id: string
+          symbol: string
+          to_exchange: boolean | null
+          transaction_hash: string | null
+          whale_address: string | null
+        }
+        Insert: {
+          action: string
+          amount: number
+          amount_usd?: number | null
+          confidence?: number | null
+          created_at?: string
+          detected_at?: string
+          from_exchange?: boolean | null
+          id?: string
+          symbol: string
+          to_exchange?: boolean | null
+          transaction_hash?: string | null
+          whale_address?: string | null
+        }
+        Update: {
+          action?: string
+          amount?: number
+          amount_usd?: number | null
+          confidence?: number | null
+          created_at?: string
+          detected_at?: string
+          from_exchange?: boolean | null
+          id?: string
+          symbol?: string
+          to_exchange?: boolean | null
+          transaction_hash?: string | null
+          whale_address?: string | null
         }
         Relationships: []
       }

@@ -31,6 +31,7 @@ const navItems = [
   { path: '/ai-trader', icon: Bot, label: 'Autonomous AI', badge: 'AUTO' },
   { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning', badge: 'NEW' },
   { path: '/moonshot-scanner', icon: Rocket, label: 'Moonshot Scanner', badge: '🚀' },
+  { path: '/crypto-signals', icon: Zap, label: 'Crypto Signals', badge: 'NEW' },
   { path: '/risk-management', icon: Shield, label: 'Risk Management' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
