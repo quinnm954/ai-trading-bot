@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -22,16 +22,22 @@ import {
   AlertTriangle,
   Loader2,
   ExternalLink,
-  Copy
+  Copy,
+  Timer
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 
+const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 export default function CryptoSignals() {
   const queryClient = useQueryClient();
   const [isScanning, setIsScanning] = useState(false);
   const [activeTab, setActiveTab] = useState('whale');
+  const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
+  const [nextScanIn, setNextScanIn] = useState(AUTO_REFRESH_INTERVAL / 1000);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
 
   // Fetch whale signals
   const { data: whaleSignals, isLoading: loadingWhale } = useQuery({
@@ -109,7 +115,8 @@ export default function CryptoSignals() {
     refetchInterval: 60000,
   });
 
-  const handleScan = async () => {
+  const runScan = useCallback(async (silent = false) => {
+    if (isScanning) return;
     setIsScanning(true);
     try {
       const { data, error } = await supabase.functions.invoke('crypto-signals-scanner', {
@@ -118,9 +125,14 @@ export default function CryptoSignals() {
       
       if (error) throw error;
       
-      toast.success('Signals scan complete', {
-        description: `Found ${Object.values(data.results || {}).reduce((a: number, b: any) => a + (b || 0), 0)} new signals`
-      });
+      setLastScanTime(new Date());
+      setNextScanIn(AUTO_REFRESH_INTERVAL / 1000);
+      
+      if (!silent) {
+        toast.success('Signals scan complete', {
+          description: `Found ${Object.values(data.results || {}).reduce((a: number, b: any) => a + (b || 0), 0)} new signals`
+        });
+      }
       
       // Refresh all queries
       queryClient.invalidateQueries({ queryKey: ['whale-signals'] });
@@ -130,11 +142,40 @@ export default function CryptoSignals() {
       queryClient.invalidateQueries({ queryKey: ['defi-yields'] });
     } catch (error) {
       console.error('Scan error:', error);
-      toast.error('Failed to scan signals');
+      if (!silent) {
+        toast.error('Failed to scan signals');
+      }
     } finally {
       setIsScanning(false);
     }
-  };
+  }, [isScanning, queryClient]);
+
+  const handleScan = () => runScan(false);
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+
+    // Countdown timer
+    const countdownInterval = setInterval(() => {
+      setNextScanIn(prev => {
+        if (prev <= 1) {
+          return AUTO_REFRESH_INTERVAL / 1000;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Auto-scan interval
+    const scanInterval = setInterval(() => {
+      runScan(true);
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => {
+      clearInterval(countdownInterval);
+      clearInterval(scanInterval);
+    };
+  }, [autoRefreshEnabled, runScan]);
 
   // Group sentiment by symbol
   const sentimentBySymbol = sentimentSignals?.reduce((acc: any, signal: any) => {
@@ -156,12 +197,45 @@ export default function CryptoSignals() {
     <FeatureGate feature="moonshot_scanner">
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-              <h1 className="text-3xl font-bold text-foreground">Crypto Signals</h1>
-              <p className="text-muted-foreground">
-                Real-time whale tracking, sentiment analysis, MEV opportunities, and more
-              </p>
+            <h1 className="text-3xl font-bold text-foreground">Crypto Signals</h1>
+            <p className="text-muted-foreground">
+              Real-time whale tracking, sentiment analysis, MEV opportunities, and more
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Auto-refresh status */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-6 w-6 p-0 ${autoRefreshEnabled ? 'text-green-400' : 'text-muted-foreground'}`}
+                    onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                  >
+                    <Timer className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {autoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+                </TooltipContent>
+              </Tooltip>
+              <div className="text-xs">
+                {autoRefreshEnabled ? (
+                  <span className="text-muted-foreground">
+                    Next scan in <span className="font-mono text-foreground">{Math.floor(nextScanIn / 60)}:{String(nextScanIn % 60).padStart(2, '0')}</span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Auto-refresh off</span>
+                )}
+              </div>
+              {lastScanTime && (
+                <Badge variant="outline" className="text-xs">
+                  Last: {formatDistanceToNow(lastScanTime, { addSuffix: true })}
+                </Badge>
+              )}
             </div>
             <Button 
               onClick={handleScan} 
@@ -176,6 +250,7 @@ export default function CryptoSignals() {
               Scan Now
             </Button>
           </div>
+        </div>
 
           {/* Stats Overview */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
