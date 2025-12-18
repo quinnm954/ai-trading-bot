@@ -22,12 +22,15 @@ import {
   AlertTriangle,
   Loader2,
   ExternalLink,
-  Copy,
-  Timer
+  UserPlus,
+  UserMinus,
+  Timer,
+  Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { FeatureGate } from '@/components/subscription/UpgradePrompt';
+import { useFollowedTraders } from '@/hooks/useFollowedTraders';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -38,6 +41,15 @@ export default function CryptoSignals() {
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
   const [nextScanIn, setNextScanIn] = useState(AUTO_REFRESH_INTERVAL / 1000);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  
+  const { 
+    followedTraders, 
+    followTrader, 
+    unfollowTrader, 
+    isFollowing,
+    isFollowingLoading,
+    isUnfollowingLoading 
+  } = useFollowedTraders();
 
   // Fetch whale signals
   const { data: whaleSignals, isLoading: loadingWhale } = useQuery({
@@ -554,88 +566,166 @@ export default function CryptoSignals() {
 
             {/* Copy Trading Tab */}
             <TabsContent value="copy">
-              <Card className="bg-card/50 border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-green-400" />
-                    Top Traders
-                  </CardTitle>
-                  <CardDescription>
-                    Track and copy successful traders with proven track records
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[500px]">
-                    {loadingTraders ? (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : topTraders?.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        No traders found. Click "Scan Now" to discover top traders.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {topTraders?.map((trader: any, idx: number) => (
+              <div className="space-y-6">
+                {/* Followed Traders Section */}
+                {followedTraders && followedTraders.length > 0 && (
+                  <Card className="bg-card/50 border-green-500/30">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <Check className="w-5 h-5 text-green-400" />
+                        Following ({followedTraders.length})
+                      </CardTitle>
+                      <CardDescription>
+                        The AI will mirror positions from these traders based on their signals
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {topTraders?.filter((t: any) => isFollowing(t.id)).map((trader: any) => (
                           <div 
-                            key={trader.id} 
-                            className="p-4 rounded-lg bg-muted/30 border border-border/50 hover:border-green-500/50 transition-colors"
+                            key={trader.id}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30"
                           >
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-sm font-bold">
-                                  #{idx + 1}
-                                </div>
-                                <div>
-                                  <p className="font-bold">{trader.display_name}</p>
-                                  <p className="text-xs text-muted-foreground font-mono">
-                                    {trader.wallet_address?.slice(0, 6)}...{trader.wallet_address?.slice(-4)}
-                                  </p>
-                                </div>
-                              </div>
-                              <Button size="sm" variant="outline" className="gap-2">
-                                <Copy className="w-4 h-4" /> Follow
-                              </Button>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-                              <div>
-                                <p className="text-muted-foreground">Win Rate</p>
-                                <p className="font-medium text-green-400">{trader.win_rate?.toFixed(1)}%</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Total P&L</p>
-                                <p className={`font-medium ${trader.total_pnl_usd >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                  ${trader.total_pnl_usd?.toLocaleString()}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Trades</p>
-                                <p className="font-medium">{trader.total_trades}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Style</p>
-                                <Badge variant="outline">{trader.trading_style}</Badge>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Followers</p>
-                                <p className="font-medium">{trader.followers_count?.toLocaleString()}</p>
-                              </div>
-                            </div>
-                            {trader.best_performing_assets?.length > 0 && (
-                              <div className="mt-3 flex gap-2">
-                                <span className="text-xs text-muted-foreground">Best at:</span>
-                                {trader.best_performing_assets.slice(0, 5).map((asset: string) => (
-                                  <Badge key={asset} variant="secondary" className="text-xs">{asset}</Badge>
-                                ))}
-                              </div>
-                            )}
+                            <span className="font-medium text-sm">{trader.display_name}</span>
+                            <Badge variant="outline" className="text-xs border-green-500/50 text-green-400">
+                              {trader.win_rate?.toFixed(0)}% WR
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+                              onClick={() => unfollowTrader(trader.id)}
+                              disabled={isUnfollowingLoading}
+                            >
+                              <UserMinus className="w-3 h-3" />
+                            </Button>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </ScrollArea>
-                </CardContent>
-              </Card>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* All Traders */}
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="w-5 h-5 text-green-400" />
+                      Top Traders
+                    </CardTitle>
+                    <CardDescription>
+                      Track and copy successful traders with proven track records
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[500px]">
+                      {loadingTraders ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : topTraders?.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          No traders found. Click "Scan Now" to discover top traders.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {topTraders?.map((trader: any, idx: number) => {
+                            const following = isFollowing(trader.id);
+                            return (
+                              <div 
+                                key={trader.id} 
+                                className={`p-4 rounded-lg border transition-colors ${
+                                  following 
+                                    ? 'bg-green-500/5 border-green-500/30 hover:border-green-500/50' 
+                                    : 'bg-muted/30 border-border/50 hover:border-green-500/50'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                                      following 
+                                        ? 'bg-gradient-to-br from-green-500 to-green-600' 
+                                        : 'bg-gradient-to-br from-primary to-primary/50'
+                                    }`}>
+                                      #{idx + 1}
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <p className="font-bold">{trader.display_name}</p>
+                                        {following && (
+                                          <Badge variant="outline" className="text-xs border-green-500/50 text-green-400">
+                                            Following
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground font-mono">
+                                        {trader.wallet_address?.slice(0, 6)}...{trader.wallet_address?.slice(-4)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {following ? (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      className="gap-2 border-red-500/50 text-red-400 hover:bg-red-500/10"
+                                      onClick={() => unfollowTrader(trader.id)}
+                                      disabled={isUnfollowingLoading}
+                                    >
+                                      <UserMinus className="w-4 h-4" /> Unfollow
+                                    </Button>
+                                  ) : (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      className="gap-2 border-green-500/50 text-green-400 hover:bg-green-500/10"
+                                      onClick={() => followTrader({ traderId: trader.id })}
+                                      disabled={isFollowingLoading}
+                                    >
+                                      <UserPlus className="w-4 h-4" /> Follow
+                                    </Button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                                  <div>
+                                    <p className="text-muted-foreground">Win Rate</p>
+                                    <p className="font-medium text-green-400">{trader.win_rate?.toFixed(1)}%</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Total P&L</p>
+                                    <p className={`font-medium ${trader.total_pnl_usd >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                      ${trader.total_pnl_usd?.toLocaleString()}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Trades</p>
+                                    <p className="font-medium">{trader.total_trades}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Style</p>
+                                    <Badge variant="outline">{trader.trading_style}</Badge>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Followers</p>
+                                    <p className="font-medium">{trader.followers_count?.toLocaleString()}</p>
+                                  </div>
+                                </div>
+                                {trader.best_performing_assets?.length > 0 && (
+                                  <div className="mt-3 flex gap-2">
+                                    <span className="text-xs text-muted-foreground">Best at:</span>
+                                    {trader.best_performing_assets.slice(0, 5).map((asset: string) => (
+                                      <Badge key={asset} variant="secondary" className="text-xs">{asset}</Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             {/* DeFi Yields Tab */}

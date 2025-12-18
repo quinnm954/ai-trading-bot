@@ -436,6 +436,44 @@ export type Database = {
         }
         Relationships: []
       }
+      followed_traders: {
+        Row: {
+          copy_percentage: number | null
+          followed_at: string
+          id: string
+          is_active: boolean
+          max_copy_amount_usd: number | null
+          trader_id: string
+          user_id: string
+        }
+        Insert: {
+          copy_percentage?: number | null
+          followed_at?: string
+          id?: string
+          is_active?: boolean
+          max_copy_amount_usd?: number | null
+          trader_id: string
+          user_id: string
+        }
+        Update: {
+          copy_percentage?: number | null
+          followed_at?: string
+          id?: string
+          is_active?: boolean
+          max_copy_amount_usd?: number | null
+          trader_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "followed_traders_trader_id_fkey"
+            columns: ["trader_id"]
+            isOneToOne: false
+            referencedRelation: "top_traders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invite_codes: {
         Row: {
           code: string
