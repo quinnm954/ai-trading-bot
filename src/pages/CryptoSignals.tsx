@@ -25,12 +25,15 @@ import {
   UserPlus,
   UserMinus,
   Timer,
-  Check
+  Check,
+  Activity,
+  Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { useFollowedTraders } from '@/hooks/useFollowedTraders';
+import { useCopyTradeSignals } from '@/hooks/useCopyTradeSignals';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -50,6 +53,12 @@ export default function CryptoSignals() {
     isFollowingLoading,
     isUnfollowingLoading 
   } = useFollowedTraders();
+
+  const { 
+    signals: copyTradeSignals, 
+    isLoading: loadingSignals,
+    executeCopyTrades 
+  } = useCopyTradeSignals();
 
   // Fetch whale signals
   const { data: whaleSignals, isLoading: loadingWhale } = useQuery({
@@ -605,6 +614,126 @@ export default function CryptoSignals() {
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Real-time Copy Trade Signals */}
+                <Card className="bg-card/50 border-primary/30">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <Activity className="w-5 h-5 text-primary animate-pulse" />
+                          Live Trading Signals
+                        </CardTitle>
+                        <CardDescription>
+                          Real-time trades from followed traders - AI mirrors these automatically
+                        </CardDescription>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-2"
+                        onClick={async () => {
+                          try {
+                            await executeCopyTrades();
+                            toast.success('Copy trades executed');
+                          } catch {
+                            toast.error('Failed to execute copy trades');
+                          }
+                        }}
+                      >
+                        <Copy className="w-4 h-4" /> Execute Now
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {loadingSignals ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : !followedTraders || followedTraders.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        Follow traders above to see their real-time signals
+                      </div>
+                    ) : copyTradeSignals.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No recent signals from followed traders. Signals appear when they trade.
+                      </div>
+                    ) : (
+                      <ScrollArea className="h-[300px]">
+                        <div className="space-y-2">
+                          {copyTradeSignals.map((signal: any) => (
+                            <div
+                              key={signal.id}
+                              className={`p-3 rounded-lg border transition-all ${
+                                signal.status === 'pending'
+                                  ? 'bg-yellow-500/5 border-yellow-500/30 animate-pulse'
+                                  : signal.status === 'copied'
+                                  ? 'bg-green-500/5 border-green-500/30'
+                                  : 'bg-muted/30 border-border/50'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-lg ${
+                                    signal.action === 'buy' 
+                                      ? 'bg-green-500/20' 
+                                      : 'bg-red-500/20'
+                                  }`}>
+                                    {signal.action === 'buy' ? (
+                                      <ArrowUpRight className="w-4 h-4 text-green-400" />
+                                    ) : (
+                                      <ArrowDownRight className="w-4 h-4 text-red-400" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold">{signal.symbol}</span>
+                                      <Badge 
+                                        variant={signal.action === 'buy' ? 'default' : 'destructive'}
+                                        className="text-xs"
+                                      >
+                                        {signal.action.toUpperCase()}
+                                      </Badge>
+                                      <Badge 
+                                        variant={signal.status === 'pending' ? 'outline' : 'secondary'}
+                                        className={`text-xs ${
+                                          signal.status === 'pending' 
+                                            ? 'border-yellow-500/50 text-yellow-400' 
+                                            : signal.status === 'copied'
+                                            ? 'border-green-500/50 text-green-400'
+                                            : ''
+                                        }`}
+                                      >
+                                        {signal.status}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      by {signal.trader?.display_name || 'Unknown'} • {signal.trader?.win_rate?.toFixed(0)}% WR
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-medium">${signal.entry_price?.toFixed(2)}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    ${signal.trade_value_usd?.toFixed(0)} value
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{formatDistanceToNow(new Date(signal.created_at), { addSuffix: true })}</span>
+                                {signal.copied_at && (
+                                  <span className="text-green-400">
+                                    ✓ Copied {formatDistanceToNow(new Date(signal.copied_at), { addSuffix: true })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    )}
+                  </CardContent>
+                </Card>
 
                 {/* All Traders */}
                 <Card className="bg-card/50 border-border/50">

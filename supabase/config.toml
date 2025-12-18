@@ -1,5 +1,8 @@
 project_id = "obtfgoktgigulszrfzvp"
 
+[functions.copy-trade-executor]
+verify_jwt = false
+
 [functions.test-broker-connection]
 verify_jwt = false
 
