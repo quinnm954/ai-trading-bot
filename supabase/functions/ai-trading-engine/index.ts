@@ -2091,6 +2091,77 @@ serve(async (req) => {
       }
     }
 
+    // 👥 COPY TRADING PRIORITY - Boost assets from followed traders' best performing assets
+    const { data: followedTraders } = await supabase
+      .from('followed_traders')
+      .select('trader_id, is_active')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+    
+    if (followedTraders && followedTraders.length > 0) {
+      console.log(`👥 Copy Trading: ${followedTraders.length} followed traders found`);
+      
+      // Get the top_traders data for followed traders
+      const traderIds = followedTraders.map((f: any) => f.trader_id);
+      const { data: traders } = await supabase
+        .from('top_traders')
+        .select('id, display_name, best_performing_assets, win_rate')
+        .in('id', traderIds);
+      
+      if (traders && traders.length > 0) {
+        // Collect all best performing assets from followed traders
+        const copyTradeAssets: Map<string, { count: number; avgWinRate: number }> = new Map();
+        
+        traders.forEach((trader: any) => {
+          const assets = trader.best_performing_assets || [];
+          const winRate = trader.win_rate || 50;
+          
+          assets.forEach((asset: string) => {
+            const normalized = asset.toUpperCase();
+            const existing = copyTradeAssets.get(normalized);
+            if (existing) {
+              existing.count += 1;
+              existing.avgWinRate = (existing.avgWinRate + winRate) / 2;
+            } else {
+              copyTradeAssets.set(normalized, { count: 1, avgWinRate: winRate });
+            }
+          });
+        });
+        
+        if (copyTradeAssets.size > 0) {
+          console.log(`📋 Copy Trade Priority Assets (from ${traders.length} traders):`);
+          copyTradeAssets.forEach((data, symbol) => {
+            console.log(`   ${symbol}: ${data.count} trader(s), avg win rate: ${data.avgWinRate.toFixed(1)}%`);
+          });
+          
+          // Re-sort tradeable to prioritize copy trade assets
+          prioritizedTradeable = [...prioritizedTradeable].sort((a, b) => {
+            const aData = copyTradeAssets.get(a.symbol);
+            const bData = copyTradeAssets.get(b.symbol);
+            
+            // Score: count * avgWinRate (higher = better)
+            const aScore = aData ? aData.count * aData.avgWinRate : 0;
+            const bScore = bData ? bData.count * bData.avgWinRate : 0;
+            
+            // If both have copy trade priority, sort by score
+            if (aScore > 0 && bScore > 0) return bScore - aScore;
+            // Copy trade assets come first
+            if (aScore > 0) return -1;
+            if (bScore > 0) return 1;
+            // Otherwise keep existing order
+            return 0;
+          });
+          
+          console.log(`📊 Final priority order: ${prioritizedTradeable.slice(0, 10).map(c => {
+            const data = copyTradeAssets.get(c.symbol);
+            return data ? `${c.symbol}(👥${data.count})` : c.symbol;
+          }).join(', ')}${prioritizedTradeable.length > 10 ? '...' : ''}`);
+        }
+      }
+    } else {
+      console.log('👥 No followed traders - using standard priority');
+    }
+
     // If all coins are in downtrend, skip trading entirely
     if (tradeable.length === 0) {
       console.log('⚠️ All coins in downtrend - SKIPPING TRADING');
