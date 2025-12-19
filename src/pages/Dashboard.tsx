@@ -18,6 +18,7 @@ import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
+import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -104,7 +105,9 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-4 lg:space-y-6 animate-fade-in">
+    <>
+      <PaperTradingOnboarding />
+      <div className="space-y-4 lg:space-y-6 animate-fade-in">
       {/* Header with Refresh */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -241,5 +244,6 @@ export default function Dashboard() {
         </div>
       </div>
     </div>
+    </>
   );
 }
