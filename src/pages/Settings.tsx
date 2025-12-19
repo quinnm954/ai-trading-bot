@@ -18,6 +18,7 @@ import { InviteManager } from '@/components/settings/InviteManager';
 import { SubscriptionManager } from '@/components/settings/SubscriptionManager';
 import { LegalAndPrivacy } from '@/components/settings/LegalAndPrivacy';
 import { PasswordChange } from '@/components/settings/PasswordChange';
+import { ResetPaperBalance } from '@/components/settings/ResetPaperBalance';
 
 export default function Settings() {
   const [notifications, setNotifications] = useState({
@@ -263,9 +264,11 @@ export default function Settings() {
 
             {/* Password Change */}
             <PasswordChange />
-          </div>
 
-          {/* Subscription Management */}
+            {/* Reset Paper Balance */}
+            <ResetPaperBalance />
+
+          </div>
           <div className="mt-6">
             <SubscriptionManager />
           </div>
