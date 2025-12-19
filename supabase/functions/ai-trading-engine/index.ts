@@ -1530,24 +1530,35 @@ function analyzeWithRules(
     const volatilityPercent = priceRange / coin.price * 100;
     
     // AGGRESSIVE SCALPING LOGIC - Multiple entry signals per strategy
+    // TREND FILTER: RSI strategy now requires 7d uptrend to avoid buying in downtrends
+    const isIn7dUptrend = (coin as any).change7d > 0 || coin.change24h > 2;
+    const isInDowntrend = coin.change24h < -5 || ((coin as any).change7d ?? 0) < -10;
+    
     switch (bestStrategy) {
       case 'rsi':
-        // AGGRESSIVE RSI - Multiple entry points
-        if (pricePosition < 0.25) {
+        // TREND-FILTERED RSI - Only buy oversold in uptrending assets
+        // FIX: Previous RSI was buying in downtrends, causing consistent losses
+        if (isInDowntrend) {
+          // SKIP: Don't buy RSI signals in downtrends
+          console.log(`🛑 RSI SKIP: ${coin.symbol} in downtrend (24h: ${coin.change24h.toFixed(1)}%)`);
+          break;
+        }
+        
+        if (pricePosition < 0.25 && isIn7dUptrend) {
           action = 'buy';
-          confidence = 0.95;
-          reason = `🔥 RSI SCALP: Deep oversold (${(pricePosition * 100).toFixed(0)}%) - BOUNCE IMMINENT`;
-          pattern = 'rsi_deep_oversold';
-        } else if (pricePosition < 0.4 && coin.change24h < -0.5) {
+          confidence = 0.90;
+          reason = `🔥 RSI+TREND: Deep oversold (${(pricePosition * 100).toFixed(0)}%) in uptrend`;
+          pattern = 'rsi_trend_bounce';
+        } else if (pricePosition < 0.4 && coin.change24h > -2 && isIn7dUptrend) {
           action = 'buy';
-          confidence = 0.85;
-          reason = `📉 RSI SCALP: Oversold dip (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'rsi_oversold';
-        } else if (pricePosition < 0.5 && coin.change24h >= 0) {
+          confidence = 0.80;
+          reason = `📉 RSI+TREND: Oversold dip (${(pricePosition * 100).toFixed(0)}%) with trend support`;
+          pattern = 'rsi_trend_dip';
+        } else if (pricePosition < 0.5 && coin.change24h >= 0.5) {
           action = 'buy';
-          confidence = 0.75;
-          reason = `📊 RSI SCALP: Mid-range reversal starting`;
-          pattern = 'rsi_reversal';
+          confidence = 0.70;
+          reason = `📊 RSI: Mid-range with positive momentum`;
+          pattern = 'rsi_momentum';
         }
         break;
         
@@ -2532,25 +2543,56 @@ serve(async (req) => {
         continue;
       }
 
-      // Create position with correct market type
-      const { error: positionError } = await supabase.from('positions').insert({
-        user_id: user.id,
-        symbol: decision.symbol,
-        side: decision.action,
-        quantity,
-        avg_entry_price: actualEntryPrice,
-        current_price: coinData.price,
-        market_type: marketType, // Dynamic based on asset type
-        is_paper: isPaperMode,
-        strategy: strategyType,
-        unrealized_pnl: 0,
-      });
-
-      if (positionError) {
-        console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
+      // FIX: Check for existing position BEFORE creating a new one to prevent duplicates
+      const { data: existingPosition } = await supabase
+        .from('positions')
+        .select('id, quantity, avg_entry_price')
+        .eq('user_id', user.id)
+        .eq('symbol', decision.symbol)
+        .eq('is_paper', isPaperMode)
+        .maybeSingle();
+      
+      if (existingPosition) {
+        // UPDATE existing position instead of creating duplicate
+        const newQuantity = existingPosition.quantity + quantity;
+        const newAvgPrice = ((existingPosition.quantity * existingPosition.avg_entry_price) + (quantity * actualEntryPrice)) / newQuantity;
+        
+        const { error: updateError } = await supabase
+          .from('positions')
+          .update({
+            quantity: newQuantity,
+            avg_entry_price: newAvgPrice,
+            current_price: coinData.price,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingPosition.id);
+        
+        if (updateError) {
+          console.error(`❌ Error updating position for ${decision.symbol}:`, updateError);
+        } else {
+          console.log(`📊 UPDATED existing ${decision.symbol} position: +${quantity} @ $${actualEntryPrice} → Total: ${newQuantity.toFixed(6)} @ avg $${newAvgPrice.toFixed(4)}`);
+        }
       } else {
-        const assetIcon = isStock ? '📈' : '🪙';
-        console.log(`${assetIcon} Created ${isPaperMode ? 'PAPER' : 'LIVE'} ${marketType.toUpperCase()} position: ${quantity} ${decision.symbol}`);
+        // Create NEW position (no existing position found)
+        const { error: positionError } = await supabase.from('positions').insert({
+          user_id: user.id,
+          symbol: decision.symbol,
+          side: decision.action,
+          quantity,
+          avg_entry_price: actualEntryPrice,
+          current_price: coinData.price,
+          market_type: marketType,
+          is_paper: isPaperMode,
+          strategy: strategyType,
+          unrealized_pnl: 0,
+        });
+
+        if (positionError) {
+          console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
+        } else {
+          const assetIcon = isStock ? '📈' : '🪙';
+          console.log(`${assetIcon} Created NEW ${isPaperMode ? 'PAPER' : 'LIVE'} ${marketType.toUpperCase()} position: ${quantity} ${decision.symbol}`);
+        }
       }
 
       // Update paper account balance (only for paper mode)
