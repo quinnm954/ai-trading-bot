@@ -6,7 +6,8 @@ import {
   Database,
   Clock,
   Save,
-  Scale
+  Scale,
+  GraduationCap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -198,6 +199,34 @@ export default function Settings() {
                 <Button variant="destructive" className="w-full">
                   Clear Paper Trading History
                 </Button>
+              </div>
+            </div>
+
+            {/* Onboarding & Help */}
+            <div className="glass-panel p-6">
+              <div className="flex items-center gap-2 mb-6">
+                <GraduationCap className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-semibold text-foreground">Onboarding & Help</h3>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-4 rounded-lg bg-secondary/30">
+                  <p className="font-medium text-foreground mb-2">Getting Started Tutorial</p>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Replay the onboarding tutorial to learn about paper trading, AI features, and risk management.
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    className="w-full gap-2"
+                    onClick={() => {
+                      localStorage.removeItem('titan_onboarding_completed');
+                      toast.success('Tutorial reset! Visit the Dashboard to see it again.');
+                    }}
+                  >
+                    <GraduationCap className="w-4 h-4" />
+                    Replay Tutorial
+                  </Button>
+                </div>
               </div>
             </div>
 
