@@ -731,7 +731,6 @@ export type Database = {
           id: string
           is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
-          peak_pnl_percent: number | null
           quantity: number
           side: Database["public"]["Enums"]["trade_side"]
           strategy: Database["public"]["Enums"]["strategy_type"] | null
@@ -747,7 +746,6 @@ export type Database = {
           id?: string
           is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
-          peak_pnl_percent?: number | null
           quantity: number
           side: Database["public"]["Enums"]["trade_side"]
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
@@ -763,7 +761,6 @@ export type Database = {
           id?: string
           is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
-          peak_pnl_percent?: number | null
           quantity?: number
           side?: Database["public"]["Enums"]["trade_side"]
           strategy?: Database["public"]["Enums"]["strategy_type"] | null

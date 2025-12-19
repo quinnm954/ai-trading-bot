@@ -15,8 +15,6 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
 const ROTATION_PROFIT_THRESHOLD = 5.0; // 5% profit triggers rotation (~4.2% net after fees)
 // Stop loss: emergency protection
 const BASE_STOP_LOSS_PERCENT = -2.5; // Wider stop loss for more breathing room
-// TRAILING PROFIT PROTECTION - Sell when gains drop 1.5% below peak
-const TRAILING_DROP_THRESHOLD = 1.5; // Sell if current gain is 1.5% below peak gain
 // Minimum momentum for target asset (must be rising)
 const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
 // Maximum momentum - avoid buying at the top
@@ -1139,25 +1137,14 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
     
-    // TRAILING PROFIT PROTECTION: Track peak gains and sell if current drops 1.5% below peak
-    const storedPeakPnl = Number(position.peak_pnl_percent) || 0;
-    const currentPeakPnl = Math.max(storedPeakPnl, pnlPercent);
-    const dropFromPeak = currentPeakPnl - pnlPercent;
-    
-    // Trigger trailing stop if: we have meaningful peak gains AND current dropped 1.5%+ below peak
-    const hasSignificantPeak = currentPeakPnl >= 1.0; // Only activate if peak was at least 1%
-    const shouldProtectGains = hasSignificantPeak && dropFromPeak >= TRAILING_DROP_THRESHOLD && pnlPercent > 0;
-    
     // Log position status for monitoring (even when not triggering)
-    const statusIcon = hitRotationTarget ? '🔄' : hitStopLoss ? '🛑' : shouldProtectGains ? '🔒' : '👀';
+    const statusIcon = hitRotationTarget ? '🔄' : hitStopLoss ? '🛑' : '👀';
     const distToRotate = (rotationThreshold - pnlPercent).toFixed(2);
     const distToStop = (pnlPercent - adjustedStopLoss).toFixed(2);
-    const peakInfo = currentPeakPnl > 0 ? ` | Peak: ${currentPeakPnl.toFixed(2)}% | Drop: ${dropFromPeak.toFixed(2)}%` : '';
-    console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}%${peakInfo} | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%${shouldProtectGains ? ' | 🔒 TRAILING STOP' : ''}`);
+    console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%`);
 
-    if (hitRotationTarget || hitStopLoss || shouldProtectGains) {
-      const triggerReason = hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitStopLoss ? '🛑 STOP TRIGGERED' : `🔒 TRAILING STOP (peak ${currentPeakPnl.toFixed(2)}% → now ${pnlPercent.toFixed(2)}%)`;
-      console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+    if (hitRotationTarget || hitStopLoss) {
+      console.log(`${hitRotationTarget ? '🔄 ROTATE TRIGGERED' : '🛑 STOP TRIGGERED'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
@@ -1280,25 +1267,21 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       }
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
-      const decisionType = hitRotationTarget ? 'rotation' : shouldProtectGains ? 'trailing_stop' : 'auto_stop_loss';
-      const reasoningEmoji = hitRotationTarget ? '🔄 Rotation' : shouldProtectGains ? `🔒 Trailing stop (peak ${currentPeakPnl.toFixed(2)}%)` : '🛑 Stop loss';
-      
       await supabase.from('ai_decisions').insert({
         user_id: userId,
-        decision_type: decisionType,
+        decision_type: hitRotationTarget ? 'rotation' : 'auto_stop_loss',
         symbol: position.symbol,
         action: didDirectConversion ? 'rotate' : 'sell',
-        reasoning: `${reasoningEmoji} at ${pnlPercent.toFixed(3)}%${conversionNote}${shouldProtectGains ? ` - dropped ${dropFromPeak.toFixed(2)}% from peak` : ''}`,
+        reasoning: `${hitRotationTarget ? '🔄 Rotation' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${conversionNote}`,
       });
 
-      if (hitRotationTarget || shouldProtectGains) takeProfitCount++;
+      if (hitRotationTarget) takeProfitCount++;
       else stopLossCount++;
     } else {
-      // Update position with current price AND track peak PnL for trailing stop
+      // Update position with current price
       await supabase.from('positions').update({
         current_price: currentPrice,
         unrealized_pnl: pnl,
-        peak_pnl_percent: currentPeakPnl, // Always update to track highest gain
         updated_at: new Date().toISOString(),
       }).eq('id', position.id);
     }
