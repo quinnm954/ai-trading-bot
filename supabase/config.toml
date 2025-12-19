@@ -35,3 +35,9 @@ verify_jwt = false
 
 [functions.send-welcome-email]
 verify_jwt = false
+
+[functions.send-trade-confirmation]
+verify_jwt = false
+
+[functions.send-weekly-summary]
+verify_jwt = false
