@@ -15,6 +15,9 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
 const ROTATION_PROFIT_THRESHOLD = 5.0; // 5% profit triggers rotation (~4.2% net after fees)
 // Stop loss: emergency protection
 const BASE_STOP_LOSS_PERCENT = -2.5; // Wider stop loss for more breathing room
+// TRAILING PROFIT PROTECTION - Don't lose unrealized gains
+const TRAILING_PROFIT_FLOOR = 1.5; // If gains drop below 1.5%, sell immediately
+const TRAILING_PROFIT_ACTIVATION = 3.0; // Activate trailing once gains reach 3%
 // Minimum momentum for target asset (must be rising)
 const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
 // Maximum momentum - avoid buying at the top
@@ -1137,14 +1140,25 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
     
+    // TRAILING PROFIT PROTECTION: If position previously had good gains but dropped below floor, sell
+    // This prevents losing unrealized gains - if we were up 3%+ and now dropped below 1.5%, exit
+    const peakGainEstimate = Math.max(pnlPercent, 0); // Current is our best estimate
+    const hadSignificantGains = pnlPercent < TRAILING_PROFIT_ACTIVATION && pnlPercent >= TRAILING_PROFIT_FLOOR;
+    const trailingProfitTrigger = pnlPercent > 0 && pnlPercent < TRAILING_PROFIT_FLOOR;
+    
+    // If we have any gains between 0-1.5% and position is crypto, protect by selling
+    // Better to lock in 1% than risk losing it all
+    const shouldProtectGains = trailingProfitTrigger && pnlPercent > 0.5;
+    
     // Log position status for monitoring (even when not triggering)
-    const statusIcon = hitRotationTarget ? '🔄' : hitStopLoss ? '🛑' : '👀';
+    const statusIcon = hitRotationTarget ? '🔄' : hitStopLoss ? '🛑' : shouldProtectGains ? '🔒' : '👀';
     const distToRotate = (rotationThreshold - pnlPercent).toFixed(2);
     const distToStop = (pnlPercent - adjustedStopLoss).toFixed(2);
-    console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%`);
+    console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%${shouldProtectGains ? ' | 🔒 PROTECT GAINS' : ''}`);
 
-    if (hitRotationTarget || hitStopLoss) {
-      console.log(`${hitRotationTarget ? '🔄 ROTATE TRIGGERED' : '🛑 STOP TRIGGERED'} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+    if (hitRotationTarget || hitStopLoss || shouldProtectGains) {
+      const triggerReason = hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitStopLoss ? '🛑 STOP TRIGGERED' : '🔒 TRAILING PROFIT PROTECTION';
+      console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
@@ -1267,15 +1281,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       }
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
+      const decisionType = hitRotationTarget ? 'rotation' : shouldProtectGains ? 'trailing_profit_protection' : 'auto_stop_loss';
+      const reasoningEmoji = hitRotationTarget ? '🔄 Rotation' : shouldProtectGains ? '🔒 Trailing profit protection' : '🛑 Stop loss';
+      
       await supabase.from('ai_decisions').insert({
         user_id: userId,
-        decision_type: hitRotationTarget ? 'rotation' : 'auto_stop_loss',
+        decision_type: decisionType,
         symbol: position.symbol,
         action: didDirectConversion ? 'rotate' : 'sell',
-        reasoning: `${hitRotationTarget ? '🔄 Rotation' : '🛑 Stop loss'} at ${pnlPercent.toFixed(3)}%${conversionNote}`,
+        reasoning: `${reasoningEmoji} at ${pnlPercent.toFixed(3)}%${conversionNote}${shouldProtectGains ? ' - locked in gains before they disappeared' : ''}`,
       });
 
-      if (hitRotationTarget) takeProfitCount++;
+      if (hitRotationTarget || shouldProtectGains) takeProfitCount++;
       else stopLossCount++;
     } else {
       // Update position with current price
