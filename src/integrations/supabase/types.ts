@@ -1083,6 +1083,24 @@ export type Database = {
         }
         Relationships: []
       }
+      welcome_emails_sent: {
+        Row: {
+          id: string
+          sent_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          sent_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          sent_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       whale_signals: {
         Row: {
           action: string

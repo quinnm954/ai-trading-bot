@@ -12,7 +12,7 @@ const corsHeaders = {
 
 interface WelcomeEmailRequest {
   userId?: string;
-  sendToAll?: boolean;
+  forceResend?: boolean;
 }
 
 const sendEmail = async (to: string, subject: string, html: string) => {
@@ -45,27 +45,50 @@ const handler = async (req: Request): Promise<Response> => {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { userId, sendToAll }: WelcomeEmailRequest = await req.json();
+    
+    let body: WelcomeEmailRequest = {};
+    try {
+      body = await req.json();
+    } catch {
+      // Allow empty body for cron calls
+    }
+    
+    const { userId, forceResend } = body;
 
-    console.log("Starting welcome email process", { userId, sendToAll });
+    console.log("Starting welcome email process", { userId, forceResend, time: new Date().toISOString() });
 
-    // Find users who haven't started trading (no trades in the trades table)
-    let query = supabase
-      .from("user_roles")
+    // Get users who signed up more than 24 hours ago
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // Get all users from auth who signed up 24+ hours ago
+    const { data: authUsers, error: authListError } = await supabase.auth.admin.listUsers({
+      perPage: 1000,
+    });
+
+    if (authListError) {
+      console.error("Error fetching auth users:", authListError);
+      throw authListError;
+    }
+
+    // Filter to users who signed up 24+ hours ago
+    const eligibleUsers = authUsers.users.filter(u => {
+      const createdAt = new Date(u.created_at);
+      return createdAt < new Date(twentyFourHoursAgo);
+    });
+
+    console.log(`Found ${eligibleUsers.length} users who signed up 24+ hours ago`);
+
+    // Get users who already received welcome email
+    const { data: alreadySent, error: sentError } = await supabase
+      .from("welcome_emails_sent")
       .select("user_id");
 
-    if (userId) {
-      query = query.eq("user_id", userId);
+    if (sentError) {
+      console.error("Error fetching sent emails:", sentError);
+      throw sentError;
     }
 
-    const { data: allUsers, error: usersError } = await query;
-
-    if (usersError) {
-      console.error("Error fetching users:", usersError);
-      throw usersError;
-    }
-
-    console.log(`Found ${allUsers?.length || 0} users to check`);
+    const alreadySentSet = new Set(alreadySent?.map(s => s.user_id) || []);
 
     // Get users who have trades
     const { data: usersWithTrades, error: tradesError } = await supabase
@@ -79,26 +102,30 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const usersWithTradesSet = new Set(usersWithTrades?.map(t => t.user_id) || []);
-    
-    // Filter to users who haven't traded
-    const usersToEmail = allUsers?.filter(u => !usersWithTradesSet.has(u.user_id)) || [];
-    
-    console.log(`Found ${usersToEmail.length} users who haven't started trading`);
+
+    // Filter to users who:
+    // 1. Haven't received the email yet (unless forceResend)
+    // 2. Haven't traded yet
+    // 3. Match userId if provided
+    const usersToEmail = eligibleUsers.filter(u => {
+      if (userId && u.id !== userId) return false;
+      if (!forceResend && alreadySentSet.has(u.id)) return false;
+      if (usersWithTradesSet.has(u.id)) return false;
+      return true;
+    });
+
+    console.log(`Found ${usersToEmail.length} users eligible for welcome email`);
 
     const emailsSent: string[] = [];
     const errors: string[] = [];
 
     for (const user of usersToEmail) {
-      // Get user email from auth
-      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.user_id);
-      
-      if (authError || !authUser?.user?.email) {
-        console.error(`Could not get email for user ${user.user_id}:`, authError);
-        errors.push(`User ${user.user_id}: No email found`);
+      if (!user.email) {
+        console.log(`User ${user.id} has no email, skipping`);
         continue;
       }
 
-      const email = authUser.user.email;
+      const email = user.email;
       console.log(`Sending welcome email to ${email}`);
 
       try {
@@ -156,6 +183,16 @@ const handler = async (req: Request): Promise<Response> => {
 
         await sendEmail(email, "Ready to Start Your Trading Journey?", welcomeHtml);
         console.log(`Email sent to ${email}`);
+
+        // Record that we sent the email
+        const { error: insertError } = await supabase
+          .from("welcome_emails_sent")
+          .upsert({ user_id: user.id, sent_at: new Date().toISOString() });
+
+        if (insertError) {
+          console.error(`Failed to record email sent for ${user.id}:`, insertError);
+        }
+
         emailsSent.push(email);
       } catch (emailError: any) {
         console.error(`Failed to send email to ${email}:`, emailError);
