@@ -8,6 +8,125 @@ const corsHeaders = {
 };
 
 // =============================================================================
+// LOSS PREVENTION SYSTEM - Prevents repeated losing trades on same asset
+// =============================================================================
+
+interface RecentLoss {
+  symbol: string;
+  lossCount: number;
+  lastLossAt: Date;
+  totalLossPercent: number;
+}
+
+/**
+ * Fetches recent losing trades for a symbol to prevent repeated losses
+ * Returns symbols that should be avoided (cooldown period)
+ */
+async function getRecentLosingSymbols(
+  supabase: any,
+  userId: string,
+  isPaperMode: boolean,
+  cooldownHours: number = 6, // Don't trade same symbol for X hours after loss
+  maxConsecutiveLosses: number = 2 // Max losses before longer cooldown
+): Promise<Map<string, RecentLoss>> {
+  const lossCooldownMap = new Map<string, RecentLoss>();
+  
+  try {
+    // Get recent closed trades with losses in the last 24 hours
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    
+    const { data: recentTrades } = await supabase
+      .from('trades')
+      .select('symbol, pnl, closed_at, entry_price, exit_price')
+      .eq('user_id', userId)
+      .eq('is_paper', isPaperMode)
+      .eq('status', 'closed')
+      .lt('pnl', 0) // Only losses
+      .gte('closed_at', cutoffTime)
+      .order('closed_at', { ascending: false });
+    
+    if (!recentTrades || recentTrades.length === 0) {
+      console.log('✅ No recent losses - all symbols available');
+      return lossCooldownMap;
+    }
+    
+    // Group losses by symbol
+    for (const trade of recentTrades) {
+      const existing = lossCooldownMap.get(trade.symbol);
+      const lossPercent = trade.entry_price > 0 
+        ? ((trade.exit_price - trade.entry_price) / trade.entry_price) * 100 
+        : 0;
+      
+      if (existing) {
+        existing.lossCount += 1;
+        existing.totalLossPercent += Math.abs(lossPercent);
+      } else {
+        lossCooldownMap.set(trade.symbol, {
+          symbol: trade.symbol,
+          lossCount: 1,
+          lastLossAt: new Date(trade.closed_at),
+          totalLossPercent: Math.abs(lossPercent),
+        });
+      }
+    }
+    
+    // Log which symbols are on cooldown
+    if (lossCooldownMap.size > 0) {
+      console.log(`⏸️ LOSS COOLDOWN - Recent losing symbols:`);
+      lossCooldownMap.forEach((loss, symbol) => {
+        const hoursSinceLoss = (Date.now() - loss.lastLossAt.getTime()) / (1000 * 60 * 60);
+        const isOnCooldown = hoursSinceLoss < cooldownHours || loss.lossCount >= maxConsecutiveLosses;
+        console.log(`   ${symbol}: ${loss.lossCount} loss(es), -${loss.totalLossPercent.toFixed(2)}%, ${hoursSinceLoss.toFixed(1)}h ago ${isOnCooldown ? '🚫 BLOCKED' : '✅ OK'}`);
+      });
+    }
+    
+    return lossCooldownMap;
+  } catch (error) {
+    console.error('Error fetching recent losses:', error);
+    return lossCooldownMap;
+  }
+}
+
+/**
+ * Check if a symbol should be blocked due to recent losses
+ */
+function shouldBlockSymbolDueToLosses(
+  symbol: string,
+  lossCooldownMap: Map<string, RecentLoss>,
+  cooldownHours: number = 6,
+  maxConsecutiveLosses: number = 2
+): { blocked: boolean; reason: string } {
+  const lossData = lossCooldownMap.get(symbol);
+  
+  if (!lossData) {
+    return { blocked: false, reason: '' };
+  }
+  
+  const hoursSinceLoss = (Date.now() - lossData.lastLossAt.getTime()) / (1000 * 60 * 60);
+  
+  // Block if too many consecutive losses (extended cooldown)
+  if (lossData.lossCount >= maxConsecutiveLosses) {
+    const extendedCooldown = cooldownHours * lossData.lossCount; // Scale cooldown with losses
+    if (hoursSinceLoss < extendedCooldown) {
+      return {
+        blocked: true,
+        reason: `🛑 BLOCKED: ${symbol} has ${lossData.lossCount} consecutive losses (-${lossData.totalLossPercent.toFixed(1)}%). Cooldown: ${(extendedCooldown - hoursSinceLoss).toFixed(1)}h remaining`,
+      };
+    }
+  }
+  
+  // Block if within standard cooldown period
+  if (hoursSinceLoss < cooldownHours) {
+    return {
+      blocked: true,
+      reason: `⏸️ COOLDOWN: ${symbol} lost money ${hoursSinceLoss.toFixed(1)}h ago. Wait ${(cooldownHours - hoursSinceLoss).toFixed(1)}h`,
+    };
+  }
+  
+  return { blocked: false, reason: '' };
+}
+
+// =============================================================================
 // RISK MANAGER INTEGRATION - Validates trades before execution
 // =============================================================================
 
@@ -2236,13 +2355,25 @@ serve(async (req) => {
       decisions = analyzeWithRules(prioritizedTradeable, regime, settings.max_position_size, balance, bestStrategy);
     }
 
-    // Double-check: Filter out any decisions for coins in downtrend (safety net)
+    // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money
+    const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 6, 2);
+    
+    // Double-check: Filter out any decisions for coins in downtrend OR recent losses (safety net)
     decisions = decisions.filter(d => {
+      // Check trend
       const trend = trendAnalysis.find(t => t.symbol === d.symbol);
       if (trend && !trend.shouldTrade) {
         console.log(`🛡️ Safety filter: Blocking ${d.action} on ${d.symbol} - in ${trend.trend}`);
         return false;
       }
+      
+      // Check loss cooldown
+      const lossCheck = shouldBlockSymbolDueToLosses(d.symbol, lossCooldownMap, 6, 2);
+      if (lossCheck.blocked) {
+        console.log(lossCheck.reason);
+        return false;
+      }
+      
       return true;
     });
 

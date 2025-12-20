@@ -170,28 +170,27 @@ function validateTrade(
 
   // ==========================================================================
   // CHECK 7: Total Capital Usage - Don't over-commit
-  // For capital usage, we check if the NEW trade would exceed limits relative to AVAILABLE cash
-  // Not total equity (which includes existing positions already invested)
+  // Capital usage = (value in positions) / (total equity)
+  // We want to limit how much of our equity is deployed in positions
   // ==========================================================================
-  // Only check if there's enough cash for the new trade, not if total exposure exceeds equity
-  // The maxCapitalUsage limit should apply to how much of available cash we're willing to deploy
-  const availableCash = currentEquity; // This is the available cash, not total portfolio
-  const totalPortfolioValue = availableCash + openPositionsValue;
   
-  // Check if new trade value exceeds available cash
-  if (proposal.positionValue > availableCash) {
+  // Calculate what our exposure would be AFTER this trade
+  const totalExposureAfterTrade = openPositionsValue + proposal.positionValue;
+  
+  // Capital usage % = how much of our equity is in positions
+  const capitalUsagePercent = (totalExposureAfterTrade / currentEquity) * 100;
+  
+  // Check if we have enough cash for this trade
+  const availableCash = currentEquity - openPositionsValue; // Cash not in positions
+  if (proposal.positionValue > availableCash * 1.05) { // Allow 5% buffer for price movements
     violations.push(`insufficient_funds: Trade value $${proposal.positionValue.toFixed(2)} exceeds available cash $${availableCash.toFixed(2)}`);
     approved = false;
     severity = 'warning';
   }
   
-  // Check if we're deploying more than maxCapitalUsage of our total portfolio
-  const totalExposureAfterTrade = openPositionsValue + proposal.positionValue;
-  const exposurePercentOfPortfolio = (totalExposureAfterTrade / totalPortfolioValue) * 100;
-  
-  // Only block if maxCapitalUsage is below 100% AND we'd exceed it
-  if (settings.maxCapitalUsage < 100 && exposurePercentOfPortfolio > settings.maxCapitalUsage) {
-    violations.push(`capital_usage: ${exposurePercentOfPortfolio.toFixed(2)}% exceeds limit of ${settings.maxCapitalUsage}%`);
+  // Only block if we'd exceed maxCapitalUsage (how much of equity can be in positions)
+  if (capitalUsagePercent > settings.maxCapitalUsage) {
+    violations.push(`capital_usage: ${capitalUsagePercent.toFixed(2)}% exceeds limit of ${settings.maxCapitalUsage}%`);
     approved = false;
     severity = 'warning';
   }
