@@ -337,14 +337,19 @@ async function logRiskEvent(
 
 /**
  * Resets daily loss tracking (called at start of each day)
+ * Also resets when positions are closed and balance has recovered
  */
 async function resetDailyLossIfNeeded(
   supabase: any,
   userId: string,
-  lastResetDate: string | null
+  lastResetDate: string | null,
+  openPositionsCount: number = 0,
+  currentEquity: number = 0,
+  dailyLossToday: number = 0
 ): Promise<boolean> {
   const today = new Date().toISOString().split('T')[0];
   
+  // Reset on new calendar day
   if (!lastResetDate || lastResetDate !== today) {
     await supabase.from('ai_settings').update({
       daily_loss_today: 0,
@@ -352,6 +357,21 @@ async function resetDailyLossIfNeeded(
     }).eq('user_id', userId);
     
     console.log(`📅 Daily loss reset for ${today}`);
+    return true;
+  }
+  
+  // SMART RESET: When no open positions and we hit the loss limit,
+  // reset the daily loss counter so trading can resume with current balance
+  // This allows locking in profits and starting fresh within the same day
+  if (openPositionsCount === 0 && dailyLossToday > 0) {
+    // Reset daily loss to allow new trades with current balance as new baseline
+    await supabase.from('ai_settings').update({
+      daily_loss_today: 0,
+      // Update peak equity to current equity to establish new baseline
+      peak_equity: currentEquity,
+    }).eq('user_id', userId);
+    
+    console.log(`🔄 Daily loss reset (positions closed, balance: $${currentEquity.toFixed(2)})`);
     return true;
   }
   
@@ -441,8 +461,45 @@ serve(async (req) => {
       targetEquity: settingsData.target_equity || 1000000,
     };
 
-    // Reset daily/weekly losses if needed
-    await resetDailyLossIfNeeded(supabase, userId, settingsData.last_loss_reset_date);
+    // Get current open positions count for smart reset logic
+    const isPaperMode = settings.tradingMode === 'paper';
+    const { data: positionsData } = await supabase
+      .from('positions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('is_paper', isPaperMode);
+    
+    const currentOpenPositionsCount = positionsData?.length || 0;
+    
+    // Get current account balance for smart reset
+    let currentBalance = currentEquity || 0;
+    if (!currentBalance) {
+      if (isPaperMode) {
+        const { data: paperAccount } = await supabase
+          .from('paper_account')
+          .select('balance')
+          .eq('user_id', userId)
+          .maybeSingle();
+        currentBalance = paperAccount?.balance || 100000;
+      } else {
+        const { data: liveAccount } = await supabase
+          .from('live_account')
+          .select('equity')
+          .eq('user_id', userId)
+          .maybeSingle();
+        currentBalance = liveAccount?.equity || 0;
+      }
+    }
+
+    // Reset daily/weekly losses if needed (now with smart reset when positions closed)
+    await resetDailyLossIfNeeded(
+      supabase, 
+      userId, 
+      settingsData.last_loss_reset_date,
+      currentOpenPositionsCount,
+      currentBalance,
+      settings.dailyLossToday
+    );
     await resetWeeklyLossIfNeeded(supabase, userId, settingsData.last_loss_reset_date);
 
     // Handle different actions
