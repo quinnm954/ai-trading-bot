@@ -8,6 +8,77 @@ const corsHeaders = {
 };
 
 // =============================================================================
+// DUPLICATE TRADE PREVENTION - Stops rapid re-entry on same symbol
+// =============================================================================
+
+type TradeSide = 'buy' | 'sell';
+
+const DUPLICATE_TRADE_COOLDOWN_MINUTES = 90; // prevents stacking the same trade every minute
+
+function tradeKey(symbol: string, side: TradeSide) {
+  return `${symbol.toUpperCase()}:${side}`;
+}
+
+async function getRecentTradeKeys(
+  supabase: any,
+  userId: string,
+  isPaperMode: boolean,
+  cooldownMinutes: number
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const cutoff = new Date(Date.now() - cooldownMinutes * 60 * 1000).toISOString();
+
+  const { data: trades, error } = await supabase
+    .from('trades')
+    .select('symbol, side, created_at')
+    .eq('user_id', userId)
+    .eq('is_paper', isPaperMode)
+    .gte('created_at', cutoff)
+    .order('created_at', { ascending: false })
+    .limit(250);
+
+  if (error) {
+    console.log('⚠️ Duplicate guard: failed to fetch recent trades:', error.message || error);
+    return map;
+  }
+
+  for (const t of trades || []) {
+    const key = tradeKey(t.symbol, t.side as TradeSide);
+    // trades are ordered desc; first time we see key is most recent
+    if (!map.has(key) && t.created_at) {
+      map.set(key, new Date(t.created_at).getTime());
+    }
+  }
+
+  return map;
+}
+
+async function getOpenPositionSymbols(
+  supabase: any,
+  userId: string,
+  isPaperMode: boolean
+): Promise<Set<string>> {
+  const set = new Set<string>();
+
+  const { data: positions, error } = await supabase
+    .from('positions')
+    .select('symbol')
+    .eq('user_id', userId)
+    .eq('is_paper', isPaperMode);
+
+  if (error) {
+    console.log('⚠️ Duplicate guard: failed to fetch positions:', error.message || error);
+    return set;
+  }
+
+  for (const p of positions || []) {
+    if (p.symbol) set.add(String(p.symbol).toUpperCase());
+  }
+
+  return set;
+}
+
+// =============================================================================
 // LOSS PREVENTION SYSTEM - Prevents repeated losing trades on same asset
 // =============================================================================
 
@@ -1858,6 +1929,52 @@ serve(async (req) => {
         .single();
       
       const isPaperMode = settings?.trading_mode !== 'live';
+
+      // 🧯 DUPLICATE TRADE GUARD (approved-trade execution path)
+      // Prevent accidental repeated approvals/retries stacking the same trade.
+      if (side === 'buy') {
+        const { data: existingPosition } = await supabase
+          .from('positions')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('symbol', symbol)
+          .eq('is_paper', isPaperMode)
+          .maybeSingle();
+
+        if (existingPosition) {
+          return new Response(JSON.stringify({
+            error: 'Duplicate trade prevented',
+            details: `Already holding ${symbol} - not opening another buy position.`,
+          }), {
+            status: 409,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      const recentCutoff = new Date(Date.now() - DUPLICATE_TRADE_COOLDOWN_MINUTES * 60 * 1000).toISOString();
+      const { data: recentSameTrade } = await supabase
+        .from('trades')
+        .select('id, created_at')
+        .eq('user_id', userId)
+        .eq('symbol', symbol)
+        .eq('side', side)
+        .eq('is_paper', isPaperMode)
+        .gte('created_at', recentCutoff)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (recentSameTrade?.created_at) {
+        return new Response(JSON.stringify({
+          error: 'Duplicate trade prevented',
+          details: `A ${side.toUpperCase()} ${symbol} trade was already created recently (${recentSameTrade.created_at}).`,
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       let actualQuantity = quantity;
       let actualPrice = price;
       
@@ -2472,6 +2589,18 @@ serve(async (req) => {
     const executedTrades: any[] = [];
     let tradesExecuted = 0;
 
+    // Build duplicate-trade guard state once per run (fast + consistent)
+    const lastTradeByKey = await getRecentTradeKeys(
+      supabase,
+      user.id,
+      isPaperMode,
+      DUPLICATE_TRADE_COOLDOWN_MINUTES
+    );
+    const openPositionSymbols = await getOpenPositionSymbols(supabase, user.id, isPaperMode);
+    console.log(
+      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m)`
+    );
+
     // Execute trades (limited to available slots)
     for (const decision of limitedDecisions) {
       // Double-check we haven't exceeded the limit during this loop
@@ -2484,6 +2613,27 @@ serve(async (req) => {
       
       const coinData = marketData.find(m => m.symbol === decision.symbol);
       if (!coinData) continue;
+
+      // 🧯 DUPLICATE TRADE GUARD
+      // 1) Never open a new BUY if we already have an open position in that symbol
+      // 2) Never repeat the same (symbol+side) within the cooldown window
+      const symbolUpper = String(decision.symbol).toUpperCase();
+      const side = decision.action as TradeSide;
+      const key = tradeKey(symbolUpper, side);
+      const lastAt = lastTradeByKey.get(key);
+
+      if (side === 'buy' && openPositionSymbols.has(symbolUpper)) {
+        console.log(`🧯 SKIP duplicate BUY: already holding ${symbolUpper}`);
+        continue;
+      }
+
+      if (lastAt && Date.now() - lastAt < DUPLICATE_TRADE_COOLDOWN_MINUTES * 60 * 1000) {
+        const minsAgo = (Date.now() - lastAt) / (1000 * 60);
+        console.log(
+          `🧯 SKIP duplicate ${side.toUpperCase()} ${symbolUpper}: last ${minsAgo.toFixed(1)}m ago (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m)`
+        );
+        continue;
+      }
 
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
       const MIN_TRADE_VALUE = 5.00;
@@ -2755,6 +2905,11 @@ serve(async (req) => {
       
       // Increment counter to respect max_concurrent_trades
       tradesExecuted++;
+
+      // Update in-memory duplicate guard state so we don't re-enter within this run
+      lastTradeByKey.set(tradeKey(decision.symbol, decision.action as TradeSide), Date.now());
+      if (decision.action === 'buy') openPositionSymbols.add(String(decision.symbol).toUpperCase());
+      if (decision.action === 'sell') openPositionSymbols.delete(String(decision.symbol).toUpperCase());
 
       console.log(`🎯 Executed ${decision.action} for ${decision.symbol}: ${quantity.toFixed(6)} @ $${coinData.price} | Pattern: ${decision.pattern} | Trades: ${tradesExecuted}/${remainingSlots}`);
     }
