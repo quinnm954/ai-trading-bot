@@ -93,10 +93,15 @@ interface RecentLoss {
  * Fetches recent losing trades for a symbol to prevent repeated losses
  * Returns symbols that should be avoided (cooldown period)
  */
+/**
+ * Fetches recent losing trades for a symbol to prevent repeated losses
+ * IMPORTANT: Checks BOTH paper and live trades to learn from all losses
+ * This prevents repeating the same mistakes when switching modes
+ */
 async function getRecentLosingSymbols(
   supabase: any,
   userId: string,
-  isPaperMode: boolean,
+  _isPaperMode: boolean, // Kept for API compatibility but not used - we check ALL modes
   cooldownHours: number = 6, // Don't trade same symbol for X hours after loss
   maxConsecutiveLosses: number = 2 // Max losses before longer cooldown
 ): Promise<Map<string, RecentLoss>> {
@@ -104,24 +109,26 @@ async function getRecentLosingSymbols(
   
   try {
     // Get recent closed trades with losses in the last 24 hours
+    // CRITICAL: Check ALL trades regardless of paper/live mode
+    // This prevents repeating losing trades when switching modes
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     
     const { data: recentTrades } = await supabase
       .from('trades')
-      .select('symbol, pnl, closed_at, entry_price, exit_price')
+      .select('symbol, pnl, closed_at, entry_price, exit_price, is_paper')
       .eq('user_id', userId)
-      .eq('is_paper', isPaperMode)
+      // REMOVED: .eq('is_paper', isPaperMode) - now checks ALL modes
       .eq('status', 'closed')
       .lt('pnl', 0) // Only losses
       .gte('closed_at', cutoffTime)
       .order('closed_at', { ascending: false });
     
     if (!recentTrades || recentTrades.length === 0) {
-      console.log('✅ No recent losses - all symbols available');
+      console.log('✅ No recent losses in any mode - all symbols available');
       return lossCooldownMap;
     }
     
-    // Group losses by symbol
+    // Group losses by symbol (across both modes)
     for (const trade of recentTrades) {
       const existing = lossCooldownMap.get(trade.symbol);
       const lossPercent = trade.entry_price > 0 
@@ -143,7 +150,7 @@ async function getRecentLosingSymbols(
     
     // Log which symbols are on cooldown
     if (lossCooldownMap.size > 0) {
-      console.log(`⏸️ LOSS COOLDOWN - Recent losing symbols:`);
+      console.log(`⏸️ LOSS COOLDOWN - Recent losing symbols (across all modes):`);
       lossCooldownMap.forEach((loss, symbol) => {
         const hoursSinceLoss = (Date.now() - loss.lastLossAt.getTime()) / (1000 * 60 * 60);
         const isOnCooldown = hoursSinceLoss < cooldownHours || loss.lossCount >= maxConsecutiveLosses;
