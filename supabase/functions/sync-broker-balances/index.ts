@@ -37,7 +37,7 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'MATIC': 'matic-network', 'POL': 'polygon-ecosystem-token',
 };
 
-// Fetch live prices from CoinGecko
+// Fetch live prices from CoinGecko with retry and better error handling
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
   
@@ -45,26 +45,49 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
     .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
     .filter(Boolean);
   
-  if (ids.length === 0) return prices;
-  
-  try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
-    );
-    
-    if (response.ok) {
-      const data = await response.json();
-      for (const symbol of symbols) {
-        const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
-        if (geckoId && data[geckoId]?.usd) {
-          prices[symbol.toUpperCase()] = data[geckoId].usd;
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error fetching prices:', error);
+  if (ids.length === 0) {
+    console.log(`⚠️ No CoinGecko mappings for symbols: ${symbols.join(', ')}`);
+    return prices;
   }
   
+  console.log(`🔍 Fetching prices for: ${ids.join(', ')}`);
+  
+  // Try up to 2 times with delay
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
+      );
+      
+      if (response.status === 429) {
+        console.log(`⚠️ CoinGecko rate limited (attempt ${attempt}), waiting...`);
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`✅ CoinGecko response:`, JSON.stringify(data).substring(0, 300));
+        
+        for (const symbol of symbols) {
+          const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
+          if (geckoId && data[geckoId]?.usd) {
+            prices[symbol.toUpperCase()] = data[geckoId].usd;
+          }
+        }
+        break; // Success, exit retry loop
+      } else {
+        console.log(`⚠️ CoinGecko error: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error(`Error fetching prices (attempt ${attempt}):`, error);
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+  }
+  
+  console.log(`💰 Prices found for ${Object.keys(prices).length}/${symbols.length} symbols`);
   return prices;
 }
 
@@ -653,6 +676,7 @@ serve(async (req) => {
             
             // Sync holdings to positions table with accurate P&L
             // Filter out dust positions (below $1 value) to prevent clutter
+            // BUT: If price is unknown (0), keep the position to be safe
             const DUST_THRESHOLD_USD = 1.0;
             
             if (balanceData.holdings.length > 0) {
@@ -661,11 +685,19 @@ serve(async (req) => {
               const livePrices = await fetchLivePrices(holdingSymbols);
               
               // Filter out dust positions before processing
+              // IMPORTANT: If we can't get a price, KEEP the position (don't filter as dust)
               const filteredHoldings = balanceData.holdings.filter(h => {
                 const price = livePrices[h.symbol.toUpperCase()] || 0;
+                
+                // If no price available, keep the position (safer approach)
+                if (price === 0) {
+                  console.log(`⚠️ No price for ${h.symbol}, keeping position (qty: ${h.quantity})`);
+                  return true;
+                }
+                
                 const value = h.quantity * price;
                 if (value < DUST_THRESHOLD_USD) {
-                  console.log(`🧹 Skipping dust: ${h.symbol} = $${value.toFixed(4)}`);
+                  console.log(`🧹 Skipping dust: ${h.symbol} = $${value.toFixed(4)} (price: $${price})`);
                   return false;
                 }
                 return true;
@@ -673,14 +705,20 @@ serve(async (req) => {
               
               console.log(`📊 Processing ${filteredHoldings.length} positions (filtered ${balanceData.holdings.length - filteredHoldings.length} dust)`);
               
-              // If all positions are dust, clear the positions table
-              if (filteredHoldings.length === 0) {
+              // Only clear positions if ALL holdings are confirmed dust (have prices)
+              // Don't clear if we couldn't get prices (might be an API issue)
+              const allHavePrice = balanceData.holdings.every(h => livePrices[h.symbol.toUpperCase()] > 0);
+              
+              if (filteredHoldings.length === 0 && allHavePrice) {
                 await serviceClient
                   .from("positions")
                   .delete()
                   .eq("user_id", userId)
                   .eq("is_paper", false);
-                console.log("🗑️ Cleared all live positions (all dust)");
+                console.log("🗑️ Cleared all live positions (confirmed all dust)");
+                continue;
+              } else if (filteredHoldings.length === 0) {
+                console.log("⚠️ All positions filtered but some missing prices - keeping existing positions");
                 continue;
               }
               
