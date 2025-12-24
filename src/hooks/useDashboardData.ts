@@ -28,6 +28,7 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'LRC': 'loopring', 'SKL': 'skale', 'ICX': 'icon', 'ONE': 'harmony',
   'STORJ': 'storj', 'OCEAN': 'ocean-protocol', 'RPL': 'rocket-pool', 'GMX': 'gmx',
   'AXS': 'axie-infinity', 'BLUR': 'blur', 'XEC': 'ecash', 'BCH': 'bitcoin-cash',
+  'OKB': 'okb',
 };
 
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
