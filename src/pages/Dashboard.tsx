@@ -7,7 +7,8 @@ import {
   RefreshCw,
   PieChart,
   DollarSign,
-  Trash2
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { EquityChart } from '@/components/dashboard/EquityChart';
@@ -21,6 +22,18 @@ import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressC
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +43,9 @@ export default function Dashboard() {
   const isLiveMode = stats.tradingMode === 'live';
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [clearHistory, setClearHistory] = useState(true);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const handleRefresh = async () => {
@@ -58,6 +74,78 @@ export default function Dashboard() {
     
     await refetch();
     setTimeout(() => setIsRefreshing(false), 500);
+  };
+
+  const handleResetPaperBalance = async () => {
+    setIsResetting(true);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: 'Not authenticated', variant: 'destructive' });
+        return;
+      }
+
+      // Reset paper account balance to initial $100,000
+      const { error: accountError } = await supabase
+        .from('paper_account')
+        .update({ balance: 100000 })
+        .eq('user_id', user.id);
+
+      if (accountError) throw accountError;
+
+      if (clearHistory) {
+        // Delete paper trades
+        await supabase
+          .from('trades')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('is_paper', true);
+
+        // Delete paper positions
+        await supabase
+          .from('positions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('is_paper', true);
+
+        // Delete equity history
+        await supabase
+          .from('equity_history')
+          .delete()
+          .eq('user_id', user.id);
+
+        // Add fresh equity point
+        await supabase
+          .from('equity_history')
+          .insert({ user_id: user.id, equity: 100000 });
+
+        // Reset AI settings drawdown tracking
+        await supabase
+          .from('ai_settings')
+          .update({
+            current_drawdown: 0,
+            peak_equity: 100000,
+            daily_loss_today: 0,
+            weekly_loss_current: 0,
+            kill_switch_active: false,
+            kill_switch_triggered_at: null,
+          })
+          .eq('user_id', user.id);
+
+        toast({ title: '✨ Fresh Start!', description: 'Paper balance reset to $100,000 and all history cleared.' });
+      } else {
+        toast({ title: '💰 Balance Reset', description: 'Paper balance reset to $100,000.' });
+      }
+
+      setResetDialogOpen(false);
+      refetch();
+    } catch (error) {
+      console.error('Reset error:', error);
+      toast({ title: 'Reset failed', variant: 'destructive' });
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   const handleSellAll = async () => {
@@ -119,6 +207,46 @@ export default function Dashboard() {
           )}
         </div>
         <div className="flex gap-2">
+          {!isLiveMode && (
+            <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <RotateCcw className="w-4 h-4" />
+                  <span className="hidden sm:inline">Reset $100k</span>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset Paper Trading Account?</AlertDialogTitle>
+                  <AlertDialogDescription className="space-y-4">
+                    <p>This will reset your paper trading balance back to <strong>$100,000</strong>.</p>
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50">
+                      <Checkbox 
+                        id="clearHistoryDashboard"
+                        checked={clearHistory}
+                        onCheckedChange={(checked) => setClearHistory(checked === true)}
+                      />
+                      <label htmlFor="clearHistoryDashboard" className="text-sm cursor-pointer">
+                        <span className="font-medium text-foreground">Clear all trading history</span>
+                        <p className="text-muted-foreground mt-1">
+                          Delete all paper trades, positions, and equity history for a fresh start.
+                        </p>
+                      </label>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={handleResetPaperBalance}
+                    disabled={isResetting}
+                  >
+                    {isResetting ? 'Resetting...' : 'Reset Balance'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           {isLiveMode && (
             <Button 
               variant="destructive" 
