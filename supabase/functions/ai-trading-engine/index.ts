@@ -1376,6 +1376,14 @@ const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD
 // Minimum price filter - exclude coins worth less than $1
 const MIN_PRICE_USD = 1.0;
 
+// =============================================================================
+// PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
+// Key fix: Old system bought "+9% 24h" thinking it was "strong uptrend" but
+// that means buying at the TOP. This filter ensures we only buy dips, not peaks.
+// =============================================================================
+const MAX_24H_CHANGE_FOR_ENTRY = 1; // Don't buy if already up more than 1% in 24h
+const MIN_24H_CHANGE_FOR_ENTRY = -5; // Don't buy if crashing more than 5%
+
 // DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
   // Pre-filter: Remove stablecoins and low-price coins
@@ -1399,59 +1407,57 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   
   // Step 1: Find DIP-BUY candidates - assets that:
   // - Have positive 7-day trend (overall uptrend)
-  // - But have pulled back in 24h (negative or low 24h change = buying the dip)
+  // - 24h change is between -5% and +1% (BUYING DIPS, NOT PUMPS)
+  // - This prevents the old mistake of buying "+9% 24h" assets at their peak
   const dipBuyCandidates = eligibleCoins.filter(coin => {
     const change24h = coin.change24h ?? 0;
     const change7d = coin.change7d ?? 0;
     const has7dUptrend = change7d > 2; // Asset is up >2% over 7 days (uptrend)
-    const hasDip = change24h < 1 && change24h > -8; // Recent pullback (-8% to +1%)
-    const notCrashing = change24h > -8; // Avoid free-falling assets
-    return has7dUptrend && hasDip && notCrashing;
-  });
-  
-  // Also include strong momentum plays (positive 24h AND 7d)
-  const momentumPlays = eligibleCoins.filter(coin => {
-    const change24h = coin.change24h ?? 0;
-    const change7d = coin.change7d ?? 0;
-    const strongMomentum = change24h > 3 && change7d > 5;
-    const notOverbought = change24h < 15; // Avoid parabolic moves
-    return strongMomentum && notOverbought;
-  });
-  
-  // Combine and dedupe
-  const combinedCandidates = [...dipBuyCandidates];
-  momentumPlays.forEach(coin => {
-    if (!combinedCandidates.find(c => c.symbol === coin.symbol)) {
-      combinedCandidates.push(coin);
+    const hasDip = change24h <= MAX_24H_CHANGE_FOR_ENTRY && change24h >= MIN_24H_CHANGE_FOR_ENTRY;
+    
+    // Log parabolic rejections for visibility
+    if (change24h > MAX_24H_CHANGE_FOR_ENTRY) {
+      console.log(`🚫 PARABOLIC SKIP: ${coin.symbol} already +${change24h.toFixed(1)}% today - NOT buying at peak`);
+      return false;
     }
+    if (change24h < MIN_24H_CHANGE_FOR_ENTRY) {
+      console.log(`🚫 CRASH SKIP: ${coin.symbol} down ${change24h.toFixed(1)}% - avoiding falling knife`);
+      return false;
+    }
+    
+    return has7dUptrend && hasDip;
   });
   
-  console.log(`🎯 DIP-BUY FILTER: ${dipBuyCandidates.length} dips + ${momentumPlays.length} momentum = ${combinedCandidates.length} candidates`);
+  // REMOVED momentum plays that allowed buying pumped assets
+  // Old code allowed buying if change24h > 3% which caused the losses
+  // Now we ONLY buy dips in uptrending assets
   
-  // Step 2: Analyze trends for candidates
-  const trendAnalysis = combinedCandidates.map(coin => {
+  console.log(`🎯 DIP-BUY FILTER: ${dipBuyCandidates.length} dip candidates (24h change ${MIN_24H_CHANGE_FOR_ENTRY}% to +${MAX_24H_CHANGE_FOR_ENTRY}% only)`);
+  
+  // Step 2: Analyze trends for candidates (now only dip candidates, no parabolic plays)
+  const trendAnalysis: TrendAnalysis[] = dipBuyCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
     const change24h = coin.change24h ?? 0;
     const change7d = coin.change7d ?? 0;
-    // For dip-buying, we want to trade even on slight pullbacks in uptrending assets
-    const isDipBuy = change7d > 2 && change24h < 1;
-    if (isDipBuy && change24h > -5) {
+    // For dip-buying, we want to trade pullbacks in uptrending assets
+    const isDipBuy = change7d > 2 && change24h <= MAX_24H_CHANGE_FOR_ENTRY;
+    if (isDipBuy && change24h >= MIN_24H_CHANGE_FOR_ENTRY) {
       // Override to allow trading dips in uptrending assets
       return {
         ...analysis,
         shouldTrade: true,
-        reason: `🔄 DIP-BUY: 7d: +${change7d.toFixed(1)}% uptrend, 24h: ${change24h.toFixed(1)}% pullback | Entry opportunity`,
+        reason: `🔄 DIP-BUY: 7d: +${change7d.toFixed(1)}% uptrend, 24h: ${change24h.toFixed(1)}% pullback | NOT buying at peak`,
       };
     }
     return analysis;
   });
   
-  const tradeable = combinedCandidates.filter(coin => {
-    const analysis = trendAnalysis.find(t => t.symbol === coin.symbol);
+  const tradeable = dipBuyCandidates.filter((coin: MarketData) => {
+    const analysis = trendAnalysis.find((t: TrendAnalysis) => t.symbol === coin.symbol);
     return analysis?.shouldTrade ?? false;
   });
   
-  console.log(`📈 Tradeable (dips + momentum): ${tradeable.length}`);
+  console.log(`📈 Tradeable (dips only, no pumps): ${tradeable.length}`);
   
   return { tradeable, trendAnalysis };
 }
