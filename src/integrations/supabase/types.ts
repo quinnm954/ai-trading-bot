@@ -1064,6 +1064,7 @@ export type Database = {
           invited_by: string | null
           referred_by_code: string | null
           role: Database["public"]["Enums"]["app_role"]
+          trial_started_at: string | null
           user_id: string
         }
         Insert: {
@@ -1073,6 +1074,7 @@ export type Database = {
           invited_by?: string | null
           referred_by_code?: string | null
           role: Database["public"]["Enums"]["app_role"]
+          trial_started_at?: string | null
           user_id: string
         }
         Update: {
@@ -1082,6 +1084,7 @@ export type Database = {
           invited_by?: string | null
           referred_by_code?: string | null
           role?: Database["public"]["Enums"]["app_role"]
+          trial_started_at?: string | null
           user_id?: string
         }
         Relationships: []
