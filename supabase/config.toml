@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.send-weekly-summary]
 verify_jwt = false
+
+[functions.send-trial-reminders]
+verify_jwt = false

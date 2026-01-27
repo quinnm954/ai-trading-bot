@@ -18,9 +18,10 @@ import {
 const tiers = [
   {
     name: 'Free',
-    description: 'Master trading risk-free with AI',
+    badge: '7-Day Trial',
+    description: 'Try all features free for 7 days',
     priceUsd: 0,
-    period: 'forever',
+    period: 'for 7 days',
     features: [
       'Unlimited paper trading',
       '$100k virtual balance',
@@ -36,8 +37,9 @@ const tiers = [
     limitations: [
       'Paper trading only',
       'No live broker/exchange connections',
+      'Full access expires after 7 days',
     ],
-    cta: 'Start Free',
+    cta: 'Start Free Trial',
     icon: Sparkles,
     popular: false,
     gradient: 'from-muted to-muted/50',
@@ -264,12 +266,18 @@ export default function Pricing() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-16">
         {/* Hero Section */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-8">
+          {/* Trial Banner */}
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 text-primary mb-6">
+            <Sparkles className="w-4 h-4" />
+            <span className="font-medium">Start with a 7-day free trial • No credit card required</span>
+          </div>
+          
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
             Choose Your Trading Power
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Start free with paper trading, upgrade when you're ready for real profits
+            Try free for 7 days, then upgrade to unlock live trading with real money
           </p>
         </div>
 
@@ -330,6 +338,12 @@ export default function Pricing() {
                 {tier.popular && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-primary text-primary-foreground text-sm font-medium rounded-full">
                     Most Popular
+                  </div>
+                )}
+
+                {'badge' in tier && tier.badge && (
+                  <div className="absolute -top-3 right-4 px-3 py-1 bg-profit/20 text-profit text-xs font-medium rounded-full border border-profit/30">
+                    {tier.badge}
                   </div>
                 )}
 
