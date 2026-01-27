@@ -140,48 +140,80 @@ const handler = async (req: Request): Promise<Response> => {
               <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
                 <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; padding: 40px; border: 1px solid #2a2a4a;">
                   
-                  <h1 style="color: #ffffff; font-size: 28px; margin: 0 0 20px 0; text-align: center;">
-                    Welcome to Titan Trading!
+                  <h1 style="color: #ffffff; font-size: 28px; margin: 0 0 16px 0; text-align: center;">
+                    🚀 Welcome to TitanAI!
                   </h1>
                   
+                  <!-- 7-Day Trial Countdown Banner -->
+                  <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 12px; padding: 20px; margin: 0 0 24px 0; text-align: center;">
+                    <div style="font-size: 32px; font-weight: bold; color: #ffffff; margin: 0 0 8px 0;">
+                      ⏱️ 7 Days Free Trial
+                    </div>
+                    <p style="color: #fef3c7; font-size: 14px; margin: 0;">
+                      Your countdown has started! Explore all premium features before it ends.
+                    </p>
+                  </div>
+                  
                   <p style="color: #a0a0b8; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-                    We noticed you haven't placed your first trade yet. Your AI-powered trading assistant is ready and waiting to help you get started!
+                    We noticed you haven't explored the platform yet. Your AI-powered trading assistant is ready and waiting to help you maximize your trial!
                   </p>
                   
+                  <!-- Features to Explore -->
                   <div style="background: rgba(99, 102, 241, 0.1); border-radius: 12px; padding: 24px; margin: 24px 0; border: 1px solid rgba(99, 102, 241, 0.2);">
                     <h2 style="color: #818cf8; font-size: 18px; margin: 0 0 16px 0;">
-                      Here's what you can do:
+                      🎯 Explore These Features During Your Trial:
                     </h2>
-                    <ul style="color: #a0a0b8; font-size: 14px; line-height: 2; margin: 0; padding-left: 20px;">
-                      <li>Practice with $100,000 in paper trading funds</li>
-                      <li>Get AI-powered market analysis and trade suggestions</li>
-                      <li>Learn strategies with real-time market data</li>
-                      <li>Connect your broker when you're ready for live trading</li>
+                    <ul style="color: #a0a0b8; font-size: 14px; line-height: 2.2; margin: 0; padding-left: 20px;">
+                      <li><strong style="color: #ffffff;">Paper Trading</strong> – Practice with $100,000 virtual funds, risk-free</li>
+                      <li><strong style="color: #ffffff;">AI Trading Engine</strong> – Let AI analyze markets and execute trades automatically</li>
+                      <li><strong style="color: #ffffff;">Risk Management</strong> – Set stop-losses, daily limits, and drawdown protection</li>
+                      <li><strong style="color: #ffffff;">Market Analysis</strong> – Real-time regime detection and strategy recommendations</li>
+                      <li><strong style="color: #ffffff;">Copy Trading</strong> – Follow successful traders and mirror their strategies</li>
                     </ul>
                   </div>
                   
+                  <!-- Day-by-Day Guide -->
+                  <div style="background: rgba(34, 197, 94, 0.1); border-radius: 12px; padding: 24px; margin: 24px 0; border: 1px solid rgba(34, 197, 94, 0.2);">
+                    <h2 style="color: #22c55e; font-size: 18px; margin: 0 0 16px 0;">
+                      📅 Your 7-Day Trial Roadmap:
+                    </h2>
+                    <div style="color: #a0a0b8; font-size: 14px; line-height: 1.8;">
+                      <p style="margin: 0 0 8px 0;"><strong style="color: #ffffff;">Day 1-2:</strong> Connect your paper account and place your first AI-assisted trade</p>
+                      <p style="margin: 0 0 8px 0;"><strong style="color: #ffffff;">Day 3-4:</strong> Explore risk settings and customize your trading parameters</p>
+                      <p style="margin: 0 0 8px 0;"><strong style="color: #ffffff;">Day 5-6:</strong> Enable autonomous trading and watch the AI work</p>
+                      <p style="margin: 0;"><strong style="color: #ffffff;">Day 7:</strong> Review your results and decide on your subscription</p>
+                    </div>
+                  </div>
+                  
                   <div style="text-align: center; margin: 32px 0;">
-                    <a href="https://obtfgoktgigulszrfzvp.lovableproject.com/dashboard" 
-                       style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600;">
-                      Start Trading Now
+                    <a href="https://titanai-trade-automation.lovable.app/dashboard" 
+                       style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 18px; font-weight: 600; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);">
+                      🎮 Start Your Trial Now
                     </a>
                   </div>
                   
+                  <div style="background: rgba(239, 68, 68, 0.1); border-radius: 8px; padding: 16px; margin: 24px 0; border: 1px solid rgba(239, 68, 68, 0.2); text-align: center;">
+                    <p style="color: #fca5a5; font-size: 14px; margin: 0;">
+                      ⚡ <strong>Don't let your trial expire unused!</strong><br/>
+                      <span style="color: #a0a0b8;">You only have 7 days to experience the full power of TitanAI.</span>
+                    </p>
+                  </div>
+                  
                   <p style="color: #6b6b80; font-size: 14px; line-height: 1.6; margin: 24px 0 0 0; text-align: center;">
-                    Questions? Just reply to this email - we're here to help!
+                    Questions? Contact us at capitalservicesmanagementinc@outlook.com
                   </p>
                   
                 </div>
                 
                 <p style="color: #4a4a5a; font-size: 12px; text-align: center; margin: 24px 0 0 0;">
-                  2024 Titan Trading. All rights reserved.
+                  © 2025 TitanAI Trading. All rights reserved.
                 </p>
               </div>
             </body>
           </html>
         `;
 
-        await sendEmail(email, "Ready to Start Your Trading Journey?", welcomeHtml);
+        await sendEmail(email, "🚀 Your 7-Day TitanAI Trial Has Started!", welcomeHtml);
         console.log(`Email sent to ${email}`);
 
         // Record that we sent the email
