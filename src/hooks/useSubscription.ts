@@ -16,8 +16,8 @@ interface SubscriptionState {
 
 // Stripe price IDs for each tier
 export const STRIPE_PRICES = {
-  pro: 'price_1SeNc7KE5ARVDE0Hv8zWXyv1',
-  unlimited: 'price_1SeNcHKE5ARVDE0HesKLJA23',
+  pro: 'price_1SuG0dAG6baXXpZo9pmGvUKs',
+  unlimited: 'price_1SuG0tAG6baXXpZoK4rw3FXX',
 } as const;
 
 // Feature definitions by tier
