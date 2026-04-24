@@ -21,10 +21,10 @@ interface SubscriptionState {
   isInTrial: boolean;
 }
 
-// Stripe price IDs for each tier
-export const STRIPE_PRICES = {
-  pro: 'price_1SuG0dAG6baXXpZo9pmGvUKs',
-  unlimited: 'price_1SuG0tAG6baXXpZoK4rw3FXX',
+// Cash App pricing per tier (USD, 30-day access)
+export const TIER_PRICING = {
+  pro: 49,
+  unlimited: 99,
 } as const;
 
 // Feature definitions by tier
@@ -163,30 +163,7 @@ export function useSubscription() {
         }
       }
 
-      // Fallback to Stripe check if no local data
-      const { data, error } = await supabase.functions.invoke('check-subscription');
-
-      if (error) throw error;
-
-      // If Stripe says subscribed, trust that
-      if (data?.subscribed) {
-        setState({
-          tier: data.tier || 'pro',
-          subscribed: true,
-          subscriptionEnd: data.subscription_end || null,
-          isFreeAccess: data.is_free_access || false,
-          isLoading: false,
-          error: null,
-          cancelAtPeriodEnd: false,
-          trialStartedAt,
-          trialDaysRemaining,
-          isTrialExpired: false,
-          isInTrial: false,
-        });
-        return;
-      }
-
-      // No subscription - check trial status
+      // No active subscription - reflect trial status
       setState({
         tier: 'free',
         subscribed: false,
@@ -287,37 +264,9 @@ export function useSubscription() {
     return false; // Free tier can't add brokers
   }, [state.tier, state.isFreeAccess]);
 
-  const startCheckout = async (tier: 'pro' | 'unlimited') => {
-    if (!isAuthenticated) {
-      throw new Error('Please sign in to subscribe');
-    }
-
-    const priceId = STRIPE_PRICES[tier];
-
-    const { data, error } = await supabase.functions.invoke('create-checkout', {
-      body: { priceId },
-    });
-
-    if (error) throw error;
-    if (data?.url) {
-      window.open(data.url, '_blank');
-    }
-  };
-
-  const openCustomerPortal = async () => {
-    const { data, error } = await supabase.functions.invoke('customer-portal');
-
-    if (error) throw error;
-    if (data?.url) {
-      window.open(data.url, '_blank');
-    }
-  };
-
   return {
     ...state,
     checkSubscription,
-    startCheckout,
-    openCustomerPortal,
     canAccess,
     getRequiredTier,
     canAddBroker,
