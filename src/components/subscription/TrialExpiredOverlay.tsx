@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Crown, Zap, Shield, Brain, Loader2, Check } from 'lucide-react';
+import { Crown, Zap, Shield, Brain, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useSubscription } from '@/hooks/useSubscription';
+import { CashAppPaymentDialog } from './CashAppPaymentDialog';
 
 const PRO_FEATURES = [
   'Live trading with real money',
@@ -20,18 +20,10 @@ const UNLIMITED_FEATURES = [
 ];
 
 export function TrialExpiredOverlay() {
-  const { startCheckout, isLoading: subLoading } = useSubscription();
-  const [loadingTier, setLoadingTier] = useState<'pro' | 'unlimited' | null>(null);
+  const [dialogTier, setDialogTier] = useState<'pro' | 'unlimited' | null>(null);
 
-  const handleUpgrade = async (tier: 'pro' | 'unlimited') => {
-    try {
-      setLoadingTier(tier);
-      await startCheckout(tier);
-    } catch (error) {
-      console.error('Checkout error:', error);
-    } finally {
-      setLoadingTier(null);
-    }
+  const handleUpgrade = (tier: 'pro' | 'unlimited') => {
+    setDialogTier(tier);
   };
 
   return (
@@ -79,14 +71,9 @@ export function TrialExpiredOverlay() {
                 size="lg"
                 className="w-full"
                 onClick={() => handleUpgrade('pro')}
-                disabled={loadingTier !== null || subLoading}
               >
-                {loadingTier === 'pro' ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Zap className="w-4 h-4 mr-2" />
-                )}
-                Get Pro
+                <Zap className="w-4 h-4 mr-2" />
+                Pay with Cash App
               </Button>
             </CardContent>
           </Card>
@@ -121,14 +108,9 @@ export function TrialExpiredOverlay() {
                 size="lg"
                 className="w-full"
                 onClick={() => handleUpgrade('unlimited')}
-                disabled={loadingTier !== null || subLoading}
               >
-                {loadingTier === 'unlimited' ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Crown className="w-4 h-4 mr-2" />
-                )}
-                Get Unlimited
+                <Crown className="w-4 h-4 mr-2" />
+                Pay with Cash App
               </Button>
             </CardContent>
           </Card>
