@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { CreditCard, Crown, Zap, RefreshCw, ExternalLink, Calendar, CheckCircle2 } from 'lucide-react';
+import { CreditCard, Crown, Zap, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useSubscription, SubscriptionTier } from '@/hooks/useSubscription';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
+import { CashAppPaymentDialog } from '@/components/subscription/CashAppPaymentDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
@@ -22,15 +23,13 @@ export function SubscriptionManager() {
     isLoading,
     cancelAtPeriodEnd,
     checkSubscription,
-    startCheckout,
-    openCustomerPortal,
   } = useSubscription();
 
   const { isAdmin, isLoading: isAdminLoading } = useIsAdmin();
   const isCreatorAdmin = isAdmin;
 
   const [refreshing, setRefreshing] = useState(false);
-  const [portalLoading, setPortalLoading] = useState(false);
+  const [dialogTier, setDialogTier] = useState<'pro' | 'unlimited' | null>(null);
 
   const config = tierConfig[tier];
   const TierIcon = config.icon;
@@ -44,25 +43,6 @@ export function SubscriptionManager() {
       toast.error('Failed to refresh subscription status');
     } finally {
       setRefreshing(false);
-    }
-  };
-
-  const handleManageSubscription = async () => {
-    setPortalLoading(true);
-    try {
-      await openCustomerPortal();
-    } catch (error) {
-      toast.error('Failed to open billing portal');
-    } finally {
-      setPortalLoading(false);
-    }
-  };
-
-  const handleUpgrade = async (targetTier: 'pro' | 'unlimited') => {
-    try {
-      await startCheckout(targetTier);
-    } catch (error) {
-      toast.error('Failed to start checkout');
     }
   };
 
@@ -112,18 +92,12 @@ export function SubscriptionManager() {
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold text-foreground">{config.label}</span>
                 {isCreatorAdmin ? (
-                  <Badge variant="secondary" className="text-xs">
-                    Creator Admin
-                  </Badge>
+                  <Badge variant="secondary" className="text-xs">Creator Admin</Badge>
                 ) : isFreeAccess ? (
-                  <Badge variant="secondary" className="text-xs">
-                    Invited User
-                  </Badge>
+                  <Badge variant="secondary" className="text-xs">Invited User</Badge>
                 ) : null}
                 {cancelAtPeriodEnd && (
-                  <Badge variant="destructive" className="text-xs">
-                    Canceling
-                  </Badge>
+                  <Badge variant="destructive" className="text-xs">Canceling</Badge>
                 )}
               </div>
             </div>
@@ -140,8 +114,7 @@ export function SubscriptionManager() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
             <Calendar className="w-4 h-4" />
             <span>
-              {cancelAtPeriodEnd ? 'Access until' : 'Renews on'}{' '}
-              {format(new Date(subscriptionEnd), 'MMM d, yyyy')}
+              Active until {format(new Date(subscriptionEnd), 'MMM d, yyyy')}
             </span>
           </div>
         )}
@@ -154,52 +127,47 @@ export function SubscriptionManager() {
           <p className="text-sm text-muted-foreground mt-2">
             You have full access to all features through an invite.
           </p>
-        ) : null}
+        ) : !subscribed ? (
+          <p className="text-sm text-muted-foreground mt-2">
+            Pay with Cash App to unlock paid features for 30 days. Renew anytime.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground mt-2">
+            Your access expires on the date above. Pay again with Cash App to extend.
+          </p>
+        )}
       </div>
 
       {/* Actions */}
       <div className="space-y-3">
-        {subscribed && !isFreeAccess && (
-          <Button
-            variant="outline"
-            className="w-full gap-2"
-            onClick={handleManageSubscription}
-            disabled={portalLoading}
-          >
-            <ExternalLink className="w-4 h-4" />
-            {portalLoading ? 'Opening...' : 'Manage Subscription'}
-          </Button>
-        )}
-
         {tier === 'free' && !isFreeAccess && (
           <div className="grid grid-cols-2 gap-3">
-            <Button
-              variant="default"
-              className="gap-2"
-              onClick={() => handleUpgrade('pro')}
-            >
+            <Button variant="default" className="gap-2" onClick={() => setDialogTier('pro')}>
               <Crown className="w-4 h-4" />
-              Upgrade to Pro
+              Get Pro ($49)
             </Button>
-            <Button
-              variant="glow"
-              className="gap-2"
-              onClick={() => handleUpgrade('unlimited')}
-            >
+            <Button variant="glow" className="gap-2" onClick={() => setDialogTier('unlimited')}>
               <Crown className="w-4 h-4" />
-              Go Unlimited
+              Get Unlimited ($99)
             </Button>
           </div>
         )}
 
         {tier === 'pro' && !isFreeAccess && (
-          <Button
-            variant="glow"
-            className="w-full gap-2"
-            onClick={() => handleUpgrade('unlimited')}
-          >
-            <Crown className="w-4 h-4" />
-            Upgrade to Unlimited
+          <div className="grid grid-cols-2 gap-3">
+            <Button variant="outline" className="gap-2" onClick={() => setDialogTier('pro')}>
+              Renew Pro
+            </Button>
+            <Button variant="glow" className="gap-2" onClick={() => setDialogTier('unlimited')}>
+              <Crown className="w-4 h-4" />
+              Upgrade to Unlimited
+            </Button>
+          </div>
+        )}
+
+        {tier === 'unlimited' && !isFreeAccess && (
+          <Button variant="outline" className="w-full gap-2" onClick={() => setDialogTier('unlimited')}>
+            Renew Unlimited
           </Button>
         )}
       </div>
@@ -233,6 +201,15 @@ export function SubscriptionManager() {
           )}
         </div>
       </div>
+
+      {dialogTier && (
+        <CashAppPaymentDialog
+          open={dialogTier !== null}
+          onOpenChange={(o) => !o && setDialogTier(null)}
+          tier={dialogTier}
+          onSubmitted={checkSubscription}
+        />
+      )}
     </div>
   );
 }

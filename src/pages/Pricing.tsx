@@ -8,6 +8,7 @@ import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useCurrency } from '@/hooks/useCurrency';
 import { useSubscription } from '@/hooks/useSubscription';
 import { toast } from 'sonner';
+import { CashAppPaymentDialog } from '@/components/subscription/CashAppPaymentDialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,18 +138,18 @@ export default function Pricing() {
   const { isAuthenticated } = useAuth();
   const { isAdmin } = useIsAdmin();
   const { currency, formatPrice, changeCurrency, isLoading: currencyLoading } = useCurrency();
-  const { tier: currentTier, subscribed, startCheckout, isLoading: subscriptionLoading } = useSubscription();
+  const { tier: currentTier, subscribed, isLoading: subscriptionLoading } = useSubscription();
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [dialogTier, setDialogTier] = useState<'pro' | 'unlimited' | null>(null);
 
-  const handleSelectPlan = async (tierName: string) => {
+  const handleSelectPlan = (tierName: string) => {
     if (!isAuthenticated) {
       navigate('/auth');
       return;
     }
 
     const tierKey = tierName.toLowerCase() as 'free' | 'pro' | 'unlimited';
-    
+
     if (tierKey === 'free') {
       navigate('/dashboard');
       return;
@@ -160,15 +161,7 @@ export default function Pricing() {
       return;
     }
 
-    try {
-      setCheckoutLoading(tierName);
-      await startCheckout(tierKey as 'pro' | 'unlimited');
-    } catch (error) {
-      console.error('Checkout error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
-    } finally {
-      setCheckoutLoading(null);
-    }
+    setDialogTier(tierKey as 'pro' | 'unlimited');
   };
 
   // Admin gets all features free
@@ -383,8 +376,7 @@ export default function Pricing() {
                 {(() => {
                   const tierKey = tier.name.toLowerCase() as 'free' | 'pro' | 'unlimited';
                   const isCurrentPlan = subscribed && currentTier === tierKey;
-                  const isLoading = checkoutLoading === tier.name;
-                  
+
                   if (isCurrentPlan) {
                     return (
                       <Button
@@ -397,25 +389,16 @@ export default function Pricing() {
                       </Button>
                     );
                   }
-                  
+
                   return (
                     <Button
                       variant={tier.popular ? 'glow' : 'outline'}
                       className="w-full mb-8 gap-2"
                       onClick={() => handleSelectPlan(tier.name)}
-                      disabled={isLoading || subscriptionLoading}
+                      disabled={subscriptionLoading}
                     >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        <>
-                          {tier.cta}
-                          <ArrowRight className="w-4 h-4" />
-                        </>
-                      )}
+                      {tier.cta}
+                      <ArrowRight className="w-4 h-4" />
                     </Button>
                   );
                 })()}
@@ -678,6 +661,14 @@ export default function Pricing() {
           </p>
         </div>
       </main>
+
+      {dialogTier && (
+        <CashAppPaymentDialog
+          open={dialogTier !== null}
+          onOpenChange={(o) => !o && setDialogTier(null)}
+          tier={dialogTier}
+        />
+      )}
     </div>
   );
 }

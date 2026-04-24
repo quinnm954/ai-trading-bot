@@ -4,6 +4,7 @@ import { Crown, Zap, Lock, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSubscription, Feature, SubscriptionTier } from '@/hooks/useSubscription';
+import { CashAppPaymentDialog } from './CashAppPaymentDialog';
 import { cn } from '@/lib/utils';
 
 interface UpgradePromptProps {
@@ -41,130 +42,124 @@ export function UpgradePrompt({
   className,
   variant = 'card',
 }: UpgradePromptProps) {
-  const { getRequiredTier, startCheckout, isLoading: subLoading } = useSubscription();
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  
+  const { getRequiredTier, isLoading: subLoading } = useSubscription();
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   const requiredTier = getRequiredTier(feature);
   const featureName = FEATURE_NAMES[feature];
   const tierInfo = TIER_LABELS[requiredTier];
   const TierIcon = tierInfo.icon;
 
-  const handleUpgrade = async () => {
+  const handleUpgrade = () => {
     if (requiredTier === 'free') return;
-    
-    try {
-      setCheckoutLoading(true);
-      await startCheckout(requiredTier as 'pro' | 'unlimited');
-    } catch (error) {
-      console.error('Checkout error:', error);
-    } finally {
-      setCheckoutLoading(false);
-    }
+    setDialogOpen(true);
   };
+
+  const dialog = requiredTier !== 'free' && (
+    <CashAppPaymentDialog
+      open={dialogOpen}
+      onOpenChange={setDialogOpen}
+      tier={requiredTier as 'pro' | 'unlimited'}
+    />
+  );
 
   if (variant === 'inline') {
     return (
-      <div className={cn('flex items-center gap-2 text-sm', className)}>
-        <Lock className="w-4 h-4 text-muted-foreground" />
-        <span className="text-muted-foreground">
-          {title || `${featureName} requires ${tierInfo.label}`}
-        </span>
-        <Button
-          variant="link"
-          size="sm"
-          className="h-auto p-0 text-primary"
-          onClick={handleUpgrade}
-          disabled={checkoutLoading || subLoading}
-        >
-          {checkoutLoading ? (
-            <Loader2 className="w-3 h-3 animate-spin mr-1" />
-          ) : null}
-          Upgrade
-        </Button>
-      </div>
+      <>
+        <div className={cn('flex items-center gap-2 text-sm', className)}>
+          <Lock className="w-4 h-4 text-muted-foreground" />
+          <span className="text-muted-foreground">
+            {title || `${featureName} requires ${tierInfo.label}`}
+          </span>
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-primary"
+            onClick={handleUpgrade}
+            disabled={subLoading}
+          >
+            Upgrade
+          </Button>
+        </div>
+        {dialog}
+      </>
     );
   }
 
   if (variant === 'banner') {
     return (
-      <div
-        className={cn(
-          'flex items-center justify-between p-4 rounded-lg border border-primary/20 bg-primary/5',
-          className
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/20">
-            <TierIcon className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <p className="font-medium text-foreground">
-              {title || `Unlock ${featureName}`}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {description || `Upgrade to ${tierInfo.label} to access this feature`}
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="glow"
-          size="sm"
-          onClick={handleUpgrade}
-          disabled={checkoutLoading || subLoading}
-          className="gap-2"
-        >
-          {checkoutLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              Upgrade to {tierInfo.label}
-              <ArrowRight className="w-4 h-4" />
-            </>
+      <>
+        <div
+          className={cn(
+            'flex items-center justify-between p-4 rounded-lg border border-primary/20 bg-primary/5',
+            className
           )}
-        </Button>
-      </div>
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/20">
+              <TierIcon className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-medium text-foreground">
+                {title || `Unlock ${featureName}`}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {description || `Upgrade to ${tierInfo.label} to access this feature`}
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="glow"
+            size="sm"
+            onClick={handleUpgrade}
+            disabled={subLoading}
+            className="gap-2"
+          >
+            Upgrade to {tierInfo.label}
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
+        {dialog}
+      </>
     );
   }
 
   // Card variant (default)
   return (
-    <Card className={cn('border-primary/20 bg-gradient-to-br from-primary/5 to-transparent', className)}>
-      <CardHeader className="text-center pb-4">
-        <div className="mx-auto p-3 rounded-full bg-primary/20 w-fit mb-4">
-          <Lock className="w-8 h-8 text-primary" />
-        </div>
-        <CardTitle className="text-xl">
-          {title || `${featureName} Locked`}
-        </CardTitle>
-        <CardDescription>
-          {description || `This feature requires a ${tierInfo.label} subscription`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="text-center space-y-4">
-        <Button
-          variant="glow"
-          size="lg"
-          onClick={handleUpgrade}
-          disabled={checkoutLoading || subLoading}
-          className="gap-2"
-        >
-          {checkoutLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              <TierIcon className="w-4 h-4" />
-              Upgrade to {tierInfo.label}
-            </>
-          )}
-        </Button>
-        <p className="text-sm text-muted-foreground">
-          or{' '}
-          <Link to="/pricing" className="text-primary hover:underline">
-            view all plans
-          </Link>
-        </p>
-      </CardContent>
-    </Card>
+    <>
+      <Card className={cn('border-primary/20 bg-gradient-to-br from-primary/5 to-transparent', className)}>
+        <CardHeader className="text-center pb-4">
+          <div className="mx-auto p-3 rounded-full bg-primary/20 w-fit mb-4">
+            <Lock className="w-8 h-8 text-primary" />
+          </div>
+          <CardTitle className="text-xl">
+            {title || `${featureName} Locked`}
+          </CardTitle>
+          <CardDescription>
+            {description || `This feature requires a ${tierInfo.label} subscription`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-center space-y-4">
+          <Button
+            variant="glow"
+            size="lg"
+            onClick={handleUpgrade}
+            disabled={subLoading}
+            className="gap-2"
+          >
+            <TierIcon className="w-4 h-4" />
+            Upgrade to {tierInfo.label}
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            or{' '}
+            <Link to="/pricing" className="text-primary hover:underline">
+              view all plans
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+      {dialog}
+    </>
   );
 }
 
