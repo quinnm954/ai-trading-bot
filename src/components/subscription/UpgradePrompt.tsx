@@ -4,6 +4,7 @@ import { Crown, Zap, Lock, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSubscription, Feature, SubscriptionTier } from '@/hooks/useSubscription';
+import { CashAppPaymentDialog } from './CashAppPaymentDialog';
 import { cn } from '@/lib/utils';
 
 interface UpgradePromptProps {
@@ -41,25 +42,17 @@ export function UpgradePrompt({
   className,
   variant = 'card',
 }: UpgradePromptProps) {
-  const { getRequiredTier, startCheckout, isLoading: subLoading } = useSubscription();
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  
+  const { getRequiredTier, isLoading: subLoading } = useSubscription();
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   const requiredTier = getRequiredTier(feature);
   const featureName = FEATURE_NAMES[feature];
   const tierInfo = TIER_LABELS[requiredTier];
   const TierIcon = tierInfo.icon;
 
-  const handleUpgrade = async () => {
+  const handleUpgrade = () => {
     if (requiredTier === 'free') return;
-    
-    try {
-      setCheckoutLoading(true);
-      await startCheckout(requiredTier as 'pro' | 'unlimited');
-    } catch (error) {
-      console.error('Checkout error:', error);
-    } finally {
-      setCheckoutLoading(false);
-    }
+    setDialogOpen(true);
   };
 
   if (variant === 'inline') {
