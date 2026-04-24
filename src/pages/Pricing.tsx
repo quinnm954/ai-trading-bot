@@ -661,6 +661,14 @@ export default function Pricing() {
           </p>
         </div>
       </main>
+
+      {dialogTier && (
+        <CashAppPaymentDialog
+          open={dialogTier !== null}
+          onOpenChange={(o) => !o && setDialogTier(null)}
+          tier={dialogTier}
+        />
+      )}
     </div>
   );
 }
