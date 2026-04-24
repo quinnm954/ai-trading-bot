@@ -666,6 +666,51 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_claims: {
+        Row: {
+          admin_notes: string | null
+          amount: number
+          created_at: string
+          id: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sender_cashtag: string
+          status: string
+          tier: string
+          transaction_note: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          amount: number
+          created_at?: string
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sender_cashtag: string
+          status?: string
+          tier: string
+          transaction_note?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          amount?: number
+          created_at?: string
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sender_cashtag?: string
+          status?: string
+          tier?: string
+          transaction_note?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pending_trades: {
         Row: {
           ai_reasoning: string
@@ -1178,6 +1223,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      approve_payment_claim: {
+        Args: { p_admin_notes?: string; p_claim_id: string }
+        Returns: Json
+      }
       can_use_feature: {
         Args: { p_feature: string; p_user_id: string }
         Returns: boolean
@@ -1202,6 +1251,10 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      reject_payment_claim: {
+        Args: { p_admin_notes?: string; p_claim_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "user"
