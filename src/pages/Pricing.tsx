@@ -8,6 +8,7 @@ import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useCurrency } from '@/hooks/useCurrency';
 import { useSubscription } from '@/hooks/useSubscription';
 import { toast } from 'sonner';
+import { CashAppPaymentDialog } from '@/components/subscription/CashAppPaymentDialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -375,8 +376,7 @@ export default function Pricing() {
                 {(() => {
                   const tierKey = tier.name.toLowerCase() as 'free' | 'pro' | 'unlimited';
                   const isCurrentPlan = subscribed && currentTier === tierKey;
-                  const isLoading = checkoutLoading === tier.name;
-                  
+
                   if (isCurrentPlan) {
                     return (
                       <Button
@@ -389,25 +389,16 @@ export default function Pricing() {
                       </Button>
                     );
                   }
-                  
+
                   return (
                     <Button
                       variant={tier.popular ? 'glow' : 'outline'}
                       className="w-full mb-8 gap-2"
                       onClick={() => handleSelectPlan(tier.name)}
-                      disabled={isLoading || subscriptionLoading}
+                      disabled={subscriptionLoading}
                     >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        <>
-                          {tier.cta}
-                          <ArrowRight className="w-4 h-4" />
-                        </>
-                      )}
+                      {tier.cta}
+                      <ArrowRight className="w-4 h-4" />
                     </Button>
                   );
                 })()}
