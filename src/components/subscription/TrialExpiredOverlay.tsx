@@ -122,6 +122,14 @@ export function TrialExpiredOverlay() {
           Join thousands of traders using AI-powered automation
         </p>
       </div>
+
+      {dialogTier && (
+        <CashAppPaymentDialog
+          open={dialogTier !== null}
+          onOpenChange={(o) => !o && setDialogTier(null)}
+          tier={dialogTier}
+        />
+      )}
     </div>
   );
 }
