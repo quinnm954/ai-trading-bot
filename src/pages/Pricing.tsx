@@ -137,18 +137,18 @@ export default function Pricing() {
   const { isAuthenticated } = useAuth();
   const { isAdmin } = useIsAdmin();
   const { currency, formatPrice, changeCurrency, isLoading: currencyLoading } = useCurrency();
-  const { tier: currentTier, subscribed, startCheckout, isLoading: subscriptionLoading } = useSubscription();
+  const { tier: currentTier, subscribed, isLoading: subscriptionLoading } = useSubscription();
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [dialogTier, setDialogTier] = useState<'pro' | 'unlimited' | null>(null);
 
-  const handleSelectPlan = async (tierName: string) => {
+  const handleSelectPlan = (tierName: string) => {
     if (!isAuthenticated) {
       navigate('/auth');
       return;
     }
 
     const tierKey = tierName.toLowerCase() as 'free' | 'pro' | 'unlimited';
-    
+
     if (tierKey === 'free') {
       navigate('/dashboard');
       return;
@@ -160,15 +160,7 @@ export default function Pricing() {
       return;
     }
 
-    try {
-      setCheckoutLoading(tierName);
-      await startCheckout(tierKey as 'pro' | 'unlimited');
-    } catch (error) {
-      console.error('Checkout error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
-    } finally {
-      setCheckoutLoading(null);
-    }
+    setDialogTier(tierKey as 'pro' | 'unlimited');
   };
 
   // Admin gets all features free
