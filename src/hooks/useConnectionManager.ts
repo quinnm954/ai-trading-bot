@@ -16,9 +16,9 @@ export function useConnectionManager() {
     status: 'connected',
   });
 
-  const pingInterval = useRef<NodeJS.Timeout | null>(null);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
-  const healthCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const pingInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const healthCheckInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Ping Supabase to check connection
   const pingConnection = useCallback(async () => {
