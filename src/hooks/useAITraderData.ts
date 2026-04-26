@@ -205,7 +205,7 @@ export function useAITraderData() {
 
     setIsSaving(true);
     
-    const dbUpdates: Record<string, unknown> = {};
+    const dbUpdates: Database['public']['Tables']['ai_settings']['Update'] = {};
     if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
     if (updates.botStatus !== undefined) dbUpdates.bot_status = updates.botStatus;
     if (updates.tradingMode !== undefined) dbUpdates.trading_mode = updates.tradingMode;
