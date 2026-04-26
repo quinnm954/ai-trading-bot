@@ -83,7 +83,7 @@ export function usePositionsData(isPaper: boolean = true) {
   const { user } = useAuth();
   const [positions, setPositions] = useState<Position[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const priceUpdateInterval = useRef<NodeJS.Timeout | null>(null);
+  const priceUpdateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchPositions = useCallback(async () => {
     if (!user) return;

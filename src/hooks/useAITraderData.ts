@@ -219,7 +219,7 @@ export function useAITraderData() {
     try {
       const { error } = await supabase
         .from('ai_settings')
-        .update(dbUpdates)
+        .update(dbUpdates as never)
         .eq('user_id', user.id);
 
       if (error) throw error;
