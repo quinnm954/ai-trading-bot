@@ -1,15 +1,24 @@
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
-import { usePositionsData } from '@/hooks/usePositionsData';
 import { cn } from '@/lib/utils';
+
+interface ActiveTickerPosition {
+  id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  avgEntryPrice: number;
+  currentPrice: number | null;
+  unrealizedPnl: number | null;
+  pnlPercent: number;
+}
 
 interface MarketTickerProps {
   tradingMode: 'paper' | 'live';
+  positions: ActiveTickerPosition[];
+  isLoading: boolean;
 }
 
-export function MarketTicker({ tradingMode }: MarketTickerProps) {
+export function MarketTicker({ tradingMode, positions, isLoading }: MarketTickerProps) {
   const isPaper = tradingMode === 'paper';
-  const { positions, isLoading } = usePositionsData(isPaper);
-
   const label = isPaper ? 'Paper' : 'Live';
 
   if (isLoading) {

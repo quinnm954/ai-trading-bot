@@ -80,8 +80,8 @@ export default function Dashboard() {
       } else {
         toast({ title: 'Close failed', description: result.error || 'Unknown error', variant: 'destructive' });
       }
-    } catch (e: any) {
-      toast({ title: 'Close failed', description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Close failed', description: e instanceof Error ? e.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setIsClosingPaper(false);
     }
@@ -213,7 +213,7 @@ export default function Dashboard() {
       const result = await response.json();
       
       if (result.sold?.length > 0) {
-        const totalValue = result.sold.reduce((sum: number, s: any) => sum + (s.usdValue || 0), 0);
+        const totalValue = result.sold.reduce((sum: number, soldPosition: { usdValue?: number }) => sum + (soldPosition.usdValue || 0), 0);
         toast({
           title: '🔥 Sold All Holdings',
           description: `Liquidated ${result.sold.length} positions for $${totalValue.toFixed(2)}`,
@@ -337,7 +337,7 @@ export default function Dashboard() {
       )}
 
       {/* Market Ticker */}
-      <MarketTicker tradingMode={stats.tradingMode} />
+      <MarketTicker tradingMode={stats.tradingMode} positions={positions} isLoading={isLoading} />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
