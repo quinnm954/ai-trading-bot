@@ -1789,20 +1789,51 @@ function analyzeWithRules(
     
     switch (bestStrategy) {
       case 'scalp': {
-        // PURE SCALP — momentum entry matching scalping-replay logic.
-        // Enter when 24h momentum sits in the sweet spot (0.5%–3%) and the asset
-        // isn't already extended at the top of its daily range.
+        // PURE SCALP — momentum entry with multi-confirmation gating.
+        // Required confirmations before opening:
+        //   1) Trend gate: not in a downtrend, 7d trend not bleeding
+        //   2) Momentum band: 24h move in the 0.5%–3% sweet spot
+        //   3) Volatility band: daily range between 1.5% and 12% of price
+        //      (too tight = no profit room / noise; too wide = chop/whipsaw)
+        //   4) Range/whipsaw filter: pricePosition in 0.30–0.80
+        //      (avoids capitulation bottoms and blow-off tops)
+        //   5) Liquidity gate: 24h volume ≥ $5M (proxy for tight spread)
         if (isInDowntrend) {
           break;
         }
         const m = coin.change24h;
-        if (m >= 0.5 && m < 3 && pricePosition < 0.85) {
-          action = 'buy';
-          // Higher confidence when momentum is fresh and price is mid-range
-          confidence = m >= 1 && pricePosition < 0.7 ? 0.92 : 0.78;
-          reason = `⚡ SCALP: +${m.toFixed(2)}% momentum, range pos ${(pricePosition * 100).toFixed(0)}%`;
-          pattern = 'scalp_momentum';
+        const ch7d = (coin as any).change7d ?? 0;
+        const high24h = coin.high24h ?? coin.price;
+        const low24h = coin.low24h ?? coin.price;
+        const volPct = coin.price > 0 ? ((high24h - low24h) / coin.price) * 100 : 0;
+        const vol24h = coin.volume ?? 0;
+
+        const momentumOk = m >= 0.5 && m < 3;
+        const trendOk = ch7d >= -3;
+        const volatilityOk = volPct >= 1.5 && volPct <= 12;
+        const rangeOk = pricePosition >= 0.30 && pricePosition <= 0.80;
+        const liquidityOk = vol24h >= 5_000_000;
+
+        if (!momentumOk) {
+          break;
         }
+        if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk) {
+          const failed = [
+            !trendOk && `trend(7d ${ch7d.toFixed(1)}%)`,
+            !volatilityOk && `volatility(${volPct.toFixed(1)}%)`,
+            !rangeOk && `range(${(pricePosition * 100).toFixed(0)}%)`,
+            !liquidityOk && `liquidity($${(vol24h / 1e6).toFixed(1)}M)`,
+          ].filter(Boolean).join(', ');
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: failed ${failed}`);
+          break;
+        }
+
+        action = 'buy';
+        // Confidence rewards fresh momentum, mid-range entry, healthy volatility
+        const sweetSpot = m >= 1 && pricePosition <= 0.65 && volPct >= 2.5 && volPct <= 8;
+        confidence = sweetSpot ? 0.92 : 0.78;
+        reason = `⚡ SCALP: +${m.toFixed(2)}% mom | range ${(pricePosition * 100).toFixed(0)}% | vol-band ${volPct.toFixed(1)}% | 7d ${ch7d.toFixed(1)}%`;
+        pattern = 'scalp_momentum_confirmed';
         break;
       }
 
