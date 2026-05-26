@@ -1753,7 +1753,7 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
 
 // SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
 // Async because we fetch short-window candles for the survivors of the pre-filter.
-async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
+async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG_DEFAULTS): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
   // Pre-filter: stablecoins out, keep only coins priced $1–$100, and 24h not deep red / not parabolic
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
