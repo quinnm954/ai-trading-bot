@@ -168,7 +168,7 @@ serve(async (req) => {
             continue;
           }
 
-          const quantity = tradeValue / signal.entry_price;
+          const quantity = tradeValue / executionPrice;
 
           if (signal.action === 'buy') {
             // Check if user already has this position
@@ -193,8 +193,8 @@ serve(async (req) => {
                 symbol: signal.symbol,
                 side: 'buy',
                 quantity: quantity,
-                avg_entry_price: signal.entry_price,
-                current_price: signal.entry_price,
+                avg_entry_price: executionPrice,
+                current_price: executionPrice,
                 unrealized_pnl: 0,
                 is_paper: settings.trading_mode === 'paper',
                 market_type: 'crypto',
@@ -218,7 +218,7 @@ serve(async (req) => {
               symbol: signal.symbol,
               side: 'buy',
               quantity: quantity,
-              entry_price: signal.entry_price,
+              entry_price: executionPrice,
               status: 'open',
               is_paper: settings.trading_mode === 'paper',
               market_type: 'crypto',
@@ -259,8 +259,8 @@ serve(async (req) => {
             }
 
             // Calculate P&L
-            const pnl = (signal.entry_price - position.avg_entry_price) * position.quantity;
-            const saleValue = position.quantity * signal.entry_price;
+            const pnl = (executionPrice - position.avg_entry_price) * position.quantity;
+            const saleValue = position.quantity * executionPrice;
 
             // Close position
             await supabase
@@ -281,7 +281,7 @@ serve(async (req) => {
               side: 'sell',
               quantity: position.quantity,
               entry_price: position.avg_entry_price,
-              exit_price: signal.entry_price,
+              exit_price: executionPrice,
               pnl: pnl,
               status: 'closed',
               is_paper: settings.trading_mode === 'paper',
