@@ -2732,7 +2732,7 @@ serve(async (req) => {
       const preRoundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
       const prePositionValue = preRoundedQty * actualEntryPrice;
       
-      if (preRoundedQty <= 0 || prePositionValue < 2) {
+      if (preRoundedQty <= 0 || prePositionValue < MIN_TRADE_VALUE) {
         console.log(`⚠️ SKIPPING zero-quantity trade: ${decision.symbol} - qty=${quantity} rounds to ${preRoundedQty}, value=$${prePositionValue.toFixed(2)}`);
         continue;
       }
@@ -2757,10 +2757,17 @@ serve(async (req) => {
         0
       );
       
-      // Stop-loss left undefined for both modes — trailing-stop logic in
-      // auto-take-profit applies identically to paper and live so the engines
-      // behave the same way pre-execution.
-      const defaultStopLoss = undefined;
+      // Live buys must include a protective stop for risk validation.
+      // Use the small-account scalp stop (-2%) while keeping the validation
+      // risk within the 1% equity risk budget enforced by RiskManager.
+      const maxRiskPerTradePct = 1;
+      const maxStopDistancePct = Math.max(
+        0.0025,
+        Math.min(0.02, (balance * (maxRiskPerTradePct / 100)) / prePositionValue)
+      );
+      const defaultStopLoss = decision.action === 'buy'
+        ? actualEntryPrice * (1 - maxStopDistancePct)
+        : undefined;
       
       const riskValidation = await validateTradeWithRiskManager(
         supabase,
