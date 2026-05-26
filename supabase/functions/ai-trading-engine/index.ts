@@ -1749,7 +1749,7 @@ async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: Mar
       console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
       return false;
     }
-    if (c5 <= 0) {
+    if (c5 < ENTRY_CONFIRM_MIN_5M_PCT) {
       console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping`);
       return false;
     }
@@ -1757,12 +1757,12 @@ async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: Mar
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    if (c1h < 0.2) {
-      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+0.2%`);
+    if (c1h < ENTRY_CONFIRM_MIN_15M_PCT) {
+      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+${ENTRY_CONFIRM_MIN_15M_PCT}%`);
       return false;
     }
-    if (c24 < 0.3) {
-      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+0.3%`);
+    if (c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${ENTRY_CONFIRM_MIN_24H_PCT}%`);
       return false;
     }
     console.log(`✅ RISING: ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
