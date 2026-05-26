@@ -33,6 +33,11 @@ interface SimTrade {
   reason: 'trailing_stop' | 'hard_stop' | 'end_of_window';
 }
 
+interface SkipRecord {
+  time: string;
+  reason: string;
+}
+
 // Same constants as the live scalping logic.
 const PEAK_GAIN_TRIGGER = 0.01;   // 1% — arms trailing stop
 const TRAIL_DROP_FROM_PEAK = 0.015; // 1.5% drop from peak triggers exit
