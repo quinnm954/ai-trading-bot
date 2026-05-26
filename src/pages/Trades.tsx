@@ -245,12 +245,14 @@ export default function Trades() {
                         </td>
                         <td className="py-3 px-4 text-right font-mono">{trade.quantity}</td>
                         <td className="py-3 px-4 text-right font-mono text-muted-foreground">${trade.entryPrice.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">${trade.exitPrice?.toLocaleString() ?? '-'}</td>
-                        <td className={cn('py-3 px-4 text-right font-mono', pos ? 'text-profit' : 'text-loss')}>
-                          <span className="inline-flex items-center gap-1">
-                            {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                            {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
-                          </span>
+                        <td className="py-3 px-4 text-right font-mono">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : '—'}</td>
+                        <td className={cn('py-3 px-4 text-right font-mono', trade.pnl == null ? 'text-muted-foreground' : pos ? 'text-profit' : 'text-loss')}>
+                          {trade.pnl == null ? '—' : (
+                            <span className="inline-flex items-center gap-1">
+                              {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                              {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right font-mono">{trade.score != null ? Math.round(trade.score) : '—'}</td>
                         <td className="py-3 px-4">
@@ -261,9 +263,10 @@ export default function Trades() {
                         </td>
                         <td className="py-3 px-4 text-xs">{trade.isPaper ? 'Paper' : 'Live'}</td>
                         <td className="py-3 px-4 text-right text-xs text-muted-foreground">
-                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : '—'}
+                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : isOpen ? 'Active' : '—'}
                         </td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{trade.closedAt?.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">{(trade.closedAt ?? trade.createdAt).toLocaleString()}</td>
+
                       </tr>
                     );
                   })}
