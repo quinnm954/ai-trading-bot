@@ -19,6 +19,7 @@ import { SubscriptionManager } from '@/components/settings/SubscriptionManager';
 import { LegalAndPrivacy } from '@/components/settings/LegalAndPrivacy';
 import { PasswordChange } from '@/components/settings/PasswordChange';
 import { ResetPaperBalance } from '@/components/settings/ResetPaperBalance';
+import { LiveInvestmentBasis } from '@/components/settings/LiveInvestmentBasis';
 
 export default function Settings() {
   const [notifications, setNotifications] = useState({
