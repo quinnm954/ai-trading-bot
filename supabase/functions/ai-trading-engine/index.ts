@@ -1109,6 +1109,8 @@ interface MarketData {
   price: number;
   change24h: number;
   change7d: number;
+  change1h?: number;
+  change5m?: number;
   volume: number;
   high24h: number;
   low24h: number;
