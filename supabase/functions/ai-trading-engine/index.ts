@@ -3200,15 +3200,29 @@ serve(async (req) => {
         const lastExit = recentExits.get(symbolUpper);
         if (lastExit && lastExit.exitPrice > 0) {
           const currPrice = coinData.price;
-          const priceDeltaPct = Math.abs((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
-          if (priceDeltaPct <= CHASE_GUARD_PRICE_TOLERANCE_PCT) {
+          const priceDeltaPct = ((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
+          if (priceDeltaPct <= REENTRY_BREAKOUT_CONFIRM_PCT) {
             const minsAgo = (Date.now() - lastExit.closedAt) / (1000 * 60);
             console.log(
-              `🧯 SKIP chase ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (Δ ${priceDeltaPct.toFixed(2)}% ≤ ${CHASE_GUARD_PRICE_TOLERANCE_PCT}%)`
+              `🧯 SKIP rebuy ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (${priceDeltaPct.toFixed(2)}%). Need +${REENTRY_BREAKOUT_CONFIRM_PCT}% above exit before re-entry`
             );
             continue;
           }
         }
+      }
+
+      // Last-moment live momentum confirmation before sizing/risk/execution.
+      if (side === 'buy') {
+        const freshMomentum = coinData.productId ? await fetchShortWindowMomentum(coinData.productId) : null;
+        const c5 = freshMomentum?.change5m ?? coinData.change5m;
+        const c15 = freshMomentum?.change15m ?? coinData.change1h ?? 0;
+        const c24 = coinData.change24h ?? 0;
+        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+          continue;
+        }
+        coinData.change5m = c5;
+        coinData.change1h = c15;
       }
 
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
