@@ -154,23 +154,21 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
                         </span>
                       </div>
                     </td>
-                    {isLiveMode && (
-                      <td className="py-4 px-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleSellPosition(position)}
-                          disabled={isSelling}
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        >
-                          {isSelling ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <X className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </td>
-                    )}
+                    <td className="py-4 px-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSellPosition(position)}
+                        disabled={isSelling}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        {isSelling ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>Sell <X className="w-4 h-4 ml-1" /></>
+                        )}
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}
