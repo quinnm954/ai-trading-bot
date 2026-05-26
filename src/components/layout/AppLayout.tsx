@@ -12,22 +12,14 @@ export function AppLayout() {
   useAutoTakeProfit();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const {
-    isInTrial,
-    isTrialExpired,
-    trialDaysRemaining,
-    subscribed,
-    isFreeAccess,
-    isLoading,
-  } = useSubscription();
-
-  const showTrialBanner = isInTrial && !subscribed && !isFreeAccess && !isLoading;
-  const showExpiredOverlay = isTrialExpired && !subscribed && !isFreeAccess && !isLoading;
+  // Subscription/trial UI disabled during testing
+  const showTrialBanner = false;
+  const showExpiredOverlay = false;
 
   return (
     <div className="min-h-screen bg-background">
       {showExpiredOverlay && <TrialExpiredOverlay />}
-      {showTrialBanner && <TrialBanner daysRemaining={trialDaysRemaining} />}
+      {showTrialBanner && <TrialBanner daysRemaining={0} />}
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="lg:pl-64">
