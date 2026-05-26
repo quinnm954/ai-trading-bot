@@ -29,17 +29,13 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
       }
 
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit?action=force-sell&position_id=${encodeURIComponent(position.id)}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ 
-            action: 'force-sell',
-            positionId: position.id 
-          }),
         }
       );
 
