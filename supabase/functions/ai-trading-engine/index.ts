@@ -1444,7 +1444,7 @@ const MIN_PRICE_USD = 1.0;
 const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
-// DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
+// SCALP UNIVERSE FILTER: Buyable Coinbase assets with positive movement, not falling knives.
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
   // Pre-filter: stablecoins out, keep only coins priced $1–$100
   const eligibleCoins = marketData.filter(coin => {
@@ -1464,83 +1464,46 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   });
 
   console.log(`✅ Eligible coins ($${MIN_PRICE_USD}–$${MAX_PRICE_USD}, non-stablecoin): ${eligibleCoins.length}/${marketData.length}`);
-  
-  // Step 1: Find DIP-BUY candidates - assets that:
-  // - Have positive 7-day trend (overall uptrend)
-  // - 24h change is between -5% and +1% (BUYING DIPS, NOT PUMPS)
-  // - This prevents the old mistake of buying "+9% 24h" assets at their peak
-  const dipBuyCandidates = eligibleCoins.filter(coin => {
+
+  const scalpCandidates = eligibleCoins.filter(coin => {
     const change24h = coin.change24h ?? 0;
-    const change7d = coin.change7d ?? 0;
-    const has7dUptrend = change7d > 2; // Asset is up >2% over 7 days (uptrend)
-    const hasDip = change24h <= MAX_24H_CHANGE_FOR_ENTRY && change24h >= MIN_24H_CHANGE_FOR_ENTRY;
-    
-    // Log parabolic rejections for visibility
-    if (change24h > MAX_24H_CHANGE_FOR_ENTRY) {
+    const positiveMomentum = change24h >= 0.5;
+    const notParabolic = change24h < 3;
+
+    if (!positiveMomentum) {
+      console.log(`🚫 MOMENTUM SKIP: ${coin.symbol} ${change24h.toFixed(2)}% - need positive movement`);
+      return false;
+    }
+    if (!notParabolic) {
       console.log(`🚫 PARABOLIC SKIP: ${coin.symbol} already +${change24h.toFixed(1)}% today - NOT buying at peak`);
       return false;
     }
-    if (change24h < MIN_24H_CHANGE_FOR_ENTRY) {
-      console.log(`🚫 CRASH SKIP: ${coin.symbol} down ${change24h.toFixed(1)}% - avoiding falling knife`);
-      return false;
-    }
-    
-    return has7dUptrend && hasDip;
+
+    return true;
   });
-  
-  // REMOVED momentum plays that allowed buying pumped assets
-  // Old code allowed buying if change24h > 3% which caused the losses
-  // Now we ONLY buy dips in uptrending assets
-  
-  console.log(`🎯 DIP-BUY FILTER: ${dipBuyCandidates.length} dip candidates (24h change ${MIN_24H_CHANGE_FOR_ENTRY}% to +${MAX_24H_CHANGE_FOR_ENTRY}% only)`);
-  
-  // Step 2: Analyze trends for candidates (now only dip candidates, no parabolic plays)
-  const trendAnalysis: TrendAnalysis[] = dipBuyCandidates.map((coin: MarketData) => {
+
+  console.log(`🎯 SCALP MOMENTUM FILTER: ${scalpCandidates.length} candidates (+0.5% to +3% 24h)`);
+
+  const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
     const change24h = coin.change24h ?? 0;
-    const change7d = coin.change7d ?? 0;
-    // For dip-buying, we want to trade pullbacks in uptrending assets
-    const isDipBuy = change7d > 2 && change24h <= MAX_24H_CHANGE_FOR_ENTRY;
-    if (isDipBuy && change24h >= MIN_24H_CHANGE_FOR_ENTRY) {
-      // Override to allow trading dips in uptrending assets
+    const change7d = coin.change7d ?? change24h;
+    if (change24h >= 0.5 && change24h < 3 && change7d >= -3) {
       return {
         ...analysis,
         shouldTrade: true,
-        reason: `🔄 DIP-BUY: 7d: +${change7d.toFixed(1)}% uptrend, 24h: ${change24h.toFixed(1)}% pullback | NOT buying at peak`,
+        reason: `⚡ SCALP MOMENTUM: 24h +${change24h.toFixed(2)}%, trend ${change7d.toFixed(1)}% | positive movement only`,
       };
     }
     return analysis;
   });
-  
-  let tradeable = dipBuyCandidates.filter((coin: MarketData) => {
+
+  const tradeable = scalpCandidates.filter((coin: MarketData) => {
     const analysis = trendAnalysis.find((t: TrendAnalysis) => t.symbol === coin.symbol);
     return analysis?.shouldTrade ?? false;
   });
 
-  // 🩹 STARVATION RELAXATION: When the dip pool is too small, allow mild-momentum entries
-  // (+1% to +4% 24h in a 7d uptrend). Prevents the bot from being forced to either no-trade
-  // or pick the single bad setup left over. Sizing should be halved by the caller for these.
-  if (tradeable.length < 3) {
-    const mildMomentum = eligibleCoins.filter(coin => {
-      const c24 = coin.change24h ?? 0;
-      const c7 = coin.change7d ?? 0;
-      return c7 > 2 && c24 > MAX_24H_CHANGE_FOR_ENTRY && c24 <= 4
-        && !tradeable.find(t => t.symbol === coin.symbol);
-    });
-    if (mildMomentum.length > 0) {
-      console.log(`🩹 STARVATION RELAX: adding ${mildMomentum.length} mild-momentum candidates (+1% to +4% 24h in 7d uptrend)`);
-      mildMomentum.forEach(coin => {
-        trendAnalysis.push({
-          ...analyzeTrend(coin),
-          shouldTrade: true,
-          reason: `🩹 MILD-MOMENTUM (starvation relax): 7d +${(coin.change7d ?? 0).toFixed(1)}%, 24h +${(coin.change24h ?? 0).toFixed(1)}%`,
-        });
-      });
-      tradeable = tradeable.concat(mildMomentum);
-    }
-  }
-
-  console.log(`📈 Tradeable (dips + relaxed): ${tradeable.length}`);
+  console.log(`📈 Tradeable scalp candidates: ${tradeable.length}`);
 
   return { tradeable, trendAnalysis };
 }
