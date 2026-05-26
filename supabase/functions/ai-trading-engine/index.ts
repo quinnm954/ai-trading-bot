@@ -13,7 +13,7 @@ const corsHeaders = {
 
 type TradeSide = 'buy' | 'sell';
 
-const DUPLICATE_TRADE_COOLDOWN_MINUTES = 90; // prevents stacking the same trade every minute
+const DUPLICATE_TRADE_COOLDOWN_MINUTES = 5; // scalp mode: prevent immediate re-entry without freezing trading for an hour+
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
@@ -548,12 +548,18 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
       const filledSize = parseFloat(result.order?.filled_size || '0');
       const avgPrice = parseFloat(result.order?.average_filled_price || currentPrice.toString());
       const orderStatus = result.order?.status;
+      const acceptedOrderId = result.success_response?.order_id || result.order_id;
+      const expectedQty = currentPrice > 0 ? usdAmount / currentPrice : 0;
+      
+      if (acceptedOrderId && expectedQty > 0 && !result.order) {
+        console.log(`⏳ LIMIT ORDER ACCEPTED: ${expectedQty.toFixed(6)} ${baseSymbol} @ $${currentPrice.toFixed(4)} - order ${acceptedOrderId}`);
+        return { success: true, quantity: expectedQty, price: currentPrice };
+      }
       
       // For limit orders, check if pending (GTC orders don't fill immediately)
       if (orderStatus === 'PENDING' || orderStatus === 'OPEN') {
         // Order placed but not filled yet - this is expected for post_only limit orders
         // Calculate expected quantity from order
-        const expectedQty = usdAmount / currentPrice;
         console.log(`⏳ LIMIT ORDER PLACED: ${expectedQty.toFixed(6)} ${symbol} @ $${currentPrice.toFixed(4)} - waiting for fill`);
         return { success: true, quantity: expectedQty, price: currentPrice };
       }
@@ -589,7 +595,7 @@ async function getAvailableUsdcBalance(): Promise<{ usdcBalance: number; daiConv
     const uri = `GET api.coinbase.com/api/v3/brokerage/accounts`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts?limit=250', {
       headers: { 'Authorization': `Bearer ${jwt}` },
     });
     
