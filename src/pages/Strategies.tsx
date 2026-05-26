@@ -34,6 +34,11 @@ const strategyIcons: Record<string, React.ReactNode> = {
 
 export default function Strategies() {
   const { strategies, isLoading, toggleStrategy } = useStrategiesData();
+  const [showAll, setShowAll] = useState(false);
+
+  const recommended = strategies.filter((s) => RECOMMENDED_TYPES.has(s.type));
+  const others = strategies.filter((s) => !RECOMMENDED_TYPES.has(s.type));
+  const visible = showAll ? strategies : recommended.length > 0 ? recommended : strategies;
 
   if (isLoading) {
     return (
