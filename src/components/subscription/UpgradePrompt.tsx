@@ -171,19 +171,6 @@ interface FeatureGateProps {
 }
 
 export function FeatureGate({ feature, children, fallback }: FeatureGateProps) {
-  const { canAccess, isLoading } = useSubscription();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!canAccess(feature)) {
-    return fallback || <UpgradePrompt feature={feature} />;
-  }
-
+  // Subscriptions disabled during testing — all features unlocked.
   return <>{children}</>;
 }

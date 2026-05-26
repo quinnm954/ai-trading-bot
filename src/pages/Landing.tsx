@@ -18,9 +18,6 @@ export default function Landing() {
           </Link>
           <div className="flex items-center gap-4">
             <Button variant="ghost" asChild>
-              <Link to="/pricing">Pricing</Link>
-            </Button>
-            <Button variant="ghost" asChild>
               <Link to="/auth">Sign In</Link>
             </Button>
             <Button variant="glow" asChild>
@@ -55,9 +52,6 @@ export default function Landing() {
                 Start Free Paper Trading
                 <ArrowRight className="w-5 h-5" />
               </Link>
-            </Button>
-            <Button variant="outline" size="lg" className="gap-2 text-lg px-8" asChild>
-              <Link to="/pricing">View Pricing</Link>
             </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-6">
@@ -223,9 +217,6 @@ export default function Landing() {
             </span>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <Link to="/pricing" className="hover:text-foreground transition-colors">
-              Pricing
-            </Link>
             <Link to="/auth" className="hover:text-foreground transition-colors">
               Sign In
             </Link>

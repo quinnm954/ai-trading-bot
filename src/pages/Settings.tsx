@@ -269,9 +269,7 @@ export default function Settings() {
             <ResetPaperBalance />
 
           </div>
-          <div className="mt-6">
-            <SubscriptionManager />
-          </div>
+          {/* SubscriptionManager hidden — subscriptions disabled during testing */}
 
           {/* Invite Management - Admin Only */}
           <div className="mt-6">

@@ -36,7 +36,6 @@ const primaryNav = [
 
 const advancedNav = [
   { path: '/api-keys', icon: Key, label: 'API Keys' },
-  { path: '/pricing', icon: TrendingUp, label: 'Pricing' },
 ];
 
 interface LiveAccount {
