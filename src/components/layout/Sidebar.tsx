@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button';
 const primaryNav = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/ai-trader', icon: Bot, label: 'Scalper' },
+  { path: '/leverage', icon: Zap, label: 'Leverage' },
   { path: '/risk-management', icon: Shield, label: 'Risk' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/settings', icon: Settings, label: 'Settings' },

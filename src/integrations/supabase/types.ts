@@ -474,6 +474,117 @@ export type Database = {
           },
         ]
       }
+      futures_api_connections: {
+        Row: {
+          api_key_hint: string | null
+          created_at: string
+          exchange: string
+          id: string
+          is_connected: boolean
+          live_locked: boolean
+          paper_mode: boolean
+          read_only: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_hint?: string | null
+          created_at?: string
+          exchange: string
+          id?: string
+          is_connected?: boolean
+          live_locked?: boolean
+          paper_mode?: boolean
+          read_only?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_hint?: string | null
+          created_at?: string
+          exchange?: string
+          id?: string
+          is_connected?: boolean
+          live_locked?: boolean
+          paper_mode?: boolean
+          read_only?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      futures_positions: {
+        Row: {
+          closed_at: string | null
+          entry_price: number
+          estimated_fees: number | null
+          estimated_liquidation_price: number | null
+          exchange: string | null
+          exit_price: number | null
+          id: string
+          is_paper: boolean
+          leverage: number
+          margin_mode: string
+          margin_used: number
+          opened_at: string
+          pnl: number | null
+          position_value: number
+          quantity: number
+          side: string
+          status: string
+          stop_loss: number | null
+          symbol: string
+          take_profit: number | null
+          user_id: string
+        }
+        Insert: {
+          closed_at?: string | null
+          entry_price: number
+          estimated_fees?: number | null
+          estimated_liquidation_price?: number | null
+          exchange?: string | null
+          exit_price?: number | null
+          id?: string
+          is_paper?: boolean
+          leverage: number
+          margin_mode?: string
+          margin_used: number
+          opened_at?: string
+          pnl?: number | null
+          position_value: number
+          quantity: number
+          side: string
+          status?: string
+          stop_loss?: number | null
+          symbol: string
+          take_profit?: number | null
+          user_id: string
+        }
+        Update: {
+          closed_at?: string | null
+          entry_price?: number
+          estimated_fees?: number | null
+          estimated_liquidation_price?: number | null
+          exchange?: string | null
+          exit_price?: number | null
+          id?: string
+          is_paper?: boolean
+          leverage?: number
+          margin_mode?: string
+          margin_used?: number
+          opened_at?: string
+          pnl?: number | null
+          position_value?: number
+          quantity?: number
+          side?: string
+          status?: string
+          stop_loss?: number | null
+          symbol?: string
+          take_profit?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       invite_codes: {
         Row: {
           code: string
@@ -501,6 +612,126 @@ export type Database = {
           id?: string
           used_at?: string | null
           used_by?: string | null
+        }
+        Relationships: []
+      }
+      leverage_settings: {
+        Row: {
+          consecutive_losses_pause: number
+          created_at: string
+          cross_margin_enabled: boolean
+          default_leverage: Json
+          enabled: boolean
+          id: string
+          live_confirmed_at: string | null
+          live_confirmed_by_admin: string | null
+          live_enabled: boolean
+          live_max_leverage: number
+          margin_mode: string
+          max_daily_loss_pct: number
+          max_leverage_cap: number
+          max_risk_per_trade_pct: number
+          min_confidence: number
+          min_risk_reward: number
+          paper_enabled: boolean
+          paper_max_leverage: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          consecutive_losses_pause?: number
+          created_at?: string
+          cross_margin_enabled?: boolean
+          default_leverage?: Json
+          enabled?: boolean
+          id?: string
+          live_confirmed_at?: string | null
+          live_confirmed_by_admin?: string | null
+          live_enabled?: boolean
+          live_max_leverage?: number
+          margin_mode?: string
+          max_daily_loss_pct?: number
+          max_leverage_cap?: number
+          max_risk_per_trade_pct?: number
+          min_confidence?: number
+          min_risk_reward?: number
+          paper_enabled?: boolean
+          paper_max_leverage?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          consecutive_losses_pause?: number
+          created_at?: string
+          cross_margin_enabled?: boolean
+          default_leverage?: Json
+          enabled?: boolean
+          id?: string
+          live_confirmed_at?: string | null
+          live_confirmed_by_admin?: string | null
+          live_enabled?: boolean
+          live_max_leverage?: number
+          margin_mode?: string
+          max_daily_loss_pct?: number
+          max_leverage_cap?: number
+          max_risk_per_trade_pct?: number
+          min_confidence?: number
+          min_risk_reward?: number
+          paper_enabled?: boolean
+          paper_max_leverage?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      liquidation_estimates: {
+        Row: {
+          created_at: string
+          distance_to_liquidation_pct: number
+          distance_to_stop_pct: number
+          entry_price: number
+          estimated_liquidation_price: number
+          id: string
+          leverage: number
+          margin_required: number
+          reason: string | null
+          safe: boolean
+          side: string
+          stop_loss: number
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          distance_to_liquidation_pct: number
+          distance_to_stop_pct: number
+          entry_price: number
+          estimated_liquidation_price: number
+          id?: string
+          leverage: number
+          margin_required: number
+          reason?: string | null
+          safe: boolean
+          side: string
+          stop_loss: number
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          distance_to_liquidation_pct?: number
+          distance_to_stop_pct?: number
+          entry_price?: number
+          estimated_liquidation_price?: number
+          id?: string
+          leverage?: number
+          margin_required?: number
+          reason?: string | null
+          safe?: boolean
+          side?: string
+          stop_loss?: number
+          symbol?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -537,6 +768,39 @@ export type Database = {
           provider?: string
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      margin_logs: {
+        Row: {
+          action: string
+          amount: number
+          balance_after: number | null
+          created_at: string
+          id: string
+          notes: string | null
+          position_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          amount: number
+          balance_after?: number | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          position_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          amount?: number
+          balance_after?: number | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          position_id?: string | null
+          user_id?: string
         }
         Relationships: []
       }
