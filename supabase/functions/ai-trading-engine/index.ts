@@ -1788,6 +1788,25 @@ function analyzeWithRules(
     const isInDowntrend = coin.change24h < -5 || ((coin as any).change7d ?? 0) < -10;
     
     switch (bestStrategy) {
+      case 'scalp': {
+        // PURE SCALP — momentum entry matching scalping-replay logic.
+        // Enter when 24h momentum sits in the sweet spot (0.5%–3%) and the asset
+        // isn't already extended at the top of its daily range.
+        if (isInDowntrend) {
+          break;
+        }
+        const m = coin.change24h;
+        if (m >= 0.5 && m < 3 && pricePosition < 0.85) {
+          action = 'buy';
+          // Higher confidence when momentum is fresh and price is mid-range
+          confidence = m >= 1 && pricePosition < 0.7 ? 0.92 : 0.78;
+          reason = `⚡ SCALP: +${m.toFixed(2)}% momentum, range pos ${(pricePosition * 100).toFixed(0)}%`;
+          pattern = 'scalp_momentum';
+        }
+        break;
+      }
+
+
       case 'rsi':
         // TREND-FILTERED RSI - Only buy oversold in uptrending assets
         // FIX: Previous RSI was buying in downtrends, causing consistent losses
