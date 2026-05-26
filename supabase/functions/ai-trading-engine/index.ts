@@ -14,10 +14,13 @@ const corsHeaders = {
 type TradeSide = 'buy' | 'sell';
 
 const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
-const CHASE_GUARD_WINDOW_MINUTES = 30; // window to check for recent exits at similar price
-const CHASE_GUARD_PRICE_TOLERANCE_PCT = 0.5; // skip re-entry if current price within 0.5% of recent exit
+const CHASE_GUARD_WINDOW_MINUTES = 120; // window to block rebuys after exits unless price proves a new breakout
+const REENTRY_BREAKOUT_CONFIRM_PCT = 0.25; // never rebuy below/near the last exit; require a fresh upside break
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
+const ENTRY_CONFIRM_MIN_5M_PCT = 0.3; // fast scalps only enter when the last candle is materially rising
+const ENTRY_CONFIRM_MIN_15M_PCT = 0.2; // confirms the 5m move is not a one-tick fakeout
+const ENTRY_CONFIRM_MIN_24H_PCT = 0.3; // avoids buying broader-session weakness
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
@@ -1745,7 +1748,7 @@ async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: Mar
       console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
       return false;
     }
-    if (c5 <= 0) {
+    if (c5 < ENTRY_CONFIRM_MIN_5M_PCT) {
       console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping`);
       return false;
     }
@@ -1753,12 +1756,12 @@ async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: Mar
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    if (c1h < 0.2) {
-      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+0.2%`);
+    if (c1h < ENTRY_CONFIRM_MIN_15M_PCT) {
+      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+${ENTRY_CONFIRM_MIN_15M_PCT}%`);
       return false;
     }
-    if (c24 < 0.3) {
-      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+0.3%`);
+    if (c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${ENTRY_CONFIRM_MIN_24H_PCT}%`);
       return false;
     }
     console.log(`✅ RISING: ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
@@ -1915,14 +1918,15 @@ TREND ANALYSIS:
 ${trendContext}
 
 LIVE MARKET DATA:
-${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
+${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 TRADING RULES:
-1. Only trade assets in UPTREND or STRONG_UPTREND
-2. Higher confidence = larger position (within limits)
-3. Target ${config.TARGET_PROFIT}% profit per trade
-4. Use ${leverage}x leverage on high-conviction trades only
-5. Prioritize trades with best risk/reward ratio
+1. Only buy assets rising right now: 5m ≥ +${ENTRY_CONFIRM_MIN_5M_PCT}%, 15m ≥ +${ENTRY_CONFIRM_MIN_15M_PCT}%, 24h ≥ +${ENTRY_CONFIRM_MIN_24H_PCT}%
+2. Never buy dips, pullbacks, weak bounces, or assets with negative/flat 5m momentum
+3. Higher confidence = larger position (within limits)
+4. Target ${config.TARGET_PROFIT}% profit per trade
+5. Use ${leverage}x leverage on high-conviction trades only
+6. Prioritize trades with best risk/reward ratio
 
 Return ONLY JSON array with your TOP ${config.TOP_TRADES_PER_CYCLE} trade decisions:
 [{"symbol":"BTC","action":"buy","confidence":0.85,"reason":"Strong uptrend with momentum","pattern":"trend_continuation","size_percent":${Math.min(30, maxPositionSize)},"leverage":${leverage}}]
@@ -2933,6 +2937,18 @@ serve(async (req) => {
         console.log(lossCheck.reason);
         return false;
       }
+
+      // Final entry safety net: AI and rules are only allowed to buy confirmed risers.
+      if (d.action === 'buy') {
+        const coin = marketData.find(m => m.symbol === d.symbol);
+        const c5 = coin?.change5m;
+        const c15 = coin?.change1h ?? 0;
+        const c24 = coin?.change24h ?? 0;
+        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} — needs rising 5m/15m/24h, got 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%`);
+          return false;
+        }
+      }
       
       return true;
     });
@@ -3094,6 +3110,14 @@ serve(async (req) => {
         const coin = marketData.find(m => String(m.symbol).toUpperCase() === symU);
         const price = Number(coin?.price ?? pos.avg_entry_price);
         if (!price || price <= 0) continue;
+        const avgEntry = Number(pos.avg_entry_price || 0);
+        const c5 = coin?.change5m;
+        const c15 = coin?.change1h ?? 0;
+        const c24 = coin?.change24h ?? 0;
+        if (price < avgEntry || c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+          console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+          continue;
+        }
         const value = Number(pos.quantity) * price;
         if (value > 0 && value < DUST_TOPUP_THRESHOLD) {
           candidates.push({
@@ -3175,15 +3199,29 @@ serve(async (req) => {
         const lastExit = recentExits.get(symbolUpper);
         if (lastExit && lastExit.exitPrice > 0) {
           const currPrice = coinData.price;
-          const priceDeltaPct = Math.abs((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
-          if (priceDeltaPct <= CHASE_GUARD_PRICE_TOLERANCE_PCT) {
+          const priceDeltaPct = ((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
+          if (priceDeltaPct <= REENTRY_BREAKOUT_CONFIRM_PCT) {
             const minsAgo = (Date.now() - lastExit.closedAt) / (1000 * 60);
             console.log(
-              `🧯 SKIP chase ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (Δ ${priceDeltaPct.toFixed(2)}% ≤ ${CHASE_GUARD_PRICE_TOLERANCE_PCT}%)`
+              `🧯 SKIP rebuy ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (${priceDeltaPct.toFixed(2)}%). Need +${REENTRY_BREAKOUT_CONFIRM_PCT}% above exit before re-entry`
             );
             continue;
           }
         }
+      }
+
+      // Last-moment live momentum confirmation before sizing/risk/execution.
+      if (side === 'buy') {
+        const freshMomentum = coinData.productId ? await fetchShortWindowMomentum(coinData.productId) : null;
+        const c5 = freshMomentum?.change5m ?? coinData.change5m;
+        const c15 = freshMomentum?.change15m ?? coinData.change1h ?? 0;
+        const c24 = coinData.change24h ?? 0;
+        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+          continue;
+        }
+        coinData.change5m = c5;
+        coinData.change1h = c15;
       }
 
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
