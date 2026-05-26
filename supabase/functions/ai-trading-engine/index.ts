@@ -54,6 +54,7 @@ async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
   } catch (e) {
     console.warn('loadScalpCfg fallback to defaults:', e);
     return { ...SCALP_CFG_DEFAULTS };
+  }
 }
 
 // Legacy aliases so callers without a cfg fall back to defaults
@@ -62,6 +63,14 @@ const ENTRY_CONFIRM_MIN_15M_PCT = SCALP_CFG_DEFAULTS.entry_min_15m_pct;
 const ENTRY_CONFIRM_MIN_24H_PCT = SCALP_CFG_DEFAULTS.entry_min_24h_pct;
 const CHASE_GUARD_WINDOW_MINUTES = SCALP_CFG_DEFAULTS.chase_guard_minutes;
 const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
+
+function getEntryMomentumStatus(coin: MarketData, cfg: ScalpCfg) {
+  const c5 = coin.change5m;
+  const c1h = coin.change1h ?? 0;
+  const c24 = coin.change24h ?? 0;
+  const strict = c5 !== undefined && c5 >= cfg.entry_min_5m_pct && c1h >= cfg.entry_min_1h_pct && c24 >= cfg.entry_min_24h_pct;
+  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= Math.max(0.05, cfg.entry_min_1h_pct * 0.5) && c24 >= Math.max(0.3, cfg.entry_min_24h_pct);
+  return { ok: strict || steady, mode: strict ? 'strict' : steady ? 'steady' : 'blocked', c5, c1h, c24 };
 }
 
 function tradeKey(symbol: string, side: TradeSide) {
