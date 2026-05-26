@@ -2584,7 +2584,7 @@ serve(async (req) => {
         const maxCapitalUsage = settings.max_capital_usage || 80;
         const availableCapital = balance * (maxCapitalUsage / 100);
         const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
-        const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 5);
+        const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 1);
         const quantity = tradeValue / coinData.price;
         
         // Insert pending trade for user approval
@@ -2843,7 +2843,7 @@ serve(async (req) => {
             const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
             const positionValue = roundedQty * actualEntryPrice;
             
-            if (roundedQty <= 0 || positionValue < 2) {
+            if (roundedQty <= 0 || positionValue < MIN_TRADE_VALUE) {
               console.error(`⚠️ DUST DETECTED: Bought ${quantity} ${decision.symbol} but sellable qty is ${roundedQty} ($${positionValue.toFixed(2)})`);
               console.log(`⚠️ This trade will create dust - skipping position creation`);
               continue;
