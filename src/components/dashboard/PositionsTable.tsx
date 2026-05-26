@@ -102,7 +102,7 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Invested</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Value</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">P&L</th>
-                {isLiveMode && <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Action</th>}
+                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>
