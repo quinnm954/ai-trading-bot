@@ -13,7 +13,11 @@ const corsHeaders = {
 
 type TradeSide = 'buy' | 'sell';
 
-const DUPLICATE_TRADE_COOLDOWN_MINUTES = 5; // scalp mode: prevent immediate re-entry without freezing trading for an hour+
+const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
+const CHASE_GUARD_WINDOW_MINUTES = 30; // window to check for recent exits at similar price
+const CHASE_GUARD_PRICE_TOLERANCE_PCT = 0.5; // skip re-entry if current price within 0.5% of recent exit
+const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
+const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
@@ -47,6 +51,41 @@ async function getRecentTradeKeys(
     // trades are ordered desc; first time we see key is most recent
     if (!map.has(key) && t.created_at) {
       map.set(key, new Date(t.created_at).getTime());
+    }
+  }
+
+  return map;
+}
+
+async function getRecentExits(
+  supabase: any,
+  userId: string,
+  isPaperMode: boolean,
+  windowMinutes: number
+): Promise<Map<string, { exitPrice: number; closedAt: number }>> {
+  const map = new Map<string, { exitPrice: number; closedAt: number }>();
+  const cutoff = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+
+  const { data: trades, error } = await supabase
+    .from('trades')
+    .select('symbol, exit_price, closed_at')
+    .eq('user_id', userId)
+    .eq('is_paper', isPaperMode)
+    .eq('status', 'closed')
+    .gte('closed_at', cutoff)
+    .order('closed_at', { ascending: false })
+    .limit(250);
+
+  if (error) {
+    console.log('⚠️ Chase guard: failed to fetch recent exits:', error.message || error);
+    return map;
+  }
+
+  for (const t of trades || []) {
+    if (!t.symbol || !t.exit_price || !t.closed_at) continue;
+    const sym = String(t.symbol).toUpperCase();
+    if (!map.has(sym)) {
+      map.set(sym, { exitPrice: Number(t.exit_price), closedAt: new Date(t.closed_at).getTime() });
     }
   }
 
@@ -2671,8 +2710,10 @@ serve(async (req) => {
     });
 
     // CRITICAL: Limit decisions to remaining trade slots (respecting max_concurrent_trades)
-    const remainingSlots = Math.max(0, settings.max_concurrent_trades - (openPositions || 0));
-    console.log(`📊 Trade slots: ${openPositions || 0} used / ${settings.max_concurrent_trades} max = ${remainingSlots} remaining`);
+    // Scalp mode is also hard-capped at SCALP_MAX_CONCURRENT regardless of user setting
+    const effectiveMaxTrades = Math.min(settings.max_concurrent_trades, SCALP_MAX_CONCURRENT);
+    const remainingSlots = Math.max(0, effectiveMaxTrades - (openPositions || 0));
+    console.log(`📊 Trade slots: ${openPositions || 0} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
     
     if (remainingSlots === 0) {
       console.log('⚠️ No remaining trade slots - skipping all new trades');
@@ -2785,8 +2826,9 @@ serve(async (req) => {
       DUPLICATE_TRADE_COOLDOWN_MINUTES
     );
     const openPositionSymbols = await getOpenPositionSymbols(supabase, user.id, isPaperMode);
+    const recentExits = await getRecentExits(supabase, user.id, isPaperMode, CHASE_GUARD_WINDOW_MINUTES);
     console.log(
-      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m)`
+      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m), ${recentExits.size} recent exit(s) (chase window ${CHASE_GUARD_WINDOW_MINUTES}m)`
     );
 
     // ============================================================
@@ -2891,6 +2933,22 @@ serve(async (req) => {
         continue;
       }
 
+      // 🧯 CHASE GUARD: skip if we just exited this symbol at a similar price
+      if (side === 'buy' && !(decision as any)._topup) {
+        const lastExit = recentExits.get(symbolUpper);
+        if (lastExit && lastExit.exitPrice > 0) {
+          const currPrice = coinData.price;
+          const priceDeltaPct = Math.abs((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
+          if (priceDeltaPct <= CHASE_GUARD_PRICE_TOLERANCE_PCT) {
+            const minsAgo = (Date.now() - lastExit.closedAt) / (1000 * 60);
+            console.log(
+              `🧯 SKIP chase ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (Δ ${priceDeltaPct.toFixed(2)}% ≤ ${CHASE_GUARD_PRICE_TOLERANCE_PCT}%)`
+            );
+            continue;
+          }
+        }
+      }
+
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
       const MIN_TRADE_VALUE = 1.00;
       const decisionLeverage = (decision as any).leverage || optimalLeverage || 1;
@@ -2906,13 +2964,34 @@ serve(async (req) => {
       const leveragedNotional = baseValue * decisionLeverage;
       
       // Actual capital used = base value, capped by YOUR max_capital_usage
-      const tradeValue = (decision as any)._topup
+      let tradeValue = (decision as any)._topup
         ? Math.max((decision as any)._topupSpend || MIN_TRADE_VALUE, MIN_TRADE_VALUE)
         : Math.max(Math.min(baseValue * decision.confidence, availableCapital), MIN_TRADE_VALUE);
+
+      // 🛡️ HARD SCALP CAP: each new scalp ≤ SCALP_MAX_POSITION_PCT of equity
+      // (skip for top-ups, which intentionally add to existing positions)
+      if (!(decision as any)._topup) {
+        // Pull current open positions value for equity calc
+        const { data: _capPositions } = await supabase
+          .from('positions')
+          .select('quantity, avg_entry_price')
+          .eq('user_id', user.id)
+          .eq('is_paper', isPaperMode);
+        const _openVal = (_capPositions || []).reduce(
+          (s: number, p: any) => s + Number(p.quantity) * Number(p.avg_entry_price), 0
+        );
+        const equity = balance + _openVal;
+        const equityCap = equity * (SCALP_MAX_POSITION_PCT / 100);
+        if (tradeValue > equityCap) {
+          console.log(`🛡️ Scalp cap: clamping ${symbolUpper} $${tradeValue.toFixed(2)} → $${equityCap.toFixed(2)} (${SCALP_MAX_POSITION_PCT}% of $${equity.toFixed(0)} equity)`);
+          tradeValue = Math.max(equityCap, MIN_TRADE_VALUE);
+        }
+      }
+
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
       
-      console.log(`⚙️ Using YOUR settings: maxCapital=${maxCapitalUsage}%, maxPosition=${maxPositionSize}%, maxTrades=${settings.max_concurrent_trades}`);
+      console.log(`⚙️ Using YOUR settings: maxCapital=${maxCapitalUsage}%, maxPosition=${maxPositionSize}%, maxTrades=${settings.max_concurrent_trades} (scalp cap ${SCALP_MAX_CONCURRENT}, per-pos ${SCALP_MAX_POSITION_PCT}%)`);
       console.log(`📈 Leveraged trade: $${tradeValue.toFixed(2)} × ${decisionLeverage}x = $${(tradeValue * decisionLeverage).toFixed(2)} notional`);
 
       // STRICT VALIDATION: Skip if trade value, quantity, or price is $0 or invalid

@@ -1,42 +1,52 @@
 ## Goal
+Fix the four inefficiencies observed in the last 1.5h of scalp activity:
+1. Same-symbol re-entries (TON, FIL, INJ, ATOM all duplicated)
+2. Trailing stop too loose — winners (RENDER +1.46%, ATOM +1.06%) not booking
+3. Position sizes too large (~$8–16k each → 80%+ concentration)
+4. No hard take-profit — gains can fully reverse
 
-Let you flip between Paper and Live at any time. The bot should keep running, immediately start scanning in the new mode, and never get auto-disabled by the switch itself.
-
-## What's already working
-
-- Each mode has its own positions, trades, balance, and daily-loss tally (filtered by `is_paper`), so switching modes naturally exposes a fresh budget.
-- The trading engine only gates on `settings.enabled` (not `bot_status` or `trading_mode`), so a mode flip alone doesn't stop trading.
-- The frontend loop in `useAITraderData` re-runs the engine every 30s and take-profit checker every 5s based on `enabled`.
-
-## What's fragile today
-
-1. `setTradingMode('live')` **hard-refuses** the switch when no broker is connected — toast appears and nothing changes. You can't toggle to live to inspect or pre-configure.
-2. After a `trading_mode` write, the next engine tick is up to 30s away — feels like trading "stopped" momentarily.
-3. If the daily-loss limit tripped in one mode, `bot_status` was flipped to `idle` (cosmetic only, but the UI badge reads "Idle" even though the other mode is still tradable).
-4. No visible confirmation in the UI that the bot is still active after a switch.
+All changes apply to **both paper and live** (same code path; `isPaperMode` only differs at the broker-call layer).
 
 ## Changes
 
-### `src/hooks/useAITraderData.ts`
-- `setTradingMode(mode)`:
-  - Keep `enabled` and `bot_status: 'trading'` untouched (or re-assert `'trading'` if currently `'idle'` from a prior daily-loss in the *other* mode).
-  - For `mode === 'live'` with no connected broker: keep the warning toast but **still allow the switch** so the user can prep. Add a secondary toast clarifying that live trades will be skipped until a broker is connected (engine already no-ops without keys).
-  - Immediately call `runTradingEngine()` and `runTakeProfitChecker()` after the update so the new mode kicks in instantly instead of waiting for the next 30s tick.
-- Add a tiny `isSwitchingMode` flag for UI feedback (optional polish).
+### 1. `supabase/functions/ai-trading-engine/index.ts`
 
-### `supabase/functions/ai-trading-engine/index.ts`
-- When the daily-loss limit trips, scope the `bot_status: 'idle'` write to be informational only — do **not** set it if the *other* mode still has budget. Simplest fix: stop writing `bot_status` here entirely and rely on `enabled` (which we leave alone). This prevents a Paper loss from making the UI look paused in Live and vice-versa.
-- No other engine changes — the per-mode `is_paper` filters already isolate balances, positions, daily loss, and cooldowns.
+**a. Stronger duplicate guard (line ~16, ~2873–2892)**
+- Bump `DUPLICATE_TRADE_COOLDOWN_MINUTES` from `5` → `15`.
+- In addition to the existing "skip if symbol already open" check, add a **price-proximity guard**: if the most recent closed trade for this symbol was within 30 minutes AND the current entry price is within 0.5% of that exit price, skip with `🧯 SKIP chase: exited ${exitPrice}, now ${currPrice}`.
 
-### `src/components/trading/` (light UI)
-- The mode toggle should reflect that flipping is non-blocking. Keep the existing toggle component; just remove any disabled state tied to "no broker" so the switch is always clickable.
+**b. Hard per-scalp cap (line ~2895–2916)**
+- After computing `tradeValue`, clamp:
+  ```ts
+  const SCALP_MAX_POSITION_PCT = 5;            // 5% of equity hard cap
+  const equityCapValue = (balance + openPositionsValue) * (SCALP_MAX_POSITION_PCT / 100);
+  tradeValue = Math.min(tradeValue, equityCapValue);
+  quantity   = tradeValue / coinData.price;
+  ```
+- Reduces ~$15k positions on a $100k account to ~$5k each.
 
-## Out of scope
+**c. Cap concurrent scalps**
+- When computing `remainingSlots` (line ~2674), use `Math.min(settings.max_concurrent_trades, 5)` for scalp mode so the bot never exceeds 5 simultaneous scalps even if the user setting is higher.
 
-- No changes to risk filters, price band ($0.10–$2), uptrend rules, or cooldowns.
-- No changes to live execution (Coinbase) — if keys aren't present, live mode still safely skips real orders.
-- No DB schema changes.
+### 2. `supabase/functions/auto-take-profit/index.ts`
 
-## Result
+**a. Tighten trailing stop (lines 17–22)**
+- `TRAILING_STOP_MIN_PEAK`: `1.5` → `0.8` (arm trail at +0.8% instead of +1.5%)
+- `TRAILING_STOP_DROP`: `0.7` → `0.5` (exit on 0.5% giveback instead of 0.7%)
+- `ROTATION_PROFIT_THRESHOLD`: keep `1.5`
 
-Toggle Paper ↔ Live anytime → bot stays `enabled`, engine re-runs within a second in the new mode, each mode keeps its independent capital and loss budget, and the UI never falsely shows "Idle" because the other mode hit a limit.
+**b. Add hard take-profit (~line 1163–1177)**
+- New constant `HARD_TAKE_PROFIT_PCT = 1.8` (1.8% gross ≈ 0.6% net after ~1.2% round-trip fees).
+- Trigger sell when `currentPnlPct >= HARD_TAKE_PROFIT_PCT`, regardless of peak/trail state. Log as `decision_type = 'hard_tp'`.
+
+## Result expected
+- Winners book in ~1.0–1.8% windows instead of riding back to flat
+- Same-symbol thrash (TON re-buy at $2.04 after $2.04 exit) is blocked
+- Worst case loss per scalp: ~$100 on $5k position at -2% stop (vs ~$300+ today)
+- Total exposure capped at ~5 positions × 5% = 25% of equity (vs 80%+ today)
+
+## Files touched
+- `supabase/functions/ai-trading-engine/index.ts`
+- `supabase/functions/auto-take-profit/index.ts`
+
+No DB migrations, no UI changes. Live and paper share these parameters automatically.

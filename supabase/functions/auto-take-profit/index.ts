@@ -12,18 +12,20 @@ const corsHeaders = {
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
 // Rotation threshold: when position gains X%, rotate into rising asset
-// SCALP MODE (small-capital tuned): targets must clear ~1.2% round-trip fees.
-// 2.0% gross peak → ~0.8% net after fees. Tuned for $1–$100 trade sizes.
-const ROTATION_PROFIT_THRESHOLD = 1.5; // 1.5% profit triggers rotation (was 1.0%)
-// Stop loss: widened slightly so small positions aren't stopped out by fee+spread noise
-const BASE_STOP_LOSS_PERCENT = -2.0;
-// Trailing stop: sell when gain drops X% below peak gain
-const TRAILING_STOP_DROP = 0.7; // Sell when current gain is 0.7% below peak gain
-const TRAILING_STOP_MIN_PEAK = 1.5; // Activate trailing only after 1.5% peak (clears fees)
-// Minimum momentum for target asset (must be rising)
-const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
-// Maximum momentum - avoid buying at the top
-const MAX_TARGET_MOMENTUM = 15.0; // Don't buy if already up 15%+ (too late)
+ // SCALP MODE (small-capital tuned): targets must clear ~1.2% round-trip fees.
+ // Tightened to capture small wins instead of riding peaks back to flat.
+ const ROTATION_PROFIT_THRESHOLD = 1.5; // 1.5% profit triggers rotation into a fresh mover
+ // Stop loss: widened slightly so small positions aren't stopped out by fee+spread noise
+ const BASE_STOP_LOSS_PERCENT = -2.0;
+ // Trailing stop: arm fast, exit on small giveback
+ const TRAILING_STOP_DROP = 0.5; // Sell when current gain is 0.5% below peak gain
+ const TRAILING_STOP_MIN_PEAK = 0.8; // Activate trailing as soon as peak ≥ 0.8%
+ // Hard take-profit: lock in once gain hits this level regardless of peak/trail
+ const HARD_TAKE_PROFIT_PCT = 1.8; // 1.8% gross ≈ 0.6% net after ~1.2% round-trip fees
+ // Minimum momentum for target asset (must be rising)
+ const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
+ // Maximum momentum - avoid buying at the top
+ const MAX_TARGET_MOMENTUM = 15.0; // Don't buy if already up 15%+ (too late)
 
 // Latency tracking for dynamic threshold adjustment
 interface LatencyMetrics {
@@ -1158,25 +1160,26 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
     
     // Check if trailing stop triggered:
-    // 1. Peak must be at least TRAILING_STOP_MIN_PEAK (e.g., 1%) to activate
-    // 2. Current PnL must be TRAILING_STOP_DROP (e.g., 1.5%) below peak
+    // 1. Peak must be at least TRAILING_STOP_MIN_PEAK (e.g., 0.8%) to activate
+    // 2. Current PnL must be TRAILING_STOP_DROP (e.g., 0.5%) below peak
     const trailingStopActive = newPeakPnl >= TRAILING_STOP_MIN_PEAK;
     const dropFromPeak = newPeakPnl - pnlPercent;
     const hitTrailingStop = trailingStopActive && dropFromPeak >= TRAILING_STOP_DROP;
-    
+
+    const hitHardTakeProfit = pnlPercent >= HARD_TAKE_PROFIT_PCT;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
     
     // Log position status for monitoring (even when not triggering)
-    const statusIcon = hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : hitStopLoss ? '🛑' : '👀';
+    const statusIcon = hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : hitStopLoss ? '🛑' : '👀';
     const distToRotate = (rotationThreshold - pnlPercent).toFixed(2);
     const distToStop = (pnlPercent - adjustedStopLoss).toFixed(2);
     const peakInfo = trailingStopActive ? ` | Peak: ${newPeakPnl.toFixed(2)}% (drop: ${dropFromPeak.toFixed(2)}%)` : '';
     console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%${peakInfo}`);
 
-    // Trigger sell on: rotation target, trailing stop, or hard stop loss
-    if (hitRotationTarget || hitTrailingStop || hitStopLoss) {
-      const triggerReason = hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitTrailingStop ? `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)` : '🛑 STOP TRIGGERED';
+    // Trigger sell on: hard take-profit, rotation target, trailing stop, or hard stop loss
+    if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss) {
+      const triggerReason = hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${HARD_TAKE_PROFIT_PCT}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitTrailingStop ? `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)` : '🛑 STOP TRIGGERED';
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
@@ -1186,7 +1189,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       
       // Apply same exit/rotation rules in both paper and live
       // For ROTATION: sell winning position and rotate into rising asset
-      if (hitRotationTarget) {
+      if (hitRotationTarget && !hitHardTakeProfit) {
         const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'INJ'];
         const priceChanges = await fetchPriceChanges(targetSymbols);
 
@@ -1305,8 +1308,10 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
-      const decisionType = hitRotationTarget ? 'rotation' : hitTrailingStop ? 'trailing_stop' : 'auto_stop_loss';
-      const reasoningText = hitRotationTarget 
+      const decisionType = hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitTrailingStop ? 'trailing_stop' : 'auto_stop_loss';
+      const reasoningText = hitHardTakeProfit
+        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${HARD_TAKE_PROFIT_PCT}%)`
+        : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
         : hitTrailingStop 
           ? `📉 Trailing stop: peak was ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}% to ${pnlPercent.toFixed(2)}%`
@@ -1320,7 +1325,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         reasoning: `${reasoningText}${conversionNote}`,
       });
 
-      if (hitRotationTarget || hitTrailingStop) takeProfitCount++;
+      if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop) takeProfitCount++;
       else stopLossCount++;
     } else {
       // Update position with current price AND peak PnL for trailing stop tracking
