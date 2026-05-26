@@ -921,7 +921,18 @@ async function fetchStockPrices(symbols: string[]): Promise<Record<string, numbe
 
 async function processUserPositions(supabase: any, userId: string, isPaperMode: boolean, availablePairs: Set<string>) {
   console.log(`Processing user: ${userId}, paper mode: ${isPaperMode}`);
-  
+
+  // Load per-user scalp settings (TP / trailing / hard stop). Fallback to module defaults.
+  const { data: scalpRow } = await supabase
+    .from('scalp_settings')
+    .select('take_profit_pct, trailing_drop_pct, hard_stop_loss_pct')
+    .eq('user_id', userId)
+    .maybeSingle();
+  const cfgTakeProfitPct = Number(scalpRow?.take_profit_pct) > 0 ? Number(scalpRow.take_profit_pct) : HARD_TAKE_PROFIT_PCT;
+  const cfgTrailingDropPct = Number(scalpRow?.trailing_drop_pct) > 0 ? Number(scalpRow.trailing_drop_pct) : TRAILING_STOP_DROP;
+  const cfgHardStopLossPct = Number(scalpRow?.hard_stop_loss_pct) > 0 ? -Math.abs(Number(scalpRow.hard_stop_loss_pct)) : BASE_STOP_LOSS_PERCENT;
+  console.log(`⚙️ Exit cfg for ${userId}: TP=${cfgTakeProfitPct}% TrailDrop=${cfgTrailingDropPct}% HardStop=${cfgHardStopLossPct}%`);
+
   // Fetch ALL open positions for this user (both crypto AND stocks)
   const { data: positions, error: posError } = await supabase
     .from('positions')
