@@ -104,8 +104,9 @@ async function fetchKlines(symbol: string, minutes: number): Promise<Kline[]> {
     .sort((a, b) => a.openTime - b.openTime);
 }
 
-function simulate(bars: Kline[]): {
+function simulate(bars: Kline[], strict: boolean): {
   trades: SimTrade[];
+  skips: SkipRecord[];
   metrics: {
     totalTrades: number;
     winRate: number;
@@ -113,30 +114,85 @@ function simulate(bars: Kline[]): {
     avgPnlPct: number;
     maxDrawdownPct: number;
     avgHoldMinutes: number;
+    entriesSkipped: number;
+    skipReasonCounts: Record<string, number>;
   };
 } {
   const trades: SimTrade[] = [];
+  const skips: SkipRecord[] = [];
+  const skipCounts: Record<string, number> = {};
   let inPos = false;
   let entryPrice = 0;
   let entryIdx = 0;
   let peakPnl = 0;
   let cooldownUntil = -1;
 
+  const recordSkip = (i: number, reason: string) => {
+    skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
+    if (skips.length < 25) {
+      skips.push({ time: new Date(bars[i].openTime).toISOString(), reason });
+    }
+  };
+
   for (let i = ENTRY_LOOKBACK_BARS; i < bars.length; i++) {
     const bar = bars[i];
 
     if (!inPos) {
       if (i < cooldownUntil) continue;
-      // Entry: momentum over last N bars >= MIN_MOMENTUM
       const refPrice = bars[i - ENTRY_LOOKBACK_BARS].close;
       const momentum = (bar.close - refPrice) / refPrice;
-      // Skip parabolic >3% in 5min (likely top)
-      if (momentum >= MIN_MOMENTUM && momentum < 0.03) {
-        inPos = true;
-        entryPrice = bar.close;
-        entryIdx = i;
-        peakPnl = 0;
+
+      // Gate 1: momentum band 0.5%–3%
+      if (momentum < MIN_MOMENTUM) continue;
+      if (momentum >= MAX_MOMENTUM) {
+        recordSkip(i, 'parabolic_momentum');
+        continue;
       }
+
+      if (strict) {
+        // Build rolling 24h window stats (or what's available)
+        const volStart = Math.max(0, i - VOL_WINDOW_BARS + 1);
+        let winHigh = -Infinity;
+        let winLow = Infinity;
+        let quoteVol = 0;
+        for (let j = volStart; j <= i; j++) {
+          if (bars[j].high > winHigh) winHigh = bars[j].high;
+          if (bars[j].low < winLow) winLow = bars[j].low;
+          quoteVol += bars[j].quoteVolume;
+        }
+        const dailyRangePct = winLow > 0 ? ((winHigh - winLow) / bar.close) * 100 : 0;
+        const rangePos = winHigh > winLow ? (bar.close - winLow) / (winHigh - winLow) : 0.5;
+
+        // Gate 2: volatility band — too tight = noise/whipsaw, too wide = chop
+        if (dailyRangePct < MIN_DAILY_RANGE_PCT || dailyRangePct > MAX_DAILY_RANGE_PCT) {
+          recordSkip(i, `volatility_band(${dailyRangePct.toFixed(1)}%)`);
+          continue;
+        }
+        // Gate 3: range/whipsaw filter — no capitulation, no blow-off
+        if (rangePos < MIN_RANGE_POSITION || rangePos > MAX_RANGE_POSITION) {
+          recordSkip(i, `range_position(${(rangePos * 100).toFixed(0)}%)`);
+          continue;
+        }
+        // Gate 4: liquidity proxy
+        if (quoteVol < MIN_24H_QUOTE_VOLUME) {
+          recordSkip(i, `liquidity($${(quoteVol / 1e6).toFixed(1)}M)`);
+          continue;
+        }
+        // Gate 5: 7d trend not bleeding (only if we have enough bars)
+        if (i >= TREND_WINDOW_BARS) {
+          const sevenDayRef = bars[i - TREND_WINDOW_BARS].close;
+          const trend7d = ((bar.close - sevenDayRef) / sevenDayRef) * 100;
+          if (trend7d < MIN_7D_TREND_PCT) {
+            recordSkip(i, `bleeding_trend(${trend7d.toFixed(1)}%)`);
+            continue;
+          }
+        }
+      }
+
+      inPos = true;
+      entryPrice = bar.close;
+      entryIdx = i;
+      peakPnl = 0;
       continue;
     }
 
