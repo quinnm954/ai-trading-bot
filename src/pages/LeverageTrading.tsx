@@ -116,6 +116,7 @@ export default function LeverageTrading() {
   const [settings, setSettings] = useState<LeverageSettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [executing, setExecuting] = useState(false);
 
   // Calculator state
   const [calc, setCalc] = useState({
