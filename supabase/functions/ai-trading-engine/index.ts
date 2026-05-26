@@ -595,7 +595,7 @@ async function getAvailableUsdcBalance(): Promise<{ usdcBalance: number; daiConv
     const uri = `GET api.coinbase.com/api/v3/brokerage/accounts`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
-    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts?limit=250', {
       headers: { 'Authorization': `Bearer ${jwt}` },
     });
     
