@@ -476,7 +476,9 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
   }
   
   try {
-    const productId = `${symbol}-USDC`;
+    const [rawSymbol, rawBaseIncrement] = symbol.split('|');
+    const productId = rawSymbol.includes('-') ? rawSymbol : `${rawSymbol}-USDC`;
+    const baseSymbol = productId.split('-')[0];
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
@@ -496,15 +498,9 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
       // Calculate quantity from USD amount
       const quantity = usdAmount / currentPrice;
       
-      // Get precision for this symbol
-      const precisionMap: Record<string, number> = {
-        'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'DOGE': 2, 'ADA': 2, 'AVAX': 4,
-        'DOT': 4, 'LINK': 4, 'UNI': 4, 'LTC': 6, 'ATOM': 4, 'NEAR': 4, 'APT': 4,
-        'ARB': 2, 'OP': 4, 'INJ': 4, 'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4,
-        'RENDER': 4, 'FET': 2, 'TAO': 6, 'AAVE': 6, 'GRT': 2, 'SHIB': 0, 'PEPE': 0,
-      };
-      const precision = precisionMap[symbol.toUpperCase()] ?? 4;
-      const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+      const baseIncrement = Number(rawBaseIncrement || '0.00000001') || 0.00000001;
+      const precision = Math.max(0, Math.min(8, (baseIncrement.toString().split('.')[1] || '').length));
+      const roundedQty = Math.floor(quantity / baseIncrement) * baseIncrement;
       
       // Use LIMIT order with post_only for MAKER fees (0.4% vs 0.6% taker)
       // Buy at current price to maximize fill chance while getting maker fee
@@ -520,7 +516,7 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
           }
         }
       };
-      console.log(`📤 LIMIT BUY ${roundedQty} ${symbol} @ $${currentPrice.toFixed(4)} (maker fee: 0.4%)...`);
+      console.log(`📤 LIMIT BUY ${roundedQty} ${baseSymbol} @ $${currentPrice.toFixed(4)} (maker fee: 0.4%)...`);
     } else {
       // Fallback to market order if can't get price
       console.log(`⚠️ Could not get price for ${symbol}, using market order (0.6% fee)`);
