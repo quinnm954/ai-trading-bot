@@ -36,6 +36,7 @@ const primaryNav = [
 ];
 
 const advancedNav = [
+  { path: '/backtesting', icon: GraduationCap, label: 'Backtesting' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
 ];
 
