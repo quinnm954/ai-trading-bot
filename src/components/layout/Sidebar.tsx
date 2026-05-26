@@ -176,26 +176,18 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-thin">
-            {navItems.map((item) => {
+            {primaryNav.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <NavLink
                   key={item.path}
                   to={item.path}
-                  className={cn(
-                    'nav-item',
-                    isActive && 'active'
-                  )}
+                  className={cn('nav-item', isActive && 'active')}
                 >
                   <item.icon className="w-5 h-5" />
                   <span>{item.label}</span>
-                  {'badge' in item && item.badge && (
-                    <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded bg-primary/20 text-primary">
-                      {item.badge}
-                    </span>
-                  )}
                   {item.path === '/ai-trader' && (
-                    <span className="ml-1 flex items-center gap-1 text-xs text-success">
+                    <span className="ml-auto flex items-center gap-1 text-xs text-success">
                       <Zap className="w-3 h-3" />
                       Live
                     </span>
@@ -203,19 +195,45 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 </NavLink>
               );
             })}
+
+            {/* Advanced collapsible group */}
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((o) => !o)}
+              className="nav-item w-full mt-2 text-muted-foreground hover:text-foreground"
+            >
+              {advancedOpen ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+              <span>Advanced</span>
+            </button>
+            {advancedOpen &&
+              advancedNav.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={cn('nav-item pl-8 text-sm', isActive && 'active')}
+                  >
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
+
             {isAdmin && (
               <NavLink
                 to="/admin"
                 className={cn(
-                  'nav-item',
+                  'nav-item mt-2',
                   location.pathname === '/admin' && 'active'
                 )}
               >
                 <ShieldCheck className="w-5 h-5" />
                 <span>Admin</span>
-                <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded bg-destructive/20 text-destructive">
-                  ADMIN
-                </span>
               </NavLink>
             )}
           </nav>
