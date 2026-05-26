@@ -1,16 +1,23 @@
-import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
-import { useMarketData } from '@/hooks/useMarketData';
+import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { usePositionsData } from '@/hooks/usePositionsData';
 import { cn } from '@/lib/utils';
 
-export function MarketTicker() {
-  const { marketData, isLoading, error } = useMarketData();
+interface MarketTickerProps {
+  tradingMode: 'paper' | 'live';
+}
+
+export function MarketTicker({ tradingMode }: MarketTickerProps) {
+  const isPaper = tradingMode === 'paper';
+  const { positions, isLoading } = usePositionsData(isPaper);
+
+  const label = isPaper ? 'Paper' : 'Live';
 
   if (isLoading) {
     return (
       <div className="glass-panel p-4">
         <div className="flex items-center gap-6 overflow-x-auto scrollbar-thin">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div 
+          {[1, 2, 3].map((i) => (
+            <div
               key={i}
               className="flex items-center gap-4 px-4 py-2 rounded-lg bg-secondary/50 min-w-fit animate-pulse"
             >
@@ -26,12 +33,12 @@ export function MarketTicker() {
     );
   }
 
-  if (error || marketData.length === 0) {
+  if (positions.length === 0) {
     return (
       <div className="glass-panel p-4">
         <div className="flex items-center justify-center gap-2 text-muted-foreground">
-          <RefreshCw className="w-4 h-4" />
-          <span className="text-sm">Unable to load market data</span>
+          <Activity className="w-4 h-4" />
+          <span className="text-sm">No active {label.toLowerCase()} trades</span>
         </div>
       </div>
     );
@@ -39,27 +46,48 @@ export function MarketTicker() {
 
   return (
     <div className="glass-panel p-4">
+      <div className="flex items-center gap-3 mb-2">
+        <Activity className="w-4 h-4 text-primary" />
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          Active {label} Trades ({positions.length})
+        </span>
+      </div>
       <div className="flex items-center gap-6 overflow-x-auto scrollbar-thin">
-        {marketData.map((market) => (
-          <div 
-            key={market.symbol}
-            className="flex items-center gap-4 px-4 py-2 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer min-w-fit"
-          >
-            <div>
-              <p className="text-sm font-medium text-foreground">{market.symbol}</p>
-              <p className="text-lg font-bold font-mono">
-                ${market.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
+        {positions.map((p) => {
+          const up = (p.pnlPercent ?? 0) >= 0;
+          const price = p.currentPrice ?? p.avgEntryPrice;
+          const pnl = p.unrealizedPnl ?? 0;
+          return (
+            <div
+              key={p.id}
+              className="flex items-center gap-4 px-4 py-2 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors min-w-fit"
+            >
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {p.symbol}
+                  <span className="ml-2 text-[10px] uppercase text-muted-foreground">
+                    {p.side}
+                  </span>
+                </p>
+                <p className="text-lg font-bold font-mono">
+                  ${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: price < 1 ? 6 : 2 })}
+                </p>
+              </div>
+              <div className={cn(
+                'flex flex-col items-end text-sm font-medium',
+                up ? 'text-profit' : 'text-loss'
+              )}>
+                <div className="flex items-center gap-1">
+                  {up ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                  <span>{up ? '+' : ''}{p.pnlPercent.toFixed(2)}%</span>
+                </div>
+                <span className="text-xs font-mono">
+                  {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                </span>
+              </div>
             </div>
-            <div className={cn(
-              'flex items-center gap-1 text-sm font-medium',
-              market.changePercent >= 0 ? 'text-profit' : 'text-loss'
-            )}>
-              {market.changePercent >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              <span>{market.changePercent >= 0 ? '+' : ''}{market.changePercent.toFixed(2)}%</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

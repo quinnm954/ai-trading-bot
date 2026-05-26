@@ -337,7 +337,7 @@ export default function Dashboard() {
       )}
 
       {/* Market Ticker */}
-      <MarketTicker />
+      <MarketTicker tradingMode={stats.tradingMode} />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
