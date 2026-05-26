@@ -14,10 +14,14 @@ const corsHeaders = {
 type TradeSide = 'buy' | 'sell';
 
 const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
-const CHASE_GUARD_WINDOW_MINUTES = 30; // window to check for recent exits at similar price
+const CHASE_GUARD_WINDOW_MINUTES = 120; // window to block rebuys after exits unless price proves a new breakout
 const CHASE_GUARD_PRICE_TOLERANCE_PCT = 0.5; // skip re-entry if current price within 0.5% of recent exit
+const REENTRY_BREAKOUT_CONFIRM_PCT = 0.25; // never rebuy below/near the last exit; require a fresh upside break
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
+const ENTRY_CONFIRM_MIN_5M_PCT = 0.3; // fast scalps only enter when the last candle is materially rising
+const ENTRY_CONFIRM_MIN_15M_PCT = 0.2; // confirms the 5m move is not a one-tick fakeout
+const ENTRY_CONFIRM_MIN_24H_PCT = 0.3; // avoids buying broader-session weakness
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
