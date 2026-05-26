@@ -1069,12 +1069,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       // This unlocks capital that's stuck in old positions
       const shouldSellLegacy = positionValue >= 10; // Sell if worth $10+
       
-      if (shouldSellLegacy && !isPaperMode) {
+      if (shouldSellLegacy) {
         const isStock = position.market_type === 'stocks';
-        console.log(`💰 SELLING LEGACY POSITION: ${quantity} ${position.symbol} worth $${positionValue.toFixed(2)} (no entry price, ${isStock ? 'stock' : 'crypto'})`);
-        
+        console.log(`💰 ${isPaperMode ? 'PAPER ' : ''}SELLING LEGACY POSITION: ${quantity} ${position.symbol} worth $${positionValue.toFixed(2)} (no entry price, ${isStock ? 'stock' : 'crypto'})`);
+
         let sellResult: { success: boolean; usdValue?: number; error?: string };
-        if (isStock) {
+        if (isPaperMode) {
+          // Simulate liquidation at current mid price
+          sellResult = { success: true, usdValue: positionValue };
+        } else if (isStock) {
           sellResult = await executeAlpacaSell(position.symbol, quantity, userId, supabase);
           if (!sellResult.success) {
             sellResult = await executeTradierSell(position.symbol, quantity, userId, supabase);
@@ -1082,11 +1085,11 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         } else {
           sellResult = await executeCoinbaseSell(position.symbol, quantity);
         }
-        
+
         if (sellResult.success && (sellResult.usdValue || isStock)) {
           const soldValue = sellResult.usdValue || positionValue;
-          console.log(`✅ Legacy position sold: ${position.symbol} -> $${soldValue.toFixed(2)}`);
-          
+          console.log(`✅ Legacy position ${isPaperMode ? 'simulated-' : ''}sold: ${position.symbol} -> $${soldValue.toFixed(2)}`);
+
           // Close trade and delete position
           await supabase.from('trades').update({
             status: 'closed',
@@ -1094,21 +1097,30 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
             pnl: soldValue, // Treat entire value as profit since no cost basis
             closed_at: new Date().toISOString(),
           }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
-          
+
           await supabase.from('positions').delete().eq('id', position.id);
           takeProfitCount++;
-          
-          // Log the decision
+
+          // Credit paper balance with realized proceeds
+          if (isPaperMode) {
+            const { data: paperAccount } = await supabase.from('paper_account').select('balance').eq('user_id', userId).single();
+            if (paperAccount) {
+              await supabase.from('paper_account').update({
+                balance: Number(paperAccount.balance) + soldValue,
+                updated_at: new Date().toISOString(),
+              }).eq('user_id', userId);
+            }
+          }
+
           await supabase.from('ai_decisions').insert({
             user_id: userId,
             decision_type: 'legacy_position_sold',
             symbol: position.symbol,
             action: 'sell',
-            reasoning: `Sold legacy position (no entry price): ${quantity.toFixed(6)} ${position.symbol} for $${soldValue.toFixed(2)}`,
+            reasoning: `${isPaperMode ? '[PAPER] ' : ''}Sold legacy position (no entry price): ${quantity.toFixed(6)} ${position.symbol} for $${soldValue.toFixed(2)}`,
           });
         } else {
           console.log(`⚠️ Could not sell legacy ${position.symbol}: ${sellResult.error}`);
-          // Update current price anyway
           await supabase.from('positions').update({
             current_price: currentPrice,
             updated_at: new Date().toISOString(),
@@ -1121,6 +1133,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           updated_at: new Date().toISOString(),
         }).eq('id', position.id);
       }
+
       continue;
     }
     
