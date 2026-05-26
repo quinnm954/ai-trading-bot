@@ -1322,7 +1322,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
       const decisionType = hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitTrailingStop ? 'trailing_stop' : 'auto_stop_loss';
       const reasoningText = hitHardTakeProfit
-        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${HARD_TAKE_PROFIT_PCT}%)`
+        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${cfgTakeProfitPct}%)`
         : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
         : hitTrailingStop 
