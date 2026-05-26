@@ -2635,16 +2635,10 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .eq('is_paper', isPaperMode);
 
-    if ((openPositions || 0) >= settings.max_concurrent_trades) {
-      console.log(`🛑 Max concurrent trades reached (${openPositions}/${settings.max_concurrent_trades})`);
-      return new Response(JSON.stringify({ 
-        message: 'Max concurrent trades reached',
-        openPositions,
-        maxAllowed: settings.max_concurrent_trades,
-        status: 'at_limit'
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    let openPositionsCount = openPositions || 0;
+    if (openPositionsCount >= settings.max_concurrent_trades) {
+      console.log(`⚠️ Slots full (${openPositionsCount}/${settings.max_concurrent_trades}) — will attempt loss-rotation after candidate scan`);
+      // Don't early-return; let the deeper check at remainingSlots===0 try loss-rotation.
     }
 
     // 📉 DAILY LOSS CHECK - Stop trading if daily loss limit exceeded
