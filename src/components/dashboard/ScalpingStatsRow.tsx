@@ -115,9 +115,9 @@ export function ScalpingStatsRow() {
       />
       <StatCard
         title="Active Strategy"
-        value={s.activeStrategy.replace(/_/g, ' ')}
+        value="scalp"
         icon={Cpu}
-        changeLabel="Best for regime"
+        changeLabel="Forced scalp mode"
       />
       <StatCard
         title="Market Regime"
