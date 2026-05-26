@@ -120,9 +120,12 @@ export function scoreSignal(inputs: SignalInputs): SignalScore {
   const reasons: string[] = [];
 
   // EMAs
-  const e9 = ema(closes, 9)[9).length - 1];
-  const e21 = ema(closes, 21)[21).length - 1];
-  const e50 = ema(closes, 50)[50).length - 1];
+  const e9arr = ema(closes, 9);
+  const e21arr = ema(closes, 21);
+  const e50arr = ema(closes, 50);
+  const e9 = e9arr[e9arr.length - 1];
+  const e21 = e21arr[e21arr.length - 1];
+  const e50 = e50arr[e50arr.length - 1];
   const trendUp = e9 > e21 && e21 > e50;
   const trendDown = e9 < e21 && e21 < e50;
   const dirOk = side === 'buy' ? trendUp : trendDown;
