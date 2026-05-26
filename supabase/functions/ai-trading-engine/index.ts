@@ -1804,8 +1804,9 @@ async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG
       console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
       return false;
     }
-    if (c5 < cfg.entry_min_5m_pct) {
-      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping (need ≥+${cfg.entry_min_5m_pct}%)`);
+    const momentumStatus = getEntryMomentumStatus(coin, cfg);
+    if (!momentumStatus.ok) {
+      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping (need rising short-window confirmation)`);
       return false;
     }
     if (c5 > 1.5) {
@@ -1820,7 +1821,7 @@ async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG
       console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${cfg.entry_min_24h_pct}%`);
       return false;
     }
-    console.log(`✅ RISING: ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
+    console.log(`✅ RISING (${momentumStatus.mode}): ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
     return true;
   });
 
