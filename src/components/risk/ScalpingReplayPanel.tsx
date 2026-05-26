@@ -241,6 +241,31 @@ export function ScalpingReplayPanel() {
               </CardContent>
             </Card>
           )}
+
+          {result.metrics.skipReasonCounts &&
+            Object.keys(result.metrics.skipReasonCounts).length > 0 && (
+            <Card className="glass-panel">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Entries skipped by confirmation gate ({result.metrics.entriesSkipped ?? 0})
+                </CardTitle>
+                <CardDescription>
+                  Bars where momentum fired but a confirmation blocked entry.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(result.metrics.skipReasonCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([reason, count]) => (
+                      <Badge key={reason} variant="outline" className="text-xs">
+                        {reason.replace(/_/g, ' ')} · {count}
+                      </Badge>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
