@@ -2716,6 +2716,74 @@ serve(async (req) => {
       `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m)`
     );
 
+    // ============================================================
+    // 🪙 DUST TOP-UP PHASE
+    // When cash has grown (e.g. after taking profits), prefer to top up
+    // existing small/dust-prone positions to a healthy size BEFORE opening
+    // brand-new positions. This keeps every position sellable and avoids
+    // bleed from sub-minimum holdings.
+    // ============================================================
+    try {
+      const DUST_TOPUP_THRESHOLD = Math.max(10, balance * 0.01); // $10 or 1% of cash
+      const TOPUP_CASH_RESERVE = Math.max(2, balance * 0.02);    // keep small cash buffer
+
+      const { data: openPositionsForTopup } = await supabase
+        .from('positions')
+        .select('symbol, quantity, avg_entry_price')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode)
+        .eq('side', 'buy');
+
+      type TopupCandidate = { symbol: string; price: number; currentValue: number; deficit: number };
+      const candidates: TopupCandidate[] = [];
+
+      for (const pos of openPositionsForTopup || []) {
+        const symU = String(pos.symbol).toUpperCase();
+        const coin = marketData.find(m => String(m.symbol).toUpperCase() === symU);
+        const price = Number(coin?.price ?? pos.avg_entry_price);
+        if (!price || price <= 0) continue;
+        const value = Number(pos.quantity) * price;
+        if (value > 0 && value < DUST_TOPUP_THRESHOLD) {
+          candidates.push({
+            symbol: symU,
+            price,
+            currentValue: value,
+            deficit: DUST_TOPUP_THRESHOLD - value,
+          });
+        }
+      }
+
+      // Smallest first so dust gets rescued first
+      candidates.sort((a, b) => a.currentValue - b.currentValue);
+
+      let availableForTopup = Math.max(0, balance - TOPUP_CASH_RESERVE);
+      const topupDecisions: any[] = [];
+
+      for (const c of candidates) {
+        if (availableForTopup < 1) break;
+        const spend = Math.min(c.deficit, availableForTopup);
+        if (spend < 1) continue; // below exchange minimum
+        topupDecisions.push({
+          symbol: c.symbol,
+          action: 'buy',
+          confidence: 1,
+          reason: `Dust top-up: bringing ${c.symbol} from $${c.currentValue.toFixed(2)} toward $${DUST_TOPUP_THRESHOLD.toFixed(2)}`,
+          pattern: 'dust_topup',
+          _topup: true,
+          _topupSpend: spend,
+        });
+        availableForTopup -= spend;
+      }
+
+      if (topupDecisions.length > 0) {
+        console.log(`🪙 DUST TOP-UP: queued ${topupDecisions.length} top-up(s), threshold=$${DUST_TOPUP_THRESHOLD.toFixed(2)}`);
+        // Run top-ups first so small positions are rescued before new entries
+        (limitedDecisions as any[]).unshift(...topupDecisions);
+      }
+    } catch (e) {
+      console.error('Dust top-up phase failed (non-fatal):', e);
+    }
+
     // Execute trades (limited to available slots)
     for (const decision of limitedDecisions) {
       // Double-check we haven't exceeded the limit during this loop
