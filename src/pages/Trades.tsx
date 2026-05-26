@@ -28,7 +28,7 @@ export default function Trades() {
   const [modeFilter, setModeFilter] = useState('all');
   const [minScore, setMinScore] = useState('');
   const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const closedTrades = useMemo(() => trades.filter((t) => t.status === 'closed'), [trades]);
 
