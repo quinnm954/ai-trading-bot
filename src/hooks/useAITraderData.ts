@@ -237,26 +237,39 @@ export function useAITraderData() {
     }
   }, [user, toast]);
 
-  // Toggle trading mode
+  // Toggle trading mode — always allow; never pause the bot
   const setTradingMode = useCallback(async (mode: TradingMode) => {
-    if (mode === 'live' && connectedBrokers.length === 0) {
-      toast({
-        title: 'No Broker Connected',
-        description: 'Please connect Alpaca or Coinbase in API Keys to enable live trading.',
-        variant: 'destructive',
-      });
-      return;
+    const noBrokerForLive = mode === 'live' && connectedBrokers.length === 0;
+
+    // Keep the bot running. If it was idle, re-assert trading so the next tick fires.
+    const updates: Partial<AISettings> = { tradingMode: mode };
+    if (aiSettings.enabled && aiSettings.botStatus !== 'trading') {
+      updates.botStatus = 'trading';
     }
-    
-    await updateSettings({ tradingMode: mode });
-    
+    await updateSettings(updates);
+
     toast({
       title: mode === 'live' ? 'Live Trading Mode' : 'Paper Trading Mode',
-      description: mode === 'live' 
-        ? 'AI Trader will now execute real trades on your connected broker accounts.'
-        : 'AI Trader is now in simulation mode. No real money will be used.',
+      description: mode === 'live'
+        ? 'AI Trader switched to live. Real orders will execute on connected brokers.'
+        : 'AI Trader switched to paper. Simulated trades only.',
     });
-  }, [connectedBrokers.length, updateSettings, toast]);
+
+    if (noBrokerForLive) {
+      toast({
+        title: 'No Broker Connected',
+        description: 'Live trades will be skipped until you connect Coinbase or Alpaca in API Keys.',
+        variant: 'destructive',
+      });
+    }
+
+    // Kick the engine immediately so trading continues in the new mode without a 30s gap
+    if (aiSettings.enabled) {
+      runTradingEngine();
+      runTakeProfitChecker();
+    }
+  }, [connectedBrokers.length, updateSettings, toast, aiSettings.enabled, aiSettings.botStatus, runTradingEngine, runTakeProfitChecker]);
+
 
   // Run auto take-profit checker
   const runTakeProfitChecker = useCallback(async () => {
