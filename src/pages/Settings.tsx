@@ -19,6 +19,7 @@ import { SubscriptionManager } from '@/components/settings/SubscriptionManager';
 import { LegalAndPrivacy } from '@/components/settings/LegalAndPrivacy';
 import { PasswordChange } from '@/components/settings/PasswordChange';
 import { ResetPaperBalance } from '@/components/settings/ResetPaperBalance';
+import { LiveInvestmentBasis } from '@/components/settings/LiveInvestmentBasis';
 
 export default function Settings() {
   const [notifications, setNotifications] = useState({
@@ -267,6 +268,11 @@ export default function Settings() {
 
             {/* Reset Paper Balance */}
             <ResetPaperBalance />
+
+            {/* Live Investment Basis (P&L starting point) */}
+            <LiveInvestmentBasis />
+
+
 
           </div>
           {/* SubscriptionManager hidden — subscriptions disabled during testing */}

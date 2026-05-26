@@ -31,7 +31,7 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'OKB': 'okb',
 };
 
-const LIVE_STARTING_EQUITY = 65;
+const LIVE_STARTING_EQUITY_FALLBACK = 100;
 
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
@@ -131,11 +131,12 @@ export function useDashboardData() {
       // Fetch AI settings for trading mode
       const { data: aiSettings } = await supabase
         .from('ai_settings')
-        .select('trading_mode')
+        .select('trading_mode, live_initial_investment')
         .eq('user_id', user.id)
         .maybeSingle();
 
       const tradingMode = (aiSettings?.trading_mode as 'paper' | 'live') || 'paper';
+      const liveInitialInvestment = Number(aiSettings?.live_initial_investment ?? LIVE_STARTING_EQUITY_FALLBACK);
 
       // Fetch paper account
       const { data: paperAccount } = await supabase
@@ -269,7 +270,7 @@ export function useDashboardData() {
         // Live account balance can briefly be synced as tradable USDC only.
         // Use broker equity as the source of truth, then derive cash from equity minus open positions.
         cashBalance = liveBrokerEquity > 0 ? Math.max(0, liveBrokerEquity - positionsValue) : liveBrokerCash;
-        accountBasis = LIVE_STARTING_EQUITY;
+        accountBasis = liveInitialInvestment;
       }
 
       // Total equity = cash + positions value; in live mode prefer broker-reported equity to avoid cash/position sync races.
