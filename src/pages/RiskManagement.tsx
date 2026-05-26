@@ -267,7 +267,9 @@ export default function RiskManagement() {
         {/* Settings Tab */}
         <TabsContent value="settings" className="space-y-4">
           <RiskSettingsPanel />
+          <ScalpSettingsPanel />
         </TabsContent>
+
 
         {/* Event History Tab */}
         <TabsContent value="history" className="space-y-4">
