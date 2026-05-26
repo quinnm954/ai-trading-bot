@@ -217,9 +217,6 @@ export default function Landing() {
             </span>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <Link to="/pricing" className="hover:text-foreground transition-colors">
-              Pricing
-            </Link>
             <Link to="/auth" className="hover:text-foreground transition-colors">
               Sign In
             </Link>
