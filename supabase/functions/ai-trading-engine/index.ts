@@ -2521,9 +2521,9 @@ serve(async (req) => {
         .from('ai_settings')
         .update({ 
           current_regime: regime,
-          bot_status: 'idle',
           updated_at: new Date().toISOString()
         })
+
         .eq('user_id', user.id);
 
       // Log the decision to skip
