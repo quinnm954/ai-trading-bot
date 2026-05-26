@@ -19,6 +19,7 @@ import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
+import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { TrialDaysIndicator } from '@/components/dashboard/TrialDaysIndicator';
 import { useDashboardData } from '@/hooks/useDashboardData';
