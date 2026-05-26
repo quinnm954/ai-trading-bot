@@ -31,7 +31,7 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'OKB': 'okb',
 };
 
-const LIVE_STARTING_EQUITY = 65;
+const LIVE_STARTING_EQUITY_FALLBACK = 100;
 
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
