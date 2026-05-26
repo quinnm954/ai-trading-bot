@@ -54,7 +54,14 @@ async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
   } catch (e) {
     console.warn('loadScalpCfg fallback to defaults:', e);
     return { ...SCALP_CFG_DEFAULTS };
-  }
+}
+
+// Legacy aliases so callers without a cfg fall back to defaults
+const ENTRY_CONFIRM_MIN_5M_PCT = SCALP_CFG_DEFAULTS.entry_min_5m_pct;
+const ENTRY_CONFIRM_MIN_15M_PCT = SCALP_CFG_DEFAULTS.entry_min_15m_pct;
+const ENTRY_CONFIRM_MIN_24H_PCT = SCALP_CFG_DEFAULTS.entry_min_24h_pct;
+const CHASE_GUARD_WINDOW_MINUTES = SCALP_CFG_DEFAULTS.chase_guard_minutes;
+const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
 }
 
 function tradeKey(symbol: string, side: TradeSide) {
