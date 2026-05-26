@@ -1189,7 +1189,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       
       // Apply same exit/rotation rules in both paper and live
       // For ROTATION: sell winning position and rotate into rising asset
-      if (hitRotationTarget) {
+      if (hitRotationTarget && !hitHardTakeProfit) {
         const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'INJ'];
         const priceChanges = await fetchPriceChanges(targetSymbols);
 
@@ -1308,8 +1308,10 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
-      const decisionType = hitRotationTarget ? 'rotation' : hitTrailingStop ? 'trailing_stop' : 'auto_stop_loss';
-      const reasoningText = hitRotationTarget 
+      const decisionType = hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitTrailingStop ? 'trailing_stop' : 'auto_stop_loss';
+      const reasoningText = hitHardTakeProfit
+        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${HARD_TAKE_PROFIT_PCT}%)`
+        : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
         : hitTrailingStop 
           ? `📉 Trailing stop: peak was ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}% to ${pnlPercent.toFixed(2)}%`
@@ -1323,7 +1325,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         reasoning: `${reasoningText}${conversionNote}`,
       });
 
-      if (hitRotationTarget || hitTrailingStop) takeProfitCount++;
+      if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop) takeProfitCount++;
       else stopLossCount++;
     } else {
       // Update position with current price AND peak PnL for trailing stop tracking
