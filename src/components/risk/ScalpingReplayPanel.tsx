@@ -123,6 +123,18 @@ export function ScalpingReplayPanel() {
             </div>
           </div>
 
+          <div className="flex items-start justify-between gap-3 p-3 rounded-md bg-muted/30 border border-border/50">
+            <div className="space-y-0.5">
+              <Label htmlFor="strict-conf" className="text-sm">Strict confirmations</Label>
+              <p className="text-xs text-muted-foreground">
+                Mirror the live bot: volatility band, range/whipsaw filter, liquidity & trend gates.
+              </p>
+            </div>
+            <Switch id="strict-conf" checked={strict} onCheckedChange={setStrict} />
+          </div>
+
+
+
           <Button onClick={runReplay} disabled={loading} className="w-full sm:w-auto">
             {loading ? (
               <>
