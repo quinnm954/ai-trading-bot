@@ -1071,6 +1071,10 @@ interface MarketData {
   volume: number;
   high24h: number;
   low24h: number;
+  productId?: string;
+  baseIncrement?: string;
+  quoteMinSize?: number;
+  spreadPercent?: number;
 }
 
 interface AITradingDecision {
@@ -1090,9 +1094,68 @@ interface TrendAnalysis {
   reason: string;
 }
 
-// Fetch current crypto prices from CoinGecko with retry logic
+// Fetch current crypto prices from Coinbase first so live execution can use every buyable Coinbase USDC market.
 async function fetchMarketData(): Promise<MarketData[]> {
-  // Top 100+ cryptocurrencies by market cap for maximum scalping opportunities
+  try {
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/market/products?limit=500', {
+      headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const products = Array.isArray(data?.products) ? data.products : [];
+      const tradableUsdcMarkets = products
+        .filter((product: any) => {
+          const quote = String(product.quote_currency_id || '').toUpperCase();
+          const base = String(product.base_currency_id || '').toUpperCase();
+          const price = Number(product.price || product.mid_market_price || 0);
+          return quote === 'USDC'
+            && base
+            && price > 0
+            && product.status === 'online'
+            && !product.is_disabled
+            && !product.trading_disabled
+            && !product.cancel_only
+            && !product.view_only
+            && product.product_type !== 'FUTURE';
+        })
+        .map((product: any) => {
+          const price = Number(product.price || product.mid_market_price || 0);
+          const high24h = Number(product.high_24h || price);
+          const low24h = Number(product.low_24h || price);
+          const volume = Number(product.approximate_quote_24h_volume || 0) || (Number(product.volume_24h || 0) * price);
+          const bestBid = Number(product.best_bid_price || 0);
+          const bestAsk = Number(product.best_ask_price || 0);
+          const spreadPercent = bestBid > 0 && bestAsk > bestBid ? ((bestAsk - bestBid) / price) * 100 : undefined;
+          const change24h = Number(product.price_percentage_change_24h || 0);
+
+          return {
+            symbol: String(product.base_currency_id).toUpperCase(),
+            price,
+            change24h,
+            // Coinbase market list does not expose 7d change; use 24h as the short-window trend proxy for scalp gating.
+            change7d: change24h,
+            volume,
+            high24h,
+            low24h,
+            productId: product.product_id,
+            baseIncrement: product.base_increment,
+            quoteMinSize: Number(product.quote_min_size || 1),
+            spreadPercent,
+          } as MarketData;
+        })
+        .sort((a: MarketData, b: MarketData) => b.volume - a.volume);
+
+      console.log(`📊 Fetched ${tradableUsdcMarkets.length} tradable Coinbase USDC markets`);
+      if (tradableUsdcMarkets.length > 0) return tradableUsdcMarkets;
+    } else {
+      console.error('Coinbase products API error:', response.status);
+    }
+  } catch (error) {
+    console.error('Error fetching Coinbase market data:', error);
+  }
+
+  // Fallback only if Coinbase market discovery fails.
   const cryptos = [
     // Top 50
     'bitcoin', 'ethereum', 'tether', 'xrp', 'bnb', 'solana', 'usdc', 'dogecoin',
