@@ -1,37 +1,66 @@
 ## Goal
 
-Force-close every open **paper** position right now (ICP, DOT, MKR×2, CAKE, ENS, AVAX, SOL — 8 positions) at current market price, credit the proceeds back to the $100k paper cash balance, and let the bot restart fresh under the tightened 1% TP / -1.5% SL rules.
+Lock the bot to **scalping-only** and add a lightweight **paper replay** verifier you can run before enabling live paper trades. Skip the multi-strategy backtester entirely (no `backtest_runs` table, no hard gate UI for RSI/EMA/Grid/DCA/custom).
 
-## Approach
+## Scope: what to remove vs keep
 
-Create a new one-shot edge function `close-all-paper-positions` that:
+The codebase has strategy names (`rsi`, `ema_crossover`, `grid`, `dca`, `macd`, `trend_breakout`, `volatility_breakout`, `custom`) wired into ~20+ files including the AI engine, learning engine, advisor, DB seed function, and UI. Physically deleting every reference would shred the bot.
 
-1. Authenticates the caller (uses the user's JWT)
-2. Pulls all `positions` rows where `is_paper = true` for the user
-3. Fetches current USD prices for each symbol from CoinGecko (same source the bot already uses)
-4. For each position:
-   - Computes `exit_price = current_price`, `pnl = (current_price - avg_entry_price) * quantity`
-   - Updates the matching open `trades` row: `status='closed'`, `exit_price`, `pnl`, `closed_at=now()`
-   - Adds `current_price * quantity` to the paper account balance
-   - Deletes the `positions` row
-5. Inserts one `ai_decisions` row summarizing the cleanup (count + total realized P&L)
-6. Returns a JSON summary
+**Pragmatic approach:** route everything through scalping, hide the rest from the user, leave dormant code paths in place so nothing breaks.
 
-Add a small **"Close all paper positions"** button on the Dashboard (admin/creator-visible only, since this is a one-time cleanup tool) that calls the function with a confirm dialog.
+### Remove (user-visible)
+- `src/pages/Strategies.tsx` — delete page + route + sidebar link
+- `src/pages/AILearningEngine.tsx` strategy comparison table — replace with "Scalping only" notice
+- Strategy picker / selector UI in Settings, AI Advisor, Risk Management — replace with read-only "Strategy: Scalping" label
+- Any "choose strategy" controls in onboarding / dashboards
 
-## What this does NOT do
+### Keep but force to scalping
+- `ai-trading-engine` edge function — short-circuit strategy selection to always return `scalping`
+- `ai-learning-engine` — only update the scalping row
+- `handle_new_user_setup` DB function — seed only one row in `strategy_performance` (`scalping`) for new users
+- `strategy_performance` table — keep schema, just stop writing other rows
 
-- Does **not** touch live positions
-- Does **not** change `auto-take-profit` logic — the tightened 1% TP / -1.5% SL already applies to all new entries going forward
-- Does **not** delete trades — losses stay on record, just marked closed at current market
+### Skip entirely
+- No `backtest_runs` table, no backtester edge function, no hard gate on bot enable
 
-## Expected outcome
+## New: Scalping Paper Replay
 
-- 8 positions closed at live prices
-- Paper cash balance jumps back up (most positions are roughly break-even or small drawdown from entry)
-- Bot starts the next scan cycle with a clean slate; every new entry will have the proper -1.5% stop enforced from the first tick
+A single edge function `scalping-replay` + a small panel on the **Risk Management** page.
 
-## Files touched
+**Function:** `supabase/functions/scalping-replay/index.ts`
+- Input: `{ symbol: string, lookbackMinutes?: number }` (default 1440 = 24h)
+- Fetches 1-minute klines from Binance public API (`/api/v3/klines`, no key)
+- Runs the **exact same scalping entry/exit logic** the live bot uses (trailing stop 1% peak / 1.5% drop, 0.5% min momentum, fee-aware) bar-by-bar
+- Returns: `{ trades, winRate, totalPnlPct, maxDrawdownPct, avgHoldMinutes, sampleTrades[] }`
+- Persists nothing — pure in-memory one-shot
 
-- New: `supabase/functions/close-all-paper-positions/index.ts`
-- Edit: `src/pages/Dashboard.tsx` — add the cleanup button (creator-only, guarded by `useIsAdmin`)
+**UI:** `src/components/risk/ScalpingReplayPanel.tsx`
+- Symbol input (default BTCUSDT), lookback selector (1h / 24h / 7d)
+- "Run replay" button → calls edge function → renders metrics + last 10 trades table
+- Plain advisory readout. No bot gating.
+
+## Files
+
+**Delete:**
+- `src/pages/Strategies.tsx` (+ route in `src/App.tsx`, sidebar entry)
+
+**Edit:**
+- `src/App.tsx` — drop `/strategies` route
+- `src/components/layout/Sidebar.tsx` — drop Strategies link
+- `src/pages/AILearningEngine.tsx` — collapse to scalping-only view
+- `src/pages/Settings.tsx`, `src/pages/AIAdvisor.tsx`, `src/pages/RiskManagement.tsx` — replace strategy selectors with static "Scalping" label; mount `ScalpingReplayPanel` on Risk page
+- `supabase/functions/ai-trading-engine/index.ts` — force `strategy = 'scalping'`
+- `supabase/functions/ai-learning-engine/index.ts` — only touch scalping row
+- `supabase/functions/ai-strategy-advisor/index.ts` — only advise on scalping entries
+- DB migration: rewrite `handle_new_user_setup` to seed only `('scalping', 'all_regimes', ...)` in `strategy_performance`
+
+**Create:**
+- `supabase/functions/scalping-replay/index.ts`
+- `src/components/risk/ScalpingReplayPanel.tsx`
+
+## Out of scope (per your call)
+
+- No `backtest_runs` table
+- No multi-strategy comparison UI
+- No hard gate blocking the bot until a backtest passes — replay is advisory only
+- No changes to live execution / Coinbase logic
