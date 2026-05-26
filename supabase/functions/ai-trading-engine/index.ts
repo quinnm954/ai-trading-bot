@@ -2938,6 +2938,18 @@ serve(async (req) => {
         console.log(lossCheck.reason);
         return false;
       }
+
+      // Final entry safety net: AI and rules are only allowed to buy confirmed risers.
+      if (d.action === 'buy') {
+        const coin = marketData.find(m => m.symbol === d.symbol);
+        const c5 = coin?.change5m;
+        const c15 = coin?.change1h ?? 0;
+        const c24 = coin?.change24h ?? 0;
+        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} — needs rising 5m/15m/24h, got 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%`);
+          return false;
+        }
+      }
       
       return true;
     });
