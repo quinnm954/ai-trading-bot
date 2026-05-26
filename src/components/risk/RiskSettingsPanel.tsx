@@ -81,6 +81,7 @@ export function RiskSettingsPanel() {
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
   const [hasManualChanges, setHasManualChanges] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<RiskTolerance | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Initialize selected preset from current settings
   useEffect(() => {
@@ -238,17 +239,27 @@ export function RiskSettingsPanel() {
             <p className="text-sm text-muted-foreground">Configure your risk management limits</p>
           </div>
         </div>
-        {hasChanges && (
-          <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-            {isSaving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            Save Changes
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? 'Simple view' : 'Advanced view'}
           </Button>
-        )}
+          {hasChanges && (
+            <Button onClick={handleSave} disabled={isSaving} className="gap-2">
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              Save Changes
+            </Button>
+          )}
+        </div>
       </div>
+
 
       {/* Manual Changes Warning */}
       {hasManualChanges && (
@@ -339,77 +350,106 @@ export function RiskSettingsPanel() {
         {/* Divider */}
         <div className="border-t border-border" />
 
-        {/* Position Size */}
-        <SettingRow
-          label="Max Position Size"
-          description="Maximum percentage of your equity that can be allocated to a single position. Lower values reduce concentration risk."
-          settingKey="maxPositionSize"
-          min={1}
-          max={50}
-          warningThreshold={UNSAFE_THRESHOLDS.maxPositionSize}
-        />
+        {!showAdvanced ? (
+          /* Simple view: 3 most important numbers, read-only summary */
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs text-muted-foreground mb-1">Max Position Size</p>
+              <p className="text-2xl font-bold text-foreground">
+                {getValue('maxPositionSize')}%
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">per single trade</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs text-muted-foreground mb-1">Daily Loss Limit</p>
+              <p className="text-2xl font-bold text-foreground">
+                {getValue('maxDailyLoss')}%
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">trading pauses if hit</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs text-muted-foreground mb-1">Max Concurrent Trades</p>
+              <p className="text-2xl font-bold text-foreground">
+                {getValue('maxConcurrentTrades')}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">open positions at once</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Position Size */}
+            <SettingRow
+              label="Max Position Size"
+              description="Maximum percentage of your equity that can be allocated to a single position. Lower values reduce concentration risk."
+              settingKey="maxPositionSize"
+              min={1}
+              max={50}
+              warningThreshold={UNSAFE_THRESHOLDS.maxPositionSize}
+            />
 
-        {/* Daily Loss */}
-        <SettingRow
-          label="Max Daily Loss"
-          description="Trading stops automatically if daily losses reach this percentage. Protects against bad trading days."
-          settingKey="maxDailyLoss"
-          min={1}
-          max={20}
-          warningThreshold={UNSAFE_THRESHOLDS.maxDailyLoss}
-        />
+            {/* Daily Loss */}
+            <SettingRow
+              label="Max Daily Loss"
+              description="Trading stops automatically if daily losses reach this percentage. Protects against bad trading days."
+              settingKey="maxDailyLoss"
+              min={1}
+              max={20}
+              warningThreshold={UNSAFE_THRESHOLDS.maxDailyLoss}
+            />
 
-        {/* Weekly Loss */}
-        <SettingRow
-          label="Max Weekly Loss"
-          description="Trading stops for the week if weekly losses reach this percentage. Prevents prolonged losing streaks."
-          settingKey="weeklyLossLimit"
-          min={3}
-          max={30}
-          warningThreshold={15}
-        />
+            {/* Weekly Loss */}
+            <SettingRow
+              label="Max Weekly Loss"
+              description="Trading stops for the week if weekly losses reach this percentage. Prevents prolonged losing streaks."
+              settingKey="weeklyLossLimit"
+              min={3}
+              max={30}
+              warningThreshold={15}
+            />
 
-        {/* Max Drawdown */}
-        <SettingRow
-          label="Max Drawdown (Kill Switch)"
-          description="If drawdown from peak equity exceeds this percentage, the kill switch triggers and all trading stops until manually reset."
-          settingKey="maxDrawdown"
-          min={5}
-          max={50}
-          warningThreshold={UNSAFE_THRESHOLDS.maxDrawdown}
-        />
+            {/* Max Drawdown */}
+            <SettingRow
+              label="Max Drawdown (Kill Switch)"
+              description="If drawdown from peak equity exceeds this percentage, the kill switch triggers and all trading stops until manually reset."
+              settingKey="maxDrawdown"
+              min={5}
+              max={50}
+              warningThreshold={UNSAFE_THRESHOLDS.maxDrawdown}
+            />
 
-        {/* Capital Usage */}
-        <SettingRow
-          label="Max Capital Usage"
-          description="Maximum percentage of total capital that can be deployed across all positions. Keeps reserve for opportunities and margin."
-          settingKey="maxCapitalUsage"
-          min={10}
-          max={100}
-          step={5}
-          warningThreshold={UNSAFE_THRESHOLDS.maxCapitalUsage}
-        />
+            {/* Capital Usage */}
+            <SettingRow
+              label="Max Capital Usage"
+              description="Maximum percentage of total capital that can be deployed across all positions. Keeps reserve for opportunities and margin."
+              settingKey="maxCapitalUsage"
+              min={10}
+              max={100}
+              step={5}
+              warningThreshold={UNSAFE_THRESHOLDS.maxCapitalUsage}
+            />
 
-        {/* Concurrent Trades */}
-        <SettingRow
-          label="Max Concurrent Trades"
-          description="Maximum number of positions that can be open simultaneously. Lower values concentrate focus, higher values diversify."
-          settingKey="maxConcurrentTrades"
-          min={1}
-          max={20}
-          unit=""
-        />
+            {/* Concurrent Trades */}
+            <SettingRow
+              label="Max Concurrent Trades"
+              description="Maximum number of positions that can be open simultaneously. Lower values concentrate focus, higher values diversify."
+              settingKey="maxConcurrentTrades"
+              min={1}
+              max={20}
+              unit=""
+            />
 
-        {/* Leverage */}
-        <SettingRow
-          label="Max Leverage"
-          description="Maximum leverage allowed. Default is 1x (no leverage). Higher leverage amplifies both gains AND losses."
-          settingKey="maxLeverage"
-          min={1}
-          max={10}
-          unit="x"
-          warningThreshold={UNSAFE_THRESHOLDS.maxLeverage}
-        />
+            {/* Leverage */}
+            <SettingRow
+              label="Max Leverage"
+              description="Maximum leverage allowed. Default is 1x (no leverage). Higher leverage amplifies both gains AND losses."
+              settingKey="maxLeverage"
+              min={1}
+              max={10}
+              unit="x"
+              warningThreshold={UNSAFE_THRESHOLDS.maxLeverage}
+            />
+          </>
+        )}
       </div>
 
       {/* Conservative Defaults Info */}
