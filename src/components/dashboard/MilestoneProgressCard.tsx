@@ -220,7 +220,7 @@ export function MilestoneProgressCard() {
         </div>
         <Progress value={progress} className="h-3" />
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>$0</span>
+          <span>${(data.startingBalance / 1000).toFixed(0)}K</span>
           <span>${(data.targetMilestone / 1000).toFixed(0)}K</span>
         </div>
       </div>
