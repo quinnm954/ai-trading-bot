@@ -79,14 +79,16 @@ interface RiskSettings {
  * Validates a proposed trade against ALL risk rules.
  * Returns approval status and detailed reasoning.
  */
-function validateTrade(
+async function validateTrade(
+  supabase: any,
+  userId: string,
   proposal: TradeProposal,
   settings: RiskSettings,
   currentEquity: number,
   openPositionsCount: number,
   openPositionsValue: number,
   openPositionsUnrealizedPnl: number = 0  // Total unrealized P&L of open positions
-): RiskCheckResult {
+): Promise<RiskCheckResult> {
   const violations: string[] = [];
   let approved = true;
   let severity: 'info' | 'warning' | 'critical' = 'info';
@@ -531,7 +533,9 @@ serve(async (req) => {
           );
         }
 
-        const result = validateTrade(
+        const result = await validateTrade(
+          supabase,
+          userId,
           tradeProposal,
           settings,
           currentEquity,
