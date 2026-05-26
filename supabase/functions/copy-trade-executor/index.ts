@@ -10,6 +10,34 @@ const log = (step: string, details?: any) => {
   console.log(`[COPY-TRADE] ${step}`, details ? JSON.stringify(details) : '');
 };
 
+// CoinGecko ID map for live-price validation (prevents stale-price copy trades)
+const COINGECKO_IDS: Record<string, string> = {
+  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'ripple', ADA: 'cardano',
+  DOGE: 'dogecoin', AVAX: 'avalanche-2', DOT: 'polkadot', LINK: 'chainlink',
+  MATIC: 'matic-network', LTC: 'litecoin', UNI: 'uniswap', ATOM: 'cosmos',
+  NEAR: 'near', INJ: 'injective-protocol', TAO: 'bittensor', RENDER: 'render-token',
+  ENS: 'ethereum-name-service', AAVE: 'aave', MKR: 'maker', BCH: 'bitcoin-cash',
+  XLM: 'stellar', ARB: 'arbitrum', OP: 'optimism', FIL: 'filecoin',
+  OKB: 'okb', GMX: 'gmx', AXS: 'axie-infinity', SUI: 'sui',
+};
+
+async function fetchLivePrice(symbol: string): Promise<number | null> {
+  const id = COINGECKO_IDS[symbol.toUpperCase()];
+  if (!id) return null;
+  try {
+    const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const p = data?.[id]?.usd;
+    return typeof p === 'number' && p > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+// Reject signals where the signal's entry price drifts more than 1.5% from live market.
+const MAX_PRICE_DRIFT_PERCENT = 1.5;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
