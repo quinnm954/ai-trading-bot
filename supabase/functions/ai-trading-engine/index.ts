@@ -1704,32 +1704,14 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
-// Get best strategy for current regime from performance data
-async function getBestStrategyForRegime(supabase: any, userId: string, regime: string): Promise<string> {
-  const { data: performance } = await supabase
-    .from('strategy_performance')
-    .select('strategy, score, win_rate, enabled')
-    .eq('user_id', userId)
-    .eq('market_regime', regime)
-    .eq('enabled', true)
-    .order('score', { ascending: false })
-    .limit(1);
-
-  if (performance && performance.length > 0) {
-    console.log(`🎯 Best ENABLED strategy for ${regime}: ${performance[0].strategy} (score: ${performance[0].score}, win: ${performance[0].win_rate}%)`);
-    return performance[0].strategy;
-  }
-
-  console.log(`⚠️ No enabled strategy for ${regime}, using default`);
-  const defaults: Record<string, string> = {
-    'trending': 'ema_crossover',
-    'ranging': 'rsi',
-    'high_volatility': 'volatility_breakout',
-    'low_volatility': 'dca',
-    'news_driven': 'custom'
-  };
-  return defaults[regime] || 'rsi';
+// SCALPING ONLY: Traditional strategies (RSI/EMA/MACD/grid/DCA/breakout) are disabled.
+// The bot exclusively runs the unified scalp entry — short-window momentum with
+// trailing/hard stops handled in auto-take-profit. This matches scalping-replay.
+async function getBestStrategyForRegime(_supabase: any, _userId: string, _regime: string): Promise<string> {
+  console.log(`⚡ SCALP-ONLY mode: ignoring traditional strategies, using pure momentum scalp`);
+  return 'scalp';
 }
+
 
 // ============= SIGNAL SCORING (0-100) — synthesized from per-coin metrics =============
 function buildSignalFactors(coin: any, _regime: string, confidence: number, side: 'buy' | 'sell') {
