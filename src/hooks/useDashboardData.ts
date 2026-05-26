@@ -255,30 +255,34 @@ export function useDashboardData() {
         });
       }
 
-      // Calculate cash balance based on mode
-      let cashBalance = paperAccount?.balance || 100000;
-      
-      if (tradingMode === 'live' && formattedLiveAccounts.length > 0) {
-        cashBalance = formattedLiveAccounts.reduce((sum, acc) => sum + acc.balance, 0);
+      // Cash balance per mode (no cross-mode fallback)
+      let cashBalance = 0;
+      let initialEquityBasis = 0;
+      if (tradingMode === 'paper') {
+        cashBalance = Number(paperAccount?.balance ?? 100000);
+        initialEquityBasis = Number(initialBalance);
+      } else {
+        cashBalance = formattedLiveAccounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0);
+        // Live cost basis = current equity minus combined P&L (realized + unrealized)
+        initialEquityBasis = 0; // computed below
       }
 
       // Total equity = cash + positions value
       const totalEquity = cashBalance + positionsValue;
+      const combinedPnl = totalPnl + unrealizedPnl;
 
-      // Calculate percentages based on total equity
-      const dailyPnlPercent = totalEquity > 0 ? (dailyPnl / totalEquity) * 100 : 0;
-      const weeklyPnlPercent = totalEquity > 0 ? (weeklyPnl / totalEquity) * 100 : 0;
-      
-      // Combined P&L calculation
+      // Percentages: anchor on initial equity (paper) or cost basis (live)
       let totalPnlPercent = 0;
-      let combinedPnl = totalPnl + unrealizedPnl;
-      
       if (tradingMode === 'paper') {
-        totalPnlPercent = initialBalance > 0 ? ((totalEquity - initialBalance) / initialBalance) * 100 : 0;
+        totalPnlPercent = initialEquityBasis > 0 ? ((totalEquity - initialEquityBasis) / initialEquityBasis) * 100 : 0;
       } else {
         const costBasis = totalEquity - combinedPnl;
         totalPnlPercent = costBasis > 0 ? (combinedPnl / costBasis) * 100 : 0;
       }
+
+      const denominator = tradingMode === 'paper' ? initialEquityBasis : (totalEquity - combinedPnl);
+      const dailyPnlPercent = denominator > 0 ? (dailyPnl / denominator) * 100 : 0;
+      const weeklyPnlPercent = denominator > 0 ? (weeklyPnl / denominator) * 100 : 0;
 
       // Only update state if this is the most recent fetch
       if (fetchId === refreshCounter.current) {
