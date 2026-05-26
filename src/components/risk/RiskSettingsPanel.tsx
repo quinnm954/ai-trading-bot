@@ -81,6 +81,7 @@ export function RiskSettingsPanel() {
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
   const [hasManualChanges, setHasManualChanges] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<RiskTolerance | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Initialize selected preset from current settings
   useEffect(() => {
