@@ -299,6 +299,7 @@ Deno.serve(async (req: Request) => {
     let lookback = body.lookbackMinutes ?? 1440;
     if (!Number.isFinite(lookback) || lookback < 60) lookback = 60;
     if (lookback > 10080) lookback = 10080;
+    const strict = body.strictConfirmations !== false; // default true
 
     if (!/^[A-Z0-9]{4,20}$/.test(symbol)) {
       return new Response(
@@ -315,18 +316,21 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { trades, metrics } = simulate(bars);
+    const { trades, skips, metrics } = simulate(bars, strict);
     const sampleTrades = trades.slice(-10);
 
     return new Response(
       JSON.stringify({
         symbol,
         lookbackMinutes: lookback,
+        strictConfirmations: strict,
+        dataSource: 'binance-1m-klines',
         barsAnalyzed: bars.length,
         firstBar: new Date(bars[0].openTime).toISOString(),
         lastBar: new Date(bars[bars.length - 1].openTime).toISOString(),
         metrics,
         sampleTrades,
+        sampleSkips: skips,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
