@@ -2567,7 +2567,7 @@ serve(async (req) => {
     console.log(`📊 Detected market regime: ${regime}`);
 
     // 📈 TREND ANALYSIS - Filter out downtrending coins
-    const { tradeable, trendAnalysis } = filterByTrend(marketData);
+    const { tradeable, trendAnalysis } = await filterByTrend(marketData);
     console.log(`📈 Trend Analysis:`);
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
     console.log(`✅ Tradeable coins: ${tradeable.map(c => c.symbol).join(', ') || 'NONE - All in downtrend'}`);
