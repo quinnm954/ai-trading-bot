@@ -1,0 +1,1 @@
+ALTER TYPE public.strategy_type ADD VALUE IF NOT EXISTS 'scalp';
