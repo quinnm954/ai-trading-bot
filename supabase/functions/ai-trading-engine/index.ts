@@ -1484,13 +1484,15 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
 const strategyDescriptions: Record<string, string> = {
-  rsi: 'RSI SCALP: Aggressive oversold bounces. Buy RSI < 35, target 0.5% gain in minutes. Fast in/out.',
-  ema_crossover: 'EMA SCALP: Ride momentum waves. Buy on ANY upward cross, exit at 0.5%+ gain. Speed is key.',
-  macd: 'MACD SCALP: Trade histogram momentum spikes. Enter on rising histogram, exit fast at 0.5%.',
-  trend_breakout: 'BREAKOUT SCALP: Chase breakouts aggressively. Enter on ANY breakout, quick 0.5% target.',
-  volatility_breakout: 'VOLATILITY SCALP: Exploit high volatility for quick gains. Enter low, exit on any spike.',
-  grid: 'GRID SCALP: Rapid range trading. Buy low, sell high within tight ranges for quick profits.',
-  dca: 'DCA SCALP: Accumulate on dips, sell on ANY bounce for quick 0.5%+ gains.',
+  scalp: 'PURE SCALP: Short-window momentum entries (0.5%–3% over last few minutes). Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%. No traditional indicators.',
+  rsi: 'DISABLED — scalp-only mode',
+  ema_crossover: 'DISABLED — scalp-only mode',
+  macd: 'DISABLED — scalp-only mode',
+  trend_breakout: 'DISABLED — scalp-only mode',
+  volatility_breakout: 'DISABLED — scalp-only mode',
+  grid: 'DISABLED — scalp-only mode',
+  dca: 'DISABLED — scalp-only mode',
+
   custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
 };
 
