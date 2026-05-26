@@ -131,11 +131,12 @@ export function useDashboardData() {
       // Fetch AI settings for trading mode
       const { data: aiSettings } = await supabase
         .from('ai_settings')
-        .select('trading_mode')
+        .select('trading_mode, live_initial_investment')
         .eq('user_id', user.id)
         .maybeSingle();
 
       const tradingMode = (aiSettings?.trading_mode as 'paper' | 'live') || 'paper';
+      const liveInitialInvestment = Number(aiSettings?.live_initial_investment ?? LIVE_STARTING_EQUITY_FALLBACK);
 
       // Fetch paper account
       const { data: paperAccount } = await supabase
