@@ -1452,13 +1452,36 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
     return analysis;
   });
   
-  const tradeable = dipBuyCandidates.filter((coin: MarketData) => {
+  let tradeable = dipBuyCandidates.filter((coin: MarketData) => {
     const analysis = trendAnalysis.find((t: TrendAnalysis) => t.symbol === coin.symbol);
     return analysis?.shouldTrade ?? false;
   });
-  
-  console.log(`📈 Tradeable (dips only, no pumps): ${tradeable.length}`);
-  
+
+  // 🩹 STARVATION RELAXATION: When the dip pool is too small, allow mild-momentum entries
+  // (+1% to +4% 24h in a 7d uptrend). Prevents the bot from being forced to either no-trade
+  // or pick the single bad setup left over. Sizing should be halved by the caller for these.
+  if (tradeable.length < 3) {
+    const mildMomentum = eligibleCoins.filter(coin => {
+      const c24 = coin.change24h ?? 0;
+      const c7 = coin.change7d ?? 0;
+      return c7 > 2 && c24 > MAX_24H_CHANGE_FOR_ENTRY && c24 <= 4
+        && !tradeable.find(t => t.symbol === coin.symbol);
+    });
+    if (mildMomentum.length > 0) {
+      console.log(`🩹 STARVATION RELAX: adding ${mildMomentum.length} mild-momentum candidates (+1% to +4% 24h in 7d uptrend)`);
+      mildMomentum.forEach(coin => {
+        trendAnalysis.push({
+          ...analyzeTrend(coin),
+          shouldTrade: true,
+          reason: `🩹 MILD-MOMENTUM (starvation relax): 7d +${(coin.change7d ?? 0).toFixed(1)}%, 24h +${(coin.change24h ?? 0).toFixed(1)}%`,
+        });
+      });
+      tradeable = tradeable.concat(mildMomentum);
+    }
+  }
+
+  console.log(`📈 Tradeable (dips + relaxed): ${tradeable.length}`);
+
   return { tradeable, trendAnalysis };
 }
 

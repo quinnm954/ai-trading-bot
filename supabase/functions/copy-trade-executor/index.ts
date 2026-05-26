@@ -10,6 +10,34 @@ const log = (step: string, details?: any) => {
   console.log(`[COPY-TRADE] ${step}`, details ? JSON.stringify(details) : '');
 };
 
+// CoinGecko ID map for live-price validation (prevents stale-price copy trades)
+const COINGECKO_IDS: Record<string, string> = {
+  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'ripple', ADA: 'cardano',
+  DOGE: 'dogecoin', AVAX: 'avalanche-2', DOT: 'polkadot', LINK: 'chainlink',
+  MATIC: 'matic-network', LTC: 'litecoin', UNI: 'uniswap', ATOM: 'cosmos',
+  NEAR: 'near', INJ: 'injective-protocol', TAO: 'bittensor', RENDER: 'render-token',
+  ENS: 'ethereum-name-service', AAVE: 'aave', MKR: 'maker', BCH: 'bitcoin-cash',
+  XLM: 'stellar', ARB: 'arbitrum', OP: 'optimism', FIL: 'filecoin',
+  OKB: 'okb', GMX: 'gmx', AXS: 'axie-infinity', SUI: 'sui',
+};
+
+async function fetchLivePrice(symbol: string): Promise<number | null> {
+  const id = COINGECKO_IDS[symbol.toUpperCase()];
+  if (!id) return null;
+  try {
+    const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const p = data?.[id]?.usd;
+    return typeof p === 'number' && p > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+// Reject signals where the signal's entry price drifts more than 1.5% from live market.
+const MAX_PRICE_DRIFT_PERCENT = 1.5;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -73,12 +101,33 @@ serve(async (req) => {
     // Process each signal for each follower
     for (const signal of pendingSignals) {
       const signalFollowers = followers?.filter(f => f.trader_id === signal.trader_id) || [];
-      
-      log(`Processing signal for ${signal.symbol}`, { 
-        action: signal.action, 
+
+      log(`Processing signal for ${signal.symbol}`, {
+        action: signal.action,
         traderName: signal.top_traders?.display_name,
-        followersCount: signalFollowers.length 
+        followersCount: signalFollowers.length
       });
+
+      // 🛡️ STALE-PRICE GUARD: reject signals whose entry price drifts >1.5% from live market.
+      // This was the root cause of catastrophic copy-trade losses (e.g. ETH@$3100 vs live $2000).
+      const livePrice = await fetchLivePrice(signal.symbol);
+      let executionPrice = Number(signal.entry_price);
+      if (livePrice && executionPrice > 0) {
+        const driftPct = Math.abs(executionPrice - livePrice) / livePrice * 100;
+        if (driftPct > MAX_PRICE_DRIFT_PERCENT) {
+          log(`🚫 STALE-PRICE SKIP ${signal.symbol}: signal $${executionPrice} vs live $${livePrice} (drift ${driftPct.toFixed(2)}%)`);
+          await supabase.from('copy_trade_signals')
+            .update({ status: 'rejected_stale_price' })
+            .eq('id', signal.id);
+          continue;
+        }
+        // Use the verified live price for execution to be safe.
+        executionPrice = livePrice;
+      } else if (!livePrice) {
+        log(`🚫 NO LIVE PRICE for ${signal.symbol} — skipping copy trade to avoid stale-price risk`);
+        continue;
+      }
+
 
       for (const follower of signalFollowers) {
         try {
@@ -119,7 +168,7 @@ serve(async (req) => {
             continue;
           }
 
-          const quantity = tradeValue / signal.entry_price;
+          const quantity = tradeValue / executionPrice;
 
           if (signal.action === 'buy') {
             // Check if user already has this position
@@ -144,8 +193,8 @@ serve(async (req) => {
                 symbol: signal.symbol,
                 side: 'buy',
                 quantity: quantity,
-                avg_entry_price: signal.entry_price,
-                current_price: signal.entry_price,
+                avg_entry_price: executionPrice,
+                current_price: executionPrice,
                 unrealized_pnl: 0,
                 is_paper: settings.trading_mode === 'paper',
                 market_type: 'crypto',
@@ -169,7 +218,7 @@ serve(async (req) => {
               symbol: signal.symbol,
               side: 'buy',
               quantity: quantity,
-              entry_price: signal.entry_price,
+              entry_price: executionPrice,
               status: 'open',
               is_paper: settings.trading_mode === 'paper',
               market_type: 'crypto',
@@ -210,8 +259,8 @@ serve(async (req) => {
             }
 
             // Calculate P&L
-            const pnl = (signal.entry_price - position.avg_entry_price) * position.quantity;
-            const saleValue = position.quantity * signal.entry_price;
+            const pnl = (executionPrice - position.avg_entry_price) * position.quantity;
+            const saleValue = position.quantity * executionPrice;
 
             // Close position
             await supabase
@@ -232,7 +281,7 @@ serve(async (req) => {
               side: 'sell',
               quantity: position.quantity,
               entry_price: position.avg_entry_price,
-              exit_price: signal.entry_price,
+              exit_price: executionPrice,
               pnl: pnl,
               status: 'closed',
               is_paper: settings.trading_mode === 'paper',
