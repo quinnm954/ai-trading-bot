@@ -3003,15 +3003,30 @@ serve(async (req) => {
         balance -= tradeValue;
       }
 
-      // Log AI decision with pattern info
+      // Compute and persist 0-100 signal score
+      const factors = buildSignalFactors(coinData, regime, decision.confidence, decision.action as 'buy' | 'sell');
+      await supabase.from('signal_scores').insert({
+        user_id: user.id,
+        symbol: decision.symbol,
+        strategy: strategyType,
+        action: decision.action,
+        reasoning: decision.reason,
+        ...factors,
+      });
+
+      // Log AI decision with score + factor breakdown
       await supabase.from('ai_decisions').insert({
         user_id: user.id,
         decision_type: 'ai_trade_execution',
         symbol: decision.symbol,
         action: decision.action,
-        reasoning: `${decision.reason} | Pattern: ${decision.pattern || 'N/A'} | Confidence: ${(decision.confidence * 100).toFixed(0)}%`,
+        reasoning: `${decision.reason} | Pattern: ${decision.pattern || 'N/A'} | Confidence: ${(decision.confidence * 100).toFixed(0)}% | Score: ${factors.total_score}`,
         market_regime: regime,
         strategy: strategyType,
+        score: factors.total_score,
+        risk_reward: factors.risk_reward,
+        valid: factors.valid,
+        factor_scores: factors,
       });
 
       executedTrades.push({
