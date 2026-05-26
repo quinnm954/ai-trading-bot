@@ -3286,15 +3286,18 @@ serve(async (req) => {
       // Last-moment live momentum confirmation before sizing/risk/execution.
       if (side === 'buy') {
         const freshMomentum = coinData.productId ? await fetchShortWindowMomentum(coinData.productId) : null;
-        const c5 = freshMomentum?.change5m ?? coinData.change5m;
-        const c15 = freshMomentum?.change15m ?? coinData.change1h ?? 0;
-        const c24 = coinData.change24h ?? 0;
-        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
-          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+        const liveMomentumCoin = {
+          ...coinData,
+          change5m: freshMomentum?.change5m ?? coinData.change5m,
+          change1h: freshMomentum?.change15m ?? coinData.change1h ?? 0,
+        };
+        const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
+        if (!momentumStatus.ok) {
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%)`);
           continue;
         }
-        coinData.change5m = c5;
-        coinData.change1h = c15;
+        coinData.change5m = momentumStatus.c5;
+        coinData.change1h = momentumStatus.c1h;
       }
 
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
@@ -3307,8 +3310,11 @@ serve(async (req) => {
       const maxPositionSize = settings.max_position_size || 10;
       const availableCapital = balance * (maxCapitalUsage / 100);
       
-      // Calculate position value respecting YOUR max position size setting
-      const baseValue = availableCapital * (decisionSizePercent / 100);
+      // Calculate position value respecting scalp sizing first, then broader risk settings.
+      const configuredTargetValue = Number(scalpCfg.target_position_size_usd || 0);
+      const baseValue = (configuredTargetValue > 0 && !(decision as any)._topup)
+        ? Math.min(configuredTargetValue, availableCapital)
+        : availableCapital * (decisionSizePercent / 100);
       const leveragedNotional = baseValue * decisionLeverage;
       
       // Actual capital used = base value, capped by YOUR max_capital_usage
