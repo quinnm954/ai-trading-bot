@@ -96,106 +96,142 @@ export default function Strategies() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {strategies.map((strategy) => (
-            <div 
-              key={strategy.id}
-              className={cn(
-                'glass-panel p-6 transition-all duration-300',
-                strategy.isActive && 'border-primary/30 glow-primary'
-              )}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    'p-3 rounded-xl',
-                    strategy.isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-                  )}>
-                    {strategyIcons[strategy.type] || <Layers className="w-5 h-5" />}
+        <>
+          {recommended.length > 0 && !showAll && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Zap className="w-4 h-4 text-primary" />
+              <span>
+                Showing recommended strategies. {others.length} more available.
+              </span>
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {visible.map((strategy) => (
+              <div
+                key={strategy.id}
+                className={cn(
+                  'glass-panel p-6 transition-all duration-300',
+                  strategy.isActive && 'border-primary/30 glow-primary'
+                )}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      'p-3 rounded-xl',
+                      strategy.isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
+                    )}>
+                      {strategyIcons[strategy.type] || <Layers className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                        {strategy.name}
+                        {RECOMMENDED_TYPES.has(strategy.type) && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-primary/20 text-primary">
+                            RECOMMENDED
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-sm text-muted-foreground capitalize">{strategy.type.replace(/_/g, ' ')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon">
+                      <Settings className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant={strategy.isActive ? 'glow-success' : 'outline'}
+                      size="sm"
+                      onClick={() => toggleStrategy(strategy.type)}
+                      className="gap-2"
+                    >
+                      {strategy.isActive ? (
+                        <>
+                          <Pause className="w-4 h-4" />
+                          Active
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4" />
+                          Start
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <p className="text-sm text-muted-foreground mb-4">{strategy.description}</p>
+
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 rounded-lg bg-secondary/30">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
+                    <p className="text-lg font-bold text-foreground">{strategy.performance.winRate.toFixed(1)}%</p>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">{strategy.name}</h3>
-                    <p className="text-sm text-muted-foreground capitalize">{strategy.type.replace(/_/g, ' ')}</p>
+                    <p className="text-xs text-muted-foreground mb-1">Total Trades</p>
+                    <p className="text-lg font-bold text-foreground">{strategy.performance.totalTrades}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Score</p>
+                    <p className="text-lg font-bold text-primary">{strategy.performance.score}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Profit Factor</p>
+                    <p className={cn(
+                      "text-lg font-bold",
+                      strategy.performance.profitFactor >= 1.5 ? "text-profit" :
+                      strategy.performance.profitFactor >= 1 ? "text-foreground" : "text-loss"
+                    )}>
+                      {strategy.performance.profitFactor > 0 ? strategy.performance.profitFactor.toFixed(2) : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Max Drawdown</p>
+                    <p className={cn(
+                      "text-lg font-bold",
+                      strategy.performance.maxDrawdown <= 5 ? "text-profit" :
+                      strategy.performance.maxDrawdown <= 10 ? "text-warning" : "text-loss"
+                    )}>
+                      {strategy.performance.maxDrawdown > 0 ? `-${strategy.performance.maxDrawdown.toFixed(1)}%` : '—'}
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon">
-                    <Settings className="w-4 h-4" />
-                  </Button>
-                  <Button 
-                    variant={strategy.isActive ? 'glow-success' : 'outline'}
-                    size="sm"
-                    onClick={() => toggleStrategy(strategy.type)}
-                    className="gap-2"
-                  >
-                    {strategy.isActive ? (
-                      <>
-                        <Pause className="w-4 h-4" />
-                        Active
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        Start
-                      </>
-                    )}
-                  </Button>
+
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                    <span>AI Confidence Score</span>
+                    <span>{strategy.performance.score}/100</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-primary to-profit transition-all duration-500"
+                      style={{ width: `${strategy.performance.score}%` }}
+                    />
+                  </div>
                 </div>
               </div>
+            ))}
+          </div>
 
-              <p className="text-sm text-muted-foreground mb-4">{strategy.description}</p>
-
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 rounded-lg bg-secondary/30">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
-                  <p className="text-lg font-bold text-foreground">{strategy.performance.winRate.toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Total Trades</p>
-                  <p className="text-lg font-bold text-foreground">{strategy.performance.totalTrades}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Score</p>
-                  <p className="text-lg font-bold text-primary">{strategy.performance.score}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Profit Factor</p>
-                  <p className={cn(
-                    "text-lg font-bold",
-                    strategy.performance.profitFactor >= 1.5 ? "text-profit" : 
-                    strategy.performance.profitFactor >= 1 ? "text-foreground" : "text-loss"
-                  )}>
-                    {strategy.performance.profitFactor > 0 ? strategy.performance.profitFactor.toFixed(2) : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Max Drawdown</p>
-                  <p className={cn(
-                    "text-lg font-bold",
-                    strategy.performance.maxDrawdown <= 5 ? "text-profit" :
-                    strategy.performance.maxDrawdown <= 10 ? "text-warning" : "text-loss"
-                  )}>
-                    {strategy.performance.maxDrawdown > 0 ? `-${strategy.performance.maxDrawdown.toFixed(1)}%` : '—'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Performance Bar */}
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                  <span>AI Confidence Score</span>
-                  <span>{strategy.performance.score}/100</span>
-                </div>
-                <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-primary to-profit transition-all duration-500"
-                    style={{ width: `${strategy.performance.score}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+          {recommended.length > 0 && others.length > 0 && (
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? (
+                <>
+                  <ChevronDown className="w-4 h-4" />
+                  Show recommended only
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="w-4 h-4" />
+                  Show all strategies ({others.length} more)
+                </>
+              )}
+            </Button>
+          )}
+        </>
       )}
     </div>
   );
