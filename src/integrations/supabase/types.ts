@@ -1221,6 +1221,84 @@ export type Database = {
         }
         Relationships: []
       }
+      scalp_settings: {
+        Row: {
+          chase_guard_minutes: number
+          created_at: string
+          entry_min_15m_pct: number
+          entry_min_1h_pct: number
+          entry_min_24h_pct: number
+          entry_min_5m_pct: number
+          hard_stop_loss_pct: number
+          id: string
+          loss_rotation_cooldown_sec: number
+          loss_rotation_enabled: boolean
+          loss_rotation_max_loss_pct: number
+          loss_rotation_min_age_sec: number
+          loss_rotation_momentum_edge_pct: number
+          max_capital_usage_pct: number
+          max_concurrent_positions: number
+          momentum_rotation_min_pct: number
+          preset: string
+          reentry_breakout_pct: number
+          take_profit_pct: number
+          target_position_size_usd: number
+          trailing_drop_pct: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          chase_guard_minutes?: number
+          created_at?: string
+          entry_min_15m_pct?: number
+          entry_min_1h_pct?: number
+          entry_min_24h_pct?: number
+          entry_min_5m_pct?: number
+          hard_stop_loss_pct?: number
+          id?: string
+          loss_rotation_cooldown_sec?: number
+          loss_rotation_enabled?: boolean
+          loss_rotation_max_loss_pct?: number
+          loss_rotation_min_age_sec?: number
+          loss_rotation_momentum_edge_pct?: number
+          max_capital_usage_pct?: number
+          max_concurrent_positions?: number
+          momentum_rotation_min_pct?: number
+          preset?: string
+          reentry_breakout_pct?: number
+          take_profit_pct?: number
+          target_position_size_usd?: number
+          trailing_drop_pct?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          chase_guard_minutes?: number
+          created_at?: string
+          entry_min_15m_pct?: number
+          entry_min_1h_pct?: number
+          entry_min_24h_pct?: number
+          entry_min_5m_pct?: number
+          hard_stop_loss_pct?: number
+          id?: string
+          loss_rotation_cooldown_sec?: number
+          loss_rotation_enabled?: boolean
+          loss_rotation_max_loss_pct?: number
+          loss_rotation_min_age_sec?: number
+          loss_rotation_momentum_edge_pct?: number
+          max_capital_usage_pct?: number
+          max_concurrent_positions?: number
+          momentum_rotation_min_pct?: number
+          preset?: string
+          reentry_breakout_pct?: number
+          take_profit_pct?: number
+          target_position_size_usd?: number
+          trailing_drop_pct?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       sentiment_signals: {
         Row: {
           analyzed_at: string
