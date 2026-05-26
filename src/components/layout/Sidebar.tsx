@@ -62,6 +62,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { isAdmin } = useIsAdmin();
   const [liveAccount, setLiveAccount] = useState<LiveAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(
+    advancedNav.some((i) => i.path === location.pathname)
+  );
 
   useEffect(() => {
     if (!user) return;
