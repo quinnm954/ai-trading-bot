@@ -31,6 +31,8 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'OKB': 'okb',
 };
 
+const LIVE_STARTING_EQUITY = 50;
+
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
   const ids = symbols.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
@@ -257,32 +259,29 @@ export function useDashboardData() {
 
       // Cash balance per mode (no cross-mode fallback)
       let cashBalance = 0;
-      let initialEquityBasis = 0;
+      let accountBasis = 0;
+      const liveBrokerCash = formattedLiveAccounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0);
+      const liveBrokerEquity = formattedLiveAccounts.reduce((sum, acc) => sum + Number(acc.equity || 0), 0);
       if (tradingMode === 'paper') {
         cashBalance = Number(paperAccount?.balance ?? 100000);
-        initialEquityBasis = Number(initialBalance);
+        accountBasis = Number(initialBalance);
       } else {
-        cashBalance = formattedLiveAccounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0);
-        // Live cost basis = current equity minus combined P&L (realized + unrealized)
-        initialEquityBasis = 0; // computed below
+        // Live account balance can briefly be synced as tradable USDC only.
+        // Use broker equity as the source of truth, then derive cash from equity minus open positions.
+        cashBalance = liveBrokerEquity > 0 ? Math.max(0, liveBrokerEquity - positionsValue) : liveBrokerCash;
+        accountBasis = LIVE_STARTING_EQUITY;
       }
 
-      // Total equity = cash + positions value
-      const totalEquity = cashBalance + positionsValue;
-      const combinedPnl = totalPnl + unrealizedPnl;
+      // Total equity = cash + positions value; in live mode prefer broker-reported equity to avoid cash/position sync races.
+      const totalEquity = tradingMode === 'live' && liveBrokerEquity > 0
+        ? liveBrokerEquity
+        : cashBalance + positionsValue;
+      const accountPnl = totalEquity - accountBasis;
 
-      // Percentages: anchor on initial equity (paper) or cost basis (live)
-      let totalPnlPercent = 0;
-      if (tradingMode === 'paper') {
-        totalPnlPercent = initialEquityBasis > 0 ? ((totalEquity - initialEquityBasis) / initialEquityBasis) * 100 : 0;
-      } else {
-        const costBasis = totalEquity - combinedPnl;
-        totalPnlPercent = costBasis > 0 ? (combinedPnl / costBasis) * 100 : 0;
-      }
-
-      const denominator = tradingMode === 'paper' ? initialEquityBasis : (totalEquity - combinedPnl);
-      const dailyPnlPercent = denominator > 0 ? (dailyPnl / denominator) * 100 : 0;
-      const weeklyPnlPercent = denominator > 0 ? (weeklyPnl / denominator) * 100 : 0;
+      // Percentages stay anchored to the account starting basis, never to shrinking open-position cost basis.
+      const totalPnlPercent = accountBasis > 0 ? (accountPnl / accountBasis) * 100 : 0;
+      const dailyPnlPercent = accountBasis > 0 ? (dailyPnl / accountBasis) * 100 : 0;
+      const weeklyPnlPercent = accountBasis > 0 ? (weeklyPnl / accountBasis) * 100 : 0;
 
       // Only update state if this is the most recent fetch
       if (fetchId === refreshCounter.current) {
@@ -295,7 +294,7 @@ export function useDashboardData() {
           dailyPnlPercent,
           weeklyPnl,
           weeklyPnlPercent,
-          totalPnl: combinedPnl,
+          totalPnl: accountPnl,
           totalPnlPercent,
           openPositions: positionsCount || 0,
           todayTrades: todayTradesCount,
