@@ -35,17 +35,20 @@ export function ScalpingStatsRow() {
     let mounted = true;
 
     const load = async () => {
-      const [aiSettingsRes, paperRes, tradesRes, posRes, sigRes, perfRes] = await Promise.all([
-        supabase.from('ai_settings')
-          .select('current_regime, current_drawdown, max_drawdown, trading_mode')
-          .eq('user_id', user.id).maybeSingle(),
+      const aiSettingsRes = await supabase.from('ai_settings')
+        .select('current_regime, current_drawdown, max_drawdown, trading_mode')
+        .eq('user_id', user.id).maybeSingle();
+      const currentRegime = aiSettingsRes.data?.current_regime ?? 'ranging';
+
+      const [paperRes, tradesRes, posRes, sigRes, perfRes] = await Promise.all([
         supabase.from('paper_account').select('balance').eq('user_id', user.id).maybeSingle(),
         supabase.from('trades').select('pnl').eq('user_id', user.id).eq('status', 'closed').limit(500),
         supabase.from('positions').select('quantity, current_price, avg_entry_price').eq('user_id', user.id),
         supabase.from('signal_scores').select('total_score, symbol, created_at')
           .eq('user_id', user.id).order('created_at', { ascending: false }).limit(1),
-        supabase.from('strategy_performance').select('strategy, score, enabled')
-          .eq('user_id', user.id).eq('enabled', true).order('score', { ascending: false }).limit(1),
+        supabase.from('strategy_performance').select('strategy, score, enabled, market_regime')
+          .eq('user_id', user.id).eq('enabled', true).eq('market_regime', currentRegime)
+          .order('score', { ascending: false }).limit(1),
       ]);
 
       if (!mounted) return;
