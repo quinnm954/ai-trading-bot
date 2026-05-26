@@ -185,14 +185,15 @@ export default function Trades() {
         <button onClick={() => setActiveTab('history')}
           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
             activeTab === 'history' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
-          History ({filtered.length})
+          All Trades ({filtered.length})
         </button>
         <button onClick={() => setActiveTab('open')}
           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
             activeTab === 'open' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
-          Open ({positions.length})
+          Open Positions ({positions.length})
         </button>
       </div>
+
 
       {activeTab === 'history' && (
         <div className="glass-panel overflow-hidden">
