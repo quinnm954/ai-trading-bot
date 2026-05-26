@@ -13,8 +13,8 @@ const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
 // Rotation threshold: when position gains X%, rotate into rising asset
 const ROTATION_PROFIT_THRESHOLD = 5.0; // 5% profit triggers rotation (~4.2% net after fees)
-// Stop loss: emergency protection
-const BASE_STOP_LOSS_PERCENT = -2.5; // Wider stop loss for more breathing room
+// Stop loss: emergency protection (tightened from -2.5% to -2.0% to cap losses)
+const BASE_STOP_LOSS_PERCENT = -2.0;
 // Trailing stop: sell when gain drops X% below peak gain
 const TRAILING_STOP_DROP = 1.5; // Sell when current gain is 1.5% below peak gain
 const TRAILING_STOP_MIN_PEAK = 1.0; // Only activate trailing stop once peak gain reaches 1%
