@@ -2833,7 +2833,9 @@ serve(async (req) => {
       const leveragedNotional = baseValue * decisionLeverage;
       
       // Actual capital used = base value, capped by YOUR max_capital_usage
-      const tradeValue = Math.max(Math.min(baseValue * decision.confidence, availableCapital), MIN_TRADE_VALUE);
+      const tradeValue = (decision as any)._topup
+        ? Math.max((decision as any)._topupSpend || MIN_TRADE_VALUE, MIN_TRADE_VALUE)
+        : Math.max(Math.min(baseValue * decision.confidence, availableCapital), MIN_TRADE_VALUE);
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
       
