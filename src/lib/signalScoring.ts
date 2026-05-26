@@ -120,9 +120,9 @@ export function scoreSignal(inputs: SignalInputs): SignalScore {
   const reasons: string[] = [];
 
   // EMAs
-  const e9 = ema(closes, 9).at(-1)!;
-  const e21 = ema(closes, 21).at(-1)!;
-  const e50 = ema(closes, 50).at(-1)!;
+  const e9 = ema(closes, 9)[9).length - 1];
+  const e21 = ema(closes, 21)[21).length - 1];
+  const e50 = ema(closes, 50)[50).length - 1];
   const trendUp = e9 > e21 && e21 > e50;
   const trendDown = e9 < e21 && e21 < e50;
   const dirOk = side === 'buy' ? trendUp : trendDown;
@@ -154,7 +154,7 @@ export function scoreSignal(inputs: SignalInputs): SignalScore {
 
   // Volume spike
   const recentVol = candles.slice(-20).reduce((a, c) => a + c.volume, 0) / 20;
-  const lastVol = candles.at(-1)?.volume ?? 0;
+  const lastVol = candles[candles.length - 1]?.volume ?? 0;
   const volRatio = recentVol > 0 ? lastVol / recentVol : 1;
   const volume = clamp((volRatio - 1) / 1.5);
   if (volume > 0.6) reasons.push(`Volume spike ${volRatio.toFixed(2)}x avg`);
