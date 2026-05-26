@@ -2721,12 +2721,20 @@ serve(async (req) => {
 
     const { data: todaysTrades } = await supabase
       .from('trades')
-      .select('pnl')
+      .select('pnl, ai_reasoning')
       .eq('user_id', user.id)
       .eq('is_paper', isPaperMode)
       .gte('created_at', todayStart.toISOString());
 
-    const todaysLoss = (todaysTrades || []).reduce((sum, t) => sum + (t.pnl && t.pnl < 0 ? t.pnl : 0), 0);
+    // Exclude user-initiated manual closures from the daily-loss circuit breaker.
+    // Otherwise closing a few red positions can pause the bot for the rest of the day.
+    const todaysLoss = (todaysTrades || []).reduce((sum: number, t: any) => {
+      const pnl = Number(t.pnl) || 0;
+      if (pnl >= 0) return sum;
+      const reason = String(t.ai_reasoning || '');
+      if (reason.startsWith('Force closed by user')) return sum;
+      return sum + pnl;
+    }, 0);
     const maxDailyLossAmount = equityBase * ((settings.max_daily_loss || 5) / 100);
 
     if (Math.abs(todaysLoss) >= maxDailyLossAmount) {

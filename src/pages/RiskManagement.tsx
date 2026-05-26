@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
 import { RiskSettingsPanel } from '@/components/risk/RiskSettingsPanel';
+import { ScalpSettingsPanel } from '@/components/risk/ScalpSettingsPanel';
 import { ScalpingReplayPanel } from '@/components/risk/ScalpingReplayPanel';
 import { useRiskManager, RiskEvent } from '@/hooks/useRiskManager';
 import { supabase } from '@/integrations/supabase/client';
@@ -266,7 +267,9 @@ export default function RiskManagement() {
         {/* Settings Tab */}
         <TabsContent value="settings" className="space-y-4">
           <RiskSettingsPanel />
+          <ScalpSettingsPanel />
         </TabsContent>
+
 
         {/* Event History Tab */}
         <TabsContent value="history" className="space-y-4">
