@@ -1,12 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Bot, Layers, Shield, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, Bot, History, Shield, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const tabs = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Home' },
-  { path: '/ai-trader', icon: Bot, label: 'Trader' },
-  { path: '/strategies', icon: Layers, label: 'Strategies' },
+  { path: '/ai-trader', icon: Bot, label: 'Scalper' },
   { path: '/risk-management', icon: Shield, label: 'Risk' },
+  { path: '/trades', icon: History, label: 'Trades' },
 ];
 
 interface BottomNavProps {
