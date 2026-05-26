@@ -712,15 +712,20 @@ async function tryLossRotation(
   isPaperMode: boolean,
   marketData: MarketData[],
   topCandidate: MarketData,
+  cfg: ScalpCfg = SCALP_CFG_DEFAULTS,
 ): Promise<boolean> {
-  const MAX_LOSS_PCT = -2.0;
-  const MIN_AGE_SEC = 300;
-  const MOMENTUM_EDGE = 0.5;
-  const COOLDOWN_SEC = 60;
+  if (!cfg.loss_rotation_enabled) {
+    console.log('🔁 LOSS-ROTATION: disabled by user settings');
+    return false;
+  }
+  const MAX_LOSS_PCT = cfg.loss_rotation_max_loss_pct;
+  const MIN_AGE_SEC = cfg.loss_rotation_min_age_sec;
+  const MOMENTUM_EDGE = cfg.loss_rotation_momentum_edge_pct;
+  const COOLDOWN_SEC = cfg.loss_rotation_cooldown_sec;
 
   const candC5 = topCandidate.change5m ?? 0;
   const candC1h = topCandidate.change1h ?? 0;
-  if (candC5 < 0.3 || candC1h < 0.3) {
+  if (candC5 < cfg.entry_min_5m_pct || candC1h < cfg.entry_min_1h_pct) {
     console.log(`🔁 LOSS-ROTATION: candidate ${topCandidate.symbol} not strong enough (5m ${candC5.toFixed(2)}%, 1h ${candC1h.toFixed(2)}%)`);
     return false;
   }
