@@ -239,17 +239,27 @@ export function RiskSettingsPanel() {
             <p className="text-sm text-muted-foreground">Configure your risk management limits</p>
           </div>
         </div>
-        {hasChanges && (
-          <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-            {isSaving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            Save Changes
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? 'Simple view' : 'Advanced view'}
           </Button>
-        )}
+          {hasChanges && (
+            <Button onClick={handleSave} disabled={isSaving} className="gap-2">
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              Save Changes
+            </Button>
+          )}
+        </div>
       </div>
+
 
       {/* Manual Changes Warning */}
       {hasManualChanges && (
