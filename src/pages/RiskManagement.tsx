@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
 import { RiskSettingsPanel } from '@/components/risk/RiskSettingsPanel';
+import { ScalpingReplayPanel } from '@/components/risk/ScalpingReplayPanel';
 import { useRiskManager, RiskEvent } from '@/hooks/useRiskManager';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -246,6 +247,7 @@ export default function RiskManagement() {
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="replay">Replay</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="history">Event History</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
@@ -254,6 +256,11 @@ export default function RiskManagement() {
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
           <RiskStatusCard />
+        </TabsContent>
+
+        {/* Replay Tab */}
+        <TabsContent value="replay" className="space-y-4">
+          <ScalpingReplayPanel />
         </TabsContent>
 
         {/* Settings Tab */}
