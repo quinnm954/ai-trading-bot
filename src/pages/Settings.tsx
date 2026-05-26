@@ -269,6 +269,11 @@ export default function Settings() {
             {/* Reset Paper Balance */}
             <ResetPaperBalance />
 
+            {/* Live Investment Basis (P&L starting point) */}
+            <LiveInvestmentBasis />
+
+
+
           </div>
           {/* SubscriptionManager hidden — subscriptions disabled during testing */}
 
