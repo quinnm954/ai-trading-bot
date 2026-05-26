@@ -220,8 +220,8 @@ function validateTrade(
   // ==========================================================================
   // CHECK 10: Minimum Trade Value - Prevent dust trades
   // ==========================================================================
-  if (proposal.positionValue < 5) {
-    violations.push('minimum_trade_value: Trade value below $5 minimum');
+  if (proposal.positionValue < 1) {
+    violations.push('minimum_trade_value: Trade value below $1 minimum');
     approved = false;
     severity = 'info';
   }

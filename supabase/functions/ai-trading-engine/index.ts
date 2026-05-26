@@ -2687,7 +2687,7 @@ serve(async (req) => {
       }
 
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
-      const MIN_TRADE_VALUE = 5.00;
+      const MIN_TRADE_VALUE = 1.00;
       const decisionLeverage = (decision as any).leverage || optimalLeverage || 1;
       const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
       
