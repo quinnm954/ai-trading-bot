@@ -28,18 +28,13 @@ import { Button } from '@/components/ui/button';
 
 const primaryNav = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/ai-trader', icon: Bot, label: 'AI Trader' },
-  { path: '/strategies', icon: Layers, label: 'Strategies' },
+  { path: '/ai-trader', icon: Bot, label: 'Scalper' },
   { path: '/risk-management', icon: Shield, label: 'Risk' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 const advancedNav = [
-  { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
-  { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning' },
-  { path: '/moonshot-scanner', icon: Rocket, label: 'Moonshot Scanner' },
-  { path: '/crypto-signals', icon: Zap, label: 'Crypto Signals' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
   { path: '/pricing', icon: TrendingUp, label: 'Pricing' },
 ];

@@ -1,79 +1,63 @@
-## Simplify App — Moderate Pass (3/5)
 
-Goal: cleaner default experience for new users, less noise for the creator, no behavior changes to the trading engine. All "power" features stay reachable, just tucked away.
+# Simplify to a single market scalper
 
----
+You want one thing: a bot that scalps the market. No strategy picker, no "moonshot vs trend vs breakout" menus. Here's what I'd do.
 
-### 1. Navigation — 12 items → 6 (+ Advanced group)
+## What gets removed (UI)
 
-Current sidebar has 12 entries. New structure:
+- **Strategies page / strategy selector** — hide the route and nav entry (Sidebar + BottomNav).
+- **Moonshot Scanner page** — hide route + nav entry.
+- **Strategy Advisor card / "best opportunity" recommendation UI** on the dashboard.
+- **Any "choose a strategy" toggles** in Risk Management / Settings — keep only risk tolerance + kill-switch.
+- **Learning Engine UI** — keep the backend running silently, just hide the page (it still tunes scalper params in the background).
 
-**Primary (always visible)**
-- Dashboard
-- AI Trader *(merges `/ai-trader` + `/ai-advisor` into one tabbed page; default tab = Autonomous)*
-- Strategies
-- Risk
-- Trade History
-- Settings *(absorbs API Keys + Pricing as tabs)*
+Nothing is deleted from the codebase — routes and components stay so we can restore later — they're just unmounted from navigation and the router.
 
-**Advanced (collapsible group, collapsed by default)**
-- AI Learning
-- Moonshot Scanner
-- Crypto Signals
+## What stays / becomes the only strategy
 
-No routes are deleted — `/ai-advisor`, `/api-keys`, `/pricing` still resolve so existing links work. Just removed from the primary sidebar list.
+A single hardcoded scalper using the parameters already tuned in `supabase/functions/auto-take-profit/index.ts`:
 
----
+- TP rotation threshold: **1.0%**
+- Stop loss: **-1.5%**
+- Trailing stop: activate at **+0.6%** peak, exit on **0.5%** drop from peak
+- Entry filter: existing trend filter + 6h cooldown + parabolic/crash skip + $1 min price + duplicate guard
+- Fee-aware: maker-only limit orders (already in place)
+- Universe: existing top-50 CoinGecko crypto list
+- Mode: paper/live toggle stays (that's not a "strategy", it's an execution mode)
 
-### 2. Features — keep all, hide noise
+## What stays in Risk Management
 
-- Remove "NEW" / "AUTO" / 🚀 badges from sidebar (visual noise).
-- Settings page gets tabs: **General · API Keys · Billing · Advanced**.
-- AI Trader page gets tabs: **Autonomous · Advisor**.
-- No edge functions deleted, no DB tables dropped.
+Only the things that actually protect capital:
+- Risk tolerance profile (Conservative / Balanced / Aggressive / Custom) — drives position size + daily-loss limit
+- Daily loss kill-switch
+- Max drawdown kill-switch
+- Per-trade size cap
 
----
+Everything else (strategy weights, regime overrides, moonshot toggle, advisor toggle) gets hidden.
 
-### 3. Strategies page — surface the 2 that matter
+## Dashboard after
 
-Today: 8 strategy cards shown flat. New:
-- Top section: 2 recommended strategies (Trend-Follow + Mean-Reversion) with clear ON/OFF toggle.
-- Collapsible "All strategies (6 more)" panel for the rest.
-- Strategy engine itself is unchanged.
+- Equity / cash / positions
+- Open positions list
+- Recent trades
+- Milestone progress
+- Bot status: **Idle / Scanning / Trading** (no strategy name shown)
 
----
+## Files I'd touch (UI only, no business-logic deletion)
 
-### 4. Risk settings — one slider up front
+- `src/components/layout/Sidebar.tsx` — remove Strategies, Moonshot, Learning Engine, Advisor links
+- `src/components/layout/BottomNav.tsx` — same
+- `src/App.tsx` (or wherever routes live) — comment out those routes
+- `src/pages/RiskManagement.tsx` — hide strategy/advisor/moonshot sections
+- `src/pages/Index.tsx` (dashboard) — remove StrategyAdvisor card and any "current strategy" badge
 
-Today: 4 tolerance profiles + many fields. New:
-- **Simple view (default):** one risk tolerance selector (Conservative · Balanced · Aggressive) — maps to existing profiles. Shows the 3 numbers that matter: max position size, daily loss limit, max concurrent trades.
-- **Advanced view (toggle):** the full current form, unchanged.
-- Risk page remains single source of truth (memory rule preserved).
+Backend edge functions (`auto-take-profit`, scanner, learning engine) are **not touched** — they already implement the scalper and will keep running.
 
----
+## One question before I build
 
-### Technical notes
+Do you want me to:
 
-```text
-src/components/layout/Sidebar.tsx     → restructure NAV_ITEMS, add collapsible group
-src/pages/AITrader.tsx                → wrap content in Tabs, import AIAdvisor body
-src/pages/Settings.tsx                → Tabs: general / api-keys / billing / advanced
-                                        re-use existing ApiKeys + Pricing components
-src/pages/Strategies.tsx              → split list: recommended[2] + collapsible rest
-src/pages/RiskManagement.tsx          → Simple/Advanced toggle, simple = 3 fields +
-                                        profile picker mapping to existing config
-```
+**A.** Hide the pages/nav only (fastest, fully reversible, code stays)
+**B.** Hide nav + also rip the strategy-selection logic out of the backend so there's literally one code path
 
-No changes to:
-- `supabase/functions/*` (trading engine untouched)
-- DB schema / RLS
-- Auth, paper/live mode, kill-switch, trailing stops
-
----
-
-### Out of scope (ask separately if you want them)
-
-- Removing strategies from the engine
-- Deleting Moonshot / Crypto Signals features
-- Changing pricing tiers or trial flow
-- Visual redesign / theme changes
+I recommend **A** — same user experience, zero risk of breaking the running bot.
