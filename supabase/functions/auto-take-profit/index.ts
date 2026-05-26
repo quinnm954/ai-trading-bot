@@ -1184,100 +1184,103 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       let didDirectConversion = false;
       let conversionTarget = '';
       
-      // Execute trade on Coinbase if in live mode
-      if (!isPaperMode) {
-        // For ROTATION: sell winning position and rotate into rising asset
-        if (hitRotationTarget) {
-          // Find the most profitable conversion target based on 24h momentum
-          const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'INJ'];
-          
-          // Fetch 24h price changes for potential targets
-          const priceChanges = await fetchPriceChanges(targetSymbols);
-          
-          // Build list of valid conversion targets with momentum data
-          const validTargets: Array<{ symbol: string; change24h: number; price: number }> = [];
-          
-          for (const targetSymbol of targetSymbols) {
-            if (targetSymbol === position.symbol) continue;
-            
-            const pairId = `${position.symbol}-${targetSymbol}`;
-            if (availablePairs.has(pairId)) {
-              const data = priceChanges[targetSymbol];
-              if (data) {
-                validTargets.push({
-                  symbol: targetSymbol,
-                  change24h: data.change24h,
-                  price: data.price,
-                });
-              }
-            }
-          }
-          
-          // Sort by 24h change descending (most profitable first)
-          validTargets.sort((a, b) => b.change24h - a.change24h);
-          
-          if (validTargets.length > 0) {
-            const bestTarget = validTargets[0];
-            
-            // Only convert if momentum is within target range - rising but not topped out
-            if (bestTarget.change24h >= MIN_TARGET_MOMENTUM && bestTarget.change24h <= MAX_TARGET_MOMENTUM) {
-              console.log(`🚀 Strong momentum target: ${bestTarget.symbol} (+${bestTarget.change24h.toFixed(2)}% 24h) - CONVERTING`);
-              
-              const swapResult = await executeCryptoToCryptoSwap(position.symbol, bestTarget.symbol, quantity);
-              
-              if (swapResult.success) {
-                console.log(`✅ Converted to momentum winner: ${position.symbol} → ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
-                didDirectConversion = true;
-                conversionTarget = `${bestTarget.symbol} (+${bestTarget.change24h.toFixed(1)}%)`;
-                conversions++;
-                
-                // Create new position for the target crypto
-                if (swapResult.receivedQuantity && bestTarget.price > 0) {
-                  await supabase.from('positions').insert({
-                    user_id: userId,
-                    symbol: bestTarget.symbol,
-                    side: 'buy',
-                    quantity: swapResult.receivedQuantity,
-                    avg_entry_price: bestTarget.price,
-                    current_price: bestTarget.price,
-                    market_type: 'crypto',
-                    is_paper: false,
-                    unrealized_pnl: 0,
-                  });
-                  console.log(`📊 New position: ${swapResult.receivedQuantity} ${bestTarget.symbol}`);
-                }
-              }
-            } else {
-              console.log(`📉 Best target ${bestTarget.symbol} momentum ${bestTarget.change24h.toFixed(2)}% outside range (${MIN_TARGET_MOMENTUM}%-${MAX_TARGET_MOMENTUM}%) - selling to USDC`);
-            }
+      // Apply same exit/rotation rules in both paper and live
+      // For ROTATION: sell winning position and rotate into rising asset
+      if (hitRotationTarget) {
+        const targetSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'INJ'];
+        const priceChanges = await fetchPriceChanges(targetSymbols);
+
+        const validTargets: Array<{ symbol: string; change24h: number; price: number }> = [];
+        for (const targetSymbol of targetSymbols) {
+          if (targetSymbol === position.symbol) continue;
+
+          // In live mode, require a tradable pair on Coinbase. In paper, any symbol with price data is valid.
+          const pairId = `${position.symbol}-${targetSymbol}`;
+          const pairOk = isPaperMode ? true : availablePairs.has(pairId);
+          if (!pairOk) continue;
+
+          const data = priceChanges[targetSymbol];
+          if (data) {
+            validTargets.push({
+              symbol: targetSymbol,
+              change24h: data.change24h,
+              price: data.price,
+            });
           }
         }
-        
-        // Fall back to cash sell if no direct conversion (or for stop-loss)
-        if (!didDirectConversion) {
-          const isStock = position.market_type === 'stocks';
-          console.log(`💰 Selling to cash: ${quantity} ${position.symbol} (${isStock ? 'stock' : 'crypto'})`);
-          
-          let sellResult: { success: boolean; usdValue?: number; error?: string };
-          if (isStock) {
-            sellResult = await executeAlpacaSell(position.symbol, quantity, userId, supabase);
-            if (!sellResult.success) {
-              sellResult = await executeTradierSell(position.symbol, quantity, userId, supabase);
+
+        validTargets.sort((a, b) => b.change24h - a.change24h);
+
+        if (validTargets.length > 0) {
+          const bestTarget = validTargets[0];
+
+          if (bestTarget.change24h >= MIN_TARGET_MOMENTUM && bestTarget.change24h <= MAX_TARGET_MOMENTUM) {
+            console.log(`🚀 ${isPaperMode ? '[PAPER] ' : ''}Strong momentum target: ${bestTarget.symbol} (+${bestTarget.change24h.toFixed(2)}% 24h) - CONVERTING`);
+
+            let receivedQuantity: number | undefined;
+            if (isPaperMode) {
+              // Simulate swap: USD value of position converts at bestTarget.price
+              if (bestTarget.price > 0) {
+                receivedQuantity = positionValue / bestTarget.price;
+                didDirectConversion = true;
+              }
+            } else {
+              const swapResult = await executeCryptoToCryptoSwap(position.symbol, bestTarget.symbol, quantity);
+              if (swapResult.success) {
+                receivedQuantity = swapResult.receivedQuantity;
+                didDirectConversion = true;
+              }
+            }
+
+            if (didDirectConversion && receivedQuantity && bestTarget.price > 0) {
+              console.log(`✅ ${isPaperMode ? '[PAPER] ' : ''}Converted to momentum winner: ${position.symbol} → ${receivedQuantity} ${bestTarget.symbol}`);
+              conversionTarget = `${bestTarget.symbol} (+${bestTarget.change24h.toFixed(1)}%)`;
+              conversions++;
+
+              await supabase.from('positions').insert({
+                user_id: userId,
+                symbol: bestTarget.symbol,
+                side: 'buy',
+                quantity: receivedQuantity,
+                avg_entry_price: bestTarget.price,
+                current_price: bestTarget.price,
+                market_type: 'crypto',
+                is_paper: isPaperMode,
+                unrealized_pnl: 0,
+              });
+              console.log(`📊 New ${isPaperMode ? 'paper ' : ''}position: ${receivedQuantity} ${bestTarget.symbol}`);
             }
           } else {
-            sellResult = await executeCoinbaseSell(position.symbol, quantity);
-          }
-          
-          if (sellResult.success) {
-            const soldValue = sellResult.usdValue || positionValue;
-            actualExitPrice = soldValue / quantity;
-            actualPnl = soldValue - (entryPrice * quantity);
-            console.log(`✅ Sold to cash: ${position.symbol} -> $${soldValue.toFixed(2)}`);
-          } else {
-            console.error(`❌ Sell failed for ${position.symbol}: ${sellResult.error}`);
+            console.log(`📉 Best target ${bestTarget.symbol} momentum ${bestTarget.change24h.toFixed(2)}% outside range (${MIN_TARGET_MOMENTUM}%-${MAX_TARGET_MOMENTUM}%) - selling to cash`);
           }
         }
       }
+
+      // Fall back to cash sell if no direct conversion (or for stop-loss)
+      if (!didDirectConversion && !isPaperMode) {
+        const isStock = position.market_type === 'stocks';
+        console.log(`💰 Selling to cash: ${quantity} ${position.symbol} (${isStock ? 'stock' : 'crypto'})`);
+
+        let sellResult: { success: boolean; usdValue?: number; error?: string };
+        if (isStock) {
+          sellResult = await executeAlpacaSell(position.symbol, quantity, userId, supabase);
+          if (!sellResult.success) {
+            sellResult = await executeTradierSell(position.symbol, quantity, userId, supabase);
+          }
+        } else {
+          sellResult = await executeCoinbaseSell(position.symbol, quantity);
+        }
+
+        if (sellResult.success) {
+          const soldValue = sellResult.usdValue || positionValue;
+          actualExitPrice = soldValue / quantity;
+          actualPnl = soldValue - (entryPrice * quantity);
+          console.log(`✅ Sold to cash: ${position.symbol} -> $${soldValue.toFixed(2)}`);
+        } else {
+          console.error(`❌ Sell failed for ${position.symbol}: ${sellResult.error}`);
+        }
+      }
+
 
       await supabase.from('trades').update({
         status: 'closed',
