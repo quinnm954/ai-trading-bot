@@ -249,6 +249,18 @@ export default function Dashboard() {
         </div>
         <div className="flex gap-2">
           {!isLiveMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClosePaperPositions}
+              disabled={isClosingPaper}
+              className="gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">{isClosingPaper ? 'Closing...' : 'Close all positions'}</span>
+            </Button>
+          )}
+          {!isLiveMode && (
             <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
