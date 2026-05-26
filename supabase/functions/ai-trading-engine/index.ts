@@ -1970,7 +1970,7 @@ LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 TRADING RULES:
-1. Only buy assets rising right now: 5m ≥ +${ENTRY_CONFIRM_MIN_5M_PCT}%, 15m ≥ +${ENTRY_CONFIRM_MIN_15M_PCT}%, 24h ≥ +${ENTRY_CONFIRM_MIN_24H_PCT}%
+1. Only buy assets rising right now: prefer configured scalp thresholds, but allow steady micro-momentum when 5m, 15m, and 24h are all positive
 2. Never buy dips, pullbacks, weak bounces, or assets with negative/flat 5m momentum
 3. Higher confidence = larger position (within limits)
 4. Target ${config.TARGET_PROFIT}% profit per trade
@@ -2169,9 +2169,9 @@ function analyzeWithRules(
         const vol24h = coin.volume ?? 0;
 
         // Scalping rides POSITIVE momentum only — never catch falling knives.
-        // Require +0.5%–+3% short-term momentum; below that there's nothing to
+        // Require +0.3%–+5% daily momentum; below that there's nothing to
         // scalp, above that we're chasing a parabolic blow-off.
-        const momentumOk = m >= 0.5 && m < 3;
+        const momentumOk = m >= 0.3 && m < 5;
         const trendOk = ch7d >= -3;
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
         // Range band: no capitulation buys near lows, no blow-off-top buys near highs
@@ -2180,7 +2180,7 @@ function analyzeWithRules(
         const spreadOk = coin.spreadPercent === undefined || coin.spreadPercent <= 0.8;
 
         if (!momentumOk) {
-          console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.5% to +3% (positive only)`);
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.3% to +5% (positive only)`);
           break;
         }
         if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk || !spreadOk) {
@@ -3179,7 +3179,8 @@ serve(async (req) => {
         const c5 = coin?.change5m;
         const c15 = coin?.change1h ?? 0;
         const c24 = coin?.change24h ?? 0;
-        if (price < avgEntry || c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+        const momentumStatus = coin ? getEntryMomentumStatus(coin, scalpCfg) : { ok: false };
+        if (price < avgEntry || !momentumStatus.ok) {
           console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
           continue;
         }
