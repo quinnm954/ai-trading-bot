@@ -53,6 +53,7 @@ const LOOKBACKS = [
 export function ScalpingReplayPanel() {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [lookback, setLookback] = useState(1440);
+  const [strict, setStrict] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +64,11 @@ export function ScalpingReplayPanel() {
     setResult(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke('scalping-replay', {
-        body: { symbol: symbol.toUpperCase().trim(), lookbackMinutes: lookback },
+        body: {
+          symbol: symbol.toUpperCase().trim(),
+          lookbackMinutes: lookback,
+          strictConfirmations: strict,
+        },
       });
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
@@ -78,6 +83,7 @@ export function ScalpingReplayPanel() {
   return (
     <div className="space-y-4">
       <Card className="glass-panel">
+
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Play className="w-4 h-4 text-primary" />
