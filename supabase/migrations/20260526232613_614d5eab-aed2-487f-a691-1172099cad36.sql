@@ -1,0 +1,1 @@
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS live_initial_investment numeric NOT NULL DEFAULT 100;

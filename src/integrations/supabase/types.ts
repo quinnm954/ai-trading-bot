@@ -77,6 +77,7 @@ export type Database = {
           kill_switch_active: boolean | null
           kill_switch_triggered_at: string | null
           last_loss_reset_date: string | null
+          live_initial_investment: number
           live_mode_confirmed_at: string | null
           max_capital_usage: number | null
           max_concurrent_trades: number | null
@@ -108,6 +109,7 @@ export type Database = {
           kill_switch_active?: boolean | null
           kill_switch_triggered_at?: string | null
           last_loss_reset_date?: string | null
+          live_initial_investment?: number
           live_mode_confirmed_at?: string | null
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
@@ -139,6 +141,7 @@ export type Database = {
           kill_switch_active?: boolean | null
           kill_switch_triggered_at?: string | null
           last_loss_reset_date?: string | null
+          live_initial_investment?: number
           live_mode_confirmed_at?: string | null
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
