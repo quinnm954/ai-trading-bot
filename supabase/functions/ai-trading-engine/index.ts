@@ -1373,37 +1373,36 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
 // Stablecoins to exclude from trading
 const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
 
-// Minimum price filter - exclude coins worth less than $1
-const MIN_PRICE_USD = 1.0;
+// Price filter — only trade LOW-PRICED cryptos ($2 or less, above dust floor)
+const MAX_PRICE_USD = 2.0;
+const MIN_PRICE_USD = 0.0001;
 
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
-// Key fix: Old system bought "+9% 24h" thinking it was "strong uptrend" but
-// that means buying at the TOP. This filter ensures we only buy dips, not peaks.
 // =============================================================================
-const MAX_24H_CHANGE_FOR_ENTRY = 1; // Don't buy if already up more than 1% in 24h
-const MIN_24H_CHANGE_FOR_ENTRY = -5; // Don't buy if crashing more than 5%
+const MAX_24H_CHANGE_FOR_ENTRY = 1;
+const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
 // DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
-  // Pre-filter: Remove stablecoins and low-price coins
+  // Pre-filter: stablecoins out, keep only coins priced $0.0001–$2
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
     const price = coin.price ?? 0;
-    const isBelowMinPrice = price < MIN_PRICE_USD;
-    
+    const outOfRange = price < MIN_PRICE_USD || price > MAX_PRICE_USD;
+
     if (isStablecoin) {
       console.log(`🚫 Excluding stablecoin: ${coin.symbol}`);
       return false;
     }
-    if (isBelowMinPrice) {
-      console.log(`🚫 Excluding low-price coin: ${coin.symbol} @ $${price.toFixed(4)}`);
+    if (outOfRange) {
+      console.log(`🚫 Excluding out-of-range coin: ${coin.symbol} @ $${price.toFixed(6)} (need $${MIN_PRICE_USD}–$${MAX_PRICE_USD})`);
       return false;
     }
     return true;
   });
-  
-  console.log(`✅ Eligible coins (>= $${MIN_PRICE_USD}, non-stablecoin): ${eligibleCoins.length}/${marketData.length}`);
+
+  console.log(`✅ Eligible coins ($${MIN_PRICE_USD}–$${MAX_PRICE_USD}, non-stablecoin): ${eligibleCoins.length}/${marketData.length}`);
   
   // Step 1: Find DIP-BUY candidates - assets that:
   // - Have positive 7-day trend (overall uptrend)
