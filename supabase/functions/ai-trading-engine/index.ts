@@ -3111,6 +3111,14 @@ serve(async (req) => {
         const coin = marketData.find(m => String(m.symbol).toUpperCase() === symU);
         const price = Number(coin?.price ?? pos.avg_entry_price);
         if (!price || price <= 0) continue;
+        const avgEntry = Number(pos.avg_entry_price || 0);
+        const c5 = coin?.change5m;
+        const c15 = coin?.change1h ?? 0;
+        const c24 = coin?.change24h ?? 0;
+        if (price < avgEntry || c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+          console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+          continue;
+        }
         const value = Number(pos.quantity) * price;
         if (value > 0 && value < DUST_TOPUP_THRESHOLD) {
           candidates.push({
