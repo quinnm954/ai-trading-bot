@@ -245,7 +245,7 @@ export default function Dashboard() {
               </p>
             )}
           </div>
-          <TrialDaysIndicator />
+          {/* TrialDaysIndicator hidden — subscriptions disabled during testing */}
         </div>
         <div className="flex gap-2">
           {!isLiveMode && (
