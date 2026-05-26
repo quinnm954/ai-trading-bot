@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { 
   Layers, 
   Play, 
@@ -10,11 +11,15 @@ import {
   Activity,
   Target,
   GitBranch,
-  Loader2
+  Loader2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useStrategiesData } from '@/hooks/useStrategiesData';
+
+const RECOMMENDED_TYPES = new Set(['trend_breakout', 'rsi']);
 
 const strategyIcons: Record<string, React.ReactNode> = {
   rsi: <BarChart3 className="w-5 h-5" />,
