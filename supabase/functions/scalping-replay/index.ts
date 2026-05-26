@@ -11,6 +11,7 @@ const corsHeaders = {
 interface ReplayRequest {
   symbol?: string;        // e.g. "BTCUSDT"
   lookbackMinutes?: number; // default 1440 (24h), max 10080 (7d)
+  strictConfirmations?: boolean; // default true — mirror live multi-confirmation gates
 }
 
 interface Kline {
@@ -19,6 +20,7 @@ interface Kline {
   high: number;
   low: number;
   close: number;
+  quoteVolume: number;
 }
 
 interface SimTrade {
