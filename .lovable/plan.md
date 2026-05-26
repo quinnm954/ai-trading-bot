@@ -1,130 +1,66 @@
+## Penny Stock Scanner Module
 
-# TitanAI → Professional Scalping Platform
+A new, isolated module added to TitanAI alongside existing crypto features. Paper-trading only by default; live trading gated behind admin unlock.
 
-Audit first, then a phased upgrade that keeps every existing feature.
+### What gets built
 
-## 1. What you already have that matches the standard
+**1. New page & route** — `/penny-stocks` with sidebar/bottom-nav entry
+- Tabs: Scanner · Signals · Setups · Paper Trades · Performance · Settings
+- Top banner disclaimer: "Penny stocks are extremely risky, highly volatile, and often illiquid. TitanAI does not guarantee profits. Paper trade first."
 
-| Requirement | Already in app |
-|---|---|
-| AI confidence scoring | `ai-trading-engine` produces `confidence` 0–1 with regime multipliers, MIN_CONFIDENCE gate |
-| Trade reasoning | `ai_decisions` + `pending_trades.ai_reasoning` populated for every signal |
-| Risk management | `risk-manager` edge function + `RiskManagement.tsx` page (daily loss, drawdown, kill switch, live confirmation phrase) |
-| Paper trading | `paper_account` ($100k), `positions`, `trades(is_paper)`, reset button |
-| Strategy registry | `strategy_performance` table seeded with 10 strategy/regime rows, learning engine updates scores |
-| Bot status | `ai_settings.bot_status` (idle/learning/trading) + `SafetyStatusCard` |
-| Dashboard cards | Equity, positions, recent trades, market regime, milestones, safety status |
-| Trade history | `Trades.tsx` page reads from `trades` |
-| Compliance | `LegalAndPrivacy.tsx` already shows risk disclosures |
-| Live trading lock | Live mode requires typed confirmation in `LiveModeConfirmDialog` |
-| Auto take-profit / trailing stop | `auto-take-profit` edge function |
-| Cooldown after trade | Already in `ai-trading-engine` (6h cooldown, loss cooldown) |
+**2. Scanner UI** with filters
+- Price < $1 (locked), min volume, relative volume, float size, market cap range
+- Exchange checkboxes: NASDAQ, NYSE, AMEX (OTC disabled by default with warning toggle)
+- Result table: symbol, price, %chg, volume, rel-vol, float, spread%, catalyst tag, warning flags
 
-## 2. Gaps vs the standard
+**3. Bad-stock filters** (auto applied, shown as warning chips on each row)
+- Low volume, wide spread, reverse-split risk, dilution flag, OTC-only, pump-spike pattern, no catalyst, repeated offerings
 
-| Gap | Why it matters |
-|---|---|
-| **No 0–100 score** — confidence is 0–1, derived mostly from pattern type, not from EMA/RSI/MACD/VWAP/volume/SR/volatility/RR factors with weights | Required scoring rubric |
-| **No factor breakdown** stored — only a single number | Can't explain *why* the score is what it is |
-| **No "Valid" gate** = score ≥ 75 **and** RR ≥ 1.5 | Required filter |
-| **No structured trade explanation panel** — reasoning is a text blob | Spec wants entry/SL/TP/RR/score/risk/strategy fields |
-| **No backtesting page** — learning engine runs but no user-facing backtest results UI | Spec item 5 |
-| **No Strategy Control Center** — strategies aren't toggleable; the 6 required types (EMA crossover, RSI reversal, VWAP bounce, Breakout w/ volume, Pullback continuation, Trend scalp) aren't all present | Spec item 6 |
-| **No Trade Journal with filters** — `Trades.tsx` is a flat list | Spec item 9 |
-| **Dashboard cards missing**: Win rate, Max drawdown, Active strategy, Market volatility, Last signal, Account risk exposure | Spec item 8 |
-| **Trade rows missing fields**: fees/slippage estimate, confidence at entry, exit reason, duration | Spec item 4 |
-| **Safety status states incomplete** — currently green/yellow only; needs Caution / High volatility / Daily limit hit / Paused / Paper-only / Live-disabled | Spec item 7 |
+**4. Signal Engine** (`src/lib/pennyStockScoring.ts`)
+- 0–100 weighted score across: relative volume, news catalyst, breakout, VWAP reclaim, EMA trend, momentum, float, spread, liquidity
+- Valid gate: score ≥ 80, spread acceptable, strong volume, stop loss set, R/R ≥ 2:1
+- Mirrors structure of existing `signalScoring.ts`
 
-## 3. Database changes
+**5. Setup detectors** (`src/lib/pennyStockSetups.ts`)
+- VWAP reclaim, high rel-vol breakout, pre-market gapper continuation, first pullback after breakout, support bounce, momentum scalp
 
-Add columns to existing tables (non-breaking):
+**6. Risk rules** (penny-stock-specific, separate from crypto risk)
+- Max risk/trade: 0.25%–0.5% (slider), no averaging down, no trading during halts, no overnight holds (auto-close at session end), pause after 2 consecutive losses, 2% daily loss limit, emergency pause button
 
-```text
-trades         + confidence, score, exit_reason, fees_estimate,
-                 slippage_estimate, duration_seconds, risk_reward,
-                 entry_reasoning, stop_loss_price, take_profit_price
-ai_decisions   + score (0-100), factor_scores jsonb, risk_reward,
-                 valid boolean
-strategy_performance + enabled boolean default true,
-                       max_drawdown, profit_factor, best_trade,
-                       worst_trade, avg_win, avg_loss
-```
+**7. Paper trades table** tracks: entry, exit, P&L, slippage, spread cost, volume at entry, strategy, entry reason, exit reason
 
-New tables:
+**8. Dashboard widgets**
+- Top movers under $1, highest rel-vol, news-catalyst list, biggest-spread warnings, halt-risk warnings, active setups, paper performance summary
 
-```text
-signal_scores       per-signal factor breakdown
-                    (ema_alignment, rsi, macd, vwap, volume, sr,
-                     volatility, risk_reward, total_score, valid)
-backtest_runs       symbol, strategy, timeframe, period,
-                    total_return, win_rate, max_drawdown,
-                    profit_factor, trades_count, best_trade,
-                    worst_trade, avg_win, avg_loss, created_at
-trade_journal_notes user notes attached to trades
-```
+**9. Broker placeholder card** — Alpaca / IBKR / Tradier listed as "Coming soon — admin unlock required"; live trading toggle disabled
 
-All with RLS scoped to `auth.uid()` and proper `GRANT`s.
+### Technical details
 
-## 4. Pages / components to edit or add
+**New tables (migration):**
+- `penny_stock_settings` — per-user filters, risk params, paper-only flag
+- `penny_stock_signals` — scanned candidates with score, factors, warnings, catalyst
+- `penny_stock_trades` — paper trades with slippage/spread/volume columns
 
-**Edit (no removals):**
-- `src/pages/Dashboard.tsx` — add Win Rate, Max DD, Active Strategy, Volatility, Last Signal, Risk Exposure cards
-- `src/components/dashboard/SafetyStatusCard.tsx` — expand to 7-state machine
-- `src/pages/Trades.tsx` — convert to Trade Journal with filters
-- `src/pages/RiskManagement.tsx` — add hard-rule indicators (3-loss stop, no-SL block, cooldown timer, emergency pause)
-- `supabase/functions/ai-trading-engine/index.ts` — replace ad-hoc confidence with weighted 0–100 scorer using EMA9/21/50, RSI, MACD, VWAP, volume spike, SR, ATR, RR
-- `supabase/functions/risk-manager/index.ts` — enforce no-SL rejection, 3-consecutive-loss pause, 0.5–1% risk cap
+**New edge function:** `penny-stock-scanner`
+- Fetches under-$1 US equities (uses existing `stock-data-provider` pattern; Alpaca-compatible mock data initially with clear TODO for real provider key)
+- Computes scores, persists top candidates to `penny_stock_signals`
+- Runs on-demand from UI button (no cron initially)
 
-**Add:**
-- `src/pages/Backtesting.tsx` + `supabase/functions/backtest-runner/index.ts`
-- `src/pages/StrategyControlCenter.tsx` (admin)
-- `src/components/trading/SignalScorePanel.tsx` — factor breakdown card
-- `src/components/trading/TradeExplanation.tsx` — structured entry/exit panel
-- `src/components/compliance/ScalpingDisclaimer.tsx` — top-of-app warning banner
+**Frontend files:**
+- `src/pages/PennyStocks.tsx` (page shell + tabs)
+- `src/components/penny/ScannerTable.tsx`
+- `src/components/penny/SignalRow.tsx`
+- `src/components/penny/RiskRulesPanel.tsx`
+- `src/components/penny/PaperTradesPanel.tsx`
+- `src/components/penny/BrokerPlaceholderCard.tsx`
+- `src/hooks/usePennyStockScanner.ts`
+- `src/lib/pennyStockScoring.ts`, `src/lib/pennyStockSetups.ts`
 
-## 5. Broken / placeholder spots noticed during scan
+**Untouched:** all crypto code, dashboards, trading engine, existing risk manager. Penny stocks are a parallel module with its own data + own UI.
 
-- `SafetyStatusCard` is hardcoded to green/yellow with `dailyLossUsed = 0` — never actually computes used loss.
-- Pricing route is disabled in `App.tsx` (intentional, leaving as-is).
-- `LeverageTrading` ticket page has trade buttons disabled (no live wiring yet — intentional per last task).
+### Out of scope (call out)
+- Real live-trading execution to Alpaca/IBKR/Tradier — placeholders only until admin unlock
+- Real-time news catalyst feed — initial version uses a simple flag from scanner data; a real news API can be wired later
+- Cron-based auto-scanning — first version is manual scan button
 
-## 6. Phased rollout (one DB migration per phase, no big-bang)
-
-**Phase A — Foundation (DB + scoring engine)**
-1. Migration: add columns + new tables listed in §3
-2. New `lib/signalScoring.ts` shared scorer (TS) and Deno port for edge function
-3. Wire `ai-trading-engine` to compute the 0–100 score, factor breakdown, RR; persist to `signal_scores` and `pending_trades`
-4. Risk-manager hard rules: reject if no SL, if score < 75, if RR < 1.5, if 3 losses in a row, if daily loss ≥ 3%
-
-**Phase B — Visibility**
-5. `SignalScorePanel` + `TradeExplanation` components
-6. Dashboard: 6 new stat cards
-7. Expanded `SafetyStatusCard` (7 states)
-8. `ScalpingDisclaimer` mounted in `AppLayout`
-
-**Phase C — Journal & Backtesting**
-9. Trade Journal filters in `Trades.tsx`
-10. `Backtesting` page + `backtest-runner` edge function (runs strategies over historical CoinGecko klines)
-11. `StrategyControlCenter` admin page; respects `strategy_performance.enabled` in the trading engine
-
-## What stays untouched
-- All branding, sidebar nav, existing routes
-- Lovable Cloud schema for paper/live accounts, copy trading, moonshot, crypto signals, leverage module, subscriptions, invites, admin
-- Auto take-profit, learning engine, milestone tracking, Coinbase integration
-- Mobile responsiveness — every new component uses existing Tailwind tokens and the responsive grid patterns already in place
-
-## Technical notes (for reviewers)
-
-Scoring formula (weighted, normalized to 0–100):
-
-```text
-score = 18·trend + 14·ema_align + 12·rsi + 10·macd + 10·vwap
-      + 12·volume + 8·sr + 8·volatility + 8·risk_reward
-valid = score >= 75 AND risk_reward >= 1.5 AND stop_loss != null
-```
-
-Backtester runs candle replay against the same scorer to keep paper, live, and backtest decisions identical — single source of truth.
-
----
-
-Approve and I'll start with **Phase A** (DB migration + scorer). Or tell me which phase to skip / reorder.
+After you approve, I'll run the migration first, then build the module.

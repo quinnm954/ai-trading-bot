@@ -1116,6 +1116,249 @@ export type Database = {
         }
         Relationships: []
       }
+      penny_stock_settings: {
+        Row: {
+          allow_otc: boolean
+          allowed_exchanges: string[]
+          block_during_halts: boolean
+          consecutive_loss_pause: number
+          created_at: string
+          daily_loss_limit_pct: number
+          emergency_paused: boolean
+          id: string
+          max_float: number
+          max_market_cap: number
+          max_price: number
+          max_risk_per_trade_pct: number
+          max_spread_percent: number
+          min_float: number
+          min_market_cap: number
+          min_relative_volume: number
+          min_risk_reward: number
+          min_score: number
+          min_volume: number
+          no_overnight_holds: boolean
+          paper_only: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allow_otc?: boolean
+          allowed_exchanges?: string[]
+          block_during_halts?: boolean
+          consecutive_loss_pause?: number
+          created_at?: string
+          daily_loss_limit_pct?: number
+          emergency_paused?: boolean
+          id?: string
+          max_float?: number
+          max_market_cap?: number
+          max_price?: number
+          max_risk_per_trade_pct?: number
+          max_spread_percent?: number
+          min_float?: number
+          min_market_cap?: number
+          min_relative_volume?: number
+          min_risk_reward?: number
+          min_score?: number
+          min_volume?: number
+          no_overnight_holds?: boolean
+          paper_only?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allow_otc?: boolean
+          allowed_exchanges?: string[]
+          block_during_halts?: boolean
+          consecutive_loss_pause?: number
+          created_at?: string
+          daily_loss_limit_pct?: number
+          emergency_paused?: boolean
+          id?: string
+          max_float?: number
+          max_market_cap?: number
+          max_price?: number
+          max_risk_per_trade_pct?: number
+          max_spread_percent?: number
+          min_float?: number
+          min_market_cap?: number
+          min_relative_volume?: number
+          min_risk_reward?: number
+          min_score?: number
+          min_volume?: number
+          no_overnight_holds?: boolean
+          paper_only?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      penny_stock_signals: {
+        Row: {
+          ask: number | null
+          bid: number | null
+          catalyst: string | null
+          change_percent: number | null
+          company_name: string | null
+          created_at: string
+          ema_trend: string | null
+          exchange: string
+          factor_scores: Json | null
+          float_shares: number | null
+          id: string
+          market_cap: number | null
+          price: number
+          relative_volume: number | null
+          risk_reward: number | null
+          scanned_at: string
+          score: number
+          setup_type: string | null
+          spread_percent: number | null
+          suggested_stop: number | null
+          suggested_target: number | null
+          symbol: string
+          valid: boolean
+          volume: number | null
+          vwap: number | null
+          warnings: string[] | null
+        }
+        Insert: {
+          ask?: number | null
+          bid?: number | null
+          catalyst?: string | null
+          change_percent?: number | null
+          company_name?: string | null
+          created_at?: string
+          ema_trend?: string | null
+          exchange?: string
+          factor_scores?: Json | null
+          float_shares?: number | null
+          id?: string
+          market_cap?: number | null
+          price: number
+          relative_volume?: number | null
+          risk_reward?: number | null
+          scanned_at?: string
+          score?: number
+          setup_type?: string | null
+          spread_percent?: number | null
+          suggested_stop?: number | null
+          suggested_target?: number | null
+          symbol: string
+          valid?: boolean
+          volume?: number | null
+          vwap?: number | null
+          warnings?: string[] | null
+        }
+        Update: {
+          ask?: number | null
+          bid?: number | null
+          catalyst?: string | null
+          change_percent?: number | null
+          company_name?: string | null
+          created_at?: string
+          ema_trend?: string | null
+          exchange?: string
+          factor_scores?: Json | null
+          float_shares?: number | null
+          id?: string
+          market_cap?: number | null
+          price?: number
+          relative_volume?: number | null
+          risk_reward?: number | null
+          scanned_at?: string
+          score?: number
+          setup_type?: string | null
+          spread_percent?: number | null
+          suggested_stop?: number | null
+          suggested_target?: number | null
+          symbol?: string
+          valid?: boolean
+          volume?: number | null
+          vwap?: number | null
+          warnings?: string[] | null
+        }
+        Relationships: []
+      }
+      penny_stock_trades: {
+        Row: {
+          closed_at: string | null
+          created_at: string
+          entry_price: number
+          entry_reason: string | null
+          exit_price: number | null
+          exit_reason: string | null
+          id: string
+          is_paper: boolean
+          opened_at: string
+          pnl: number | null
+          pnl_percent: number | null
+          quantity: number
+          side: string
+          slippage: number | null
+          spread_cost: number | null
+          status: string
+          stop_loss: number | null
+          strategy: string | null
+          symbol: string
+          take_profit: number | null
+          updated_at: string
+          user_id: string
+          volume_at_entry: number | null
+        }
+        Insert: {
+          closed_at?: string | null
+          created_at?: string
+          entry_price: number
+          entry_reason?: string | null
+          exit_price?: number | null
+          exit_reason?: string | null
+          id?: string
+          is_paper?: boolean
+          opened_at?: string
+          pnl?: number | null
+          pnl_percent?: number | null
+          quantity: number
+          side?: string
+          slippage?: number | null
+          spread_cost?: number | null
+          status?: string
+          stop_loss?: number | null
+          strategy?: string | null
+          symbol: string
+          take_profit?: number | null
+          updated_at?: string
+          user_id: string
+          volume_at_entry?: number | null
+        }
+        Update: {
+          closed_at?: string | null
+          created_at?: string
+          entry_price?: number
+          entry_reason?: string | null
+          exit_price?: number | null
+          exit_reason?: string | null
+          id?: string
+          is_paper?: boolean
+          opened_at?: string
+          pnl?: number | null
+          pnl_percent?: number | null
+          quantity?: number
+          side?: string
+          slippage?: number | null
+          spread_cost?: number | null
+          status?: string
+          stop_loss?: number | null
+          strategy?: string | null
+          symbol?: string
+          take_profit?: number | null
+          updated_at?: string
+          user_id?: string
+          volume_at_entry?: number | null
+        }
+        Relationships: []
+      }
       positions: {
         Row: {
           avg_entry_price: number
