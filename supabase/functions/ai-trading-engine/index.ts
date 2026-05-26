@@ -2652,6 +2652,17 @@ serve(async (req) => {
           });
         
         if (!pendingError) {
+          // Persist signal score for visibility
+          const factors = buildSignalFactors(coinData, regime, decision.confidence, decision.action as 'buy' | 'sell');
+          await supabase.from('signal_scores').insert({
+            user_id: user.id,
+            symbol: decision.symbol,
+            strategy: bestStrategy,
+            action: decision.action,
+            reasoning: decision.reason,
+            ...factors,
+          });
+
           pendingTrades.push({
             symbol: decision.symbol,
             side: decision.action,
@@ -2659,8 +2670,9 @@ serve(async (req) => {
             price: coinData.price,
             value: tradeValue,
             confidence: decision.confidence,
+            score: factors.total_score,
           });
-          console.log(`📋 Queued: ${decision.action.toUpperCase()} ${quantity.toFixed(6)} ${decision.symbol} @ $${coinData.price.toFixed(2)}`);
+          console.log(`📋 Queued: ${decision.action.toUpperCase()} ${quantity.toFixed(6)} ${decision.symbol} @ $${coinData.price.toFixed(2)} (score ${factors.total_score})`);
         } else {
           console.error(`Failed to queue pending trade for ${decision.symbol}:`, pendingError);
         }
