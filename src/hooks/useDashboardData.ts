@@ -276,7 +276,12 @@ export function useDashboardData() {
       const totalEquity = tradingMode === 'live' && liveBrokerEquity > 0
         ? liveBrokerEquity
         : cashBalance + positionsValue;
-      const accountPnl = totalEquity - accountBasis;
+
+      // In live mode, deposits/withdrawals shouldn't count as P&L — use realized trade P&L + unrealized.
+      // In paper mode, use equity vs starting basis.
+      const accountPnl = tradingMode === 'live'
+        ? totalPnl + unrealizedPnl
+        : totalEquity - accountBasis;
 
       // Percentages stay anchored to the account starting basis, never to shrinking open-position cost basis.
       const totalPnlPercent = accountBasis > 0 ? (accountPnl / accountBasis) * 100 : 0;
