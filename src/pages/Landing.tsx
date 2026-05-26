@@ -53,9 +53,6 @@ export default function Landing() {
                 <ArrowRight className="w-5 h-5" />
               </Link>
             </Button>
-            <Button variant="outline" size="lg" className="gap-2 text-lg px-8" asChild>
-              <Link to="/pricing">View Pricing</Link>
-            </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-6">
             No credit card required • $100k virtual balance included
