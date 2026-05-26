@@ -1373,9 +1373,9 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
 // Stablecoins to exclude from trading
 const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
 
-// Price filter — only trade LOW-PRICED cryptos ($2 or less, above dust floor)
+// Price filter — only trade LOW-PRICED cryptos ($0.10–$2)
 const MAX_PRICE_USD = 2.0;
-const MIN_PRICE_USD = 0.0001;
+const MIN_PRICE_USD = 0.10;
 
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
@@ -1385,7 +1385,7 @@ const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
 // DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
-  // Pre-filter: stablecoins out, keep only coins priced $0.0001–$2
+  // Pre-filter: stablecoins out, keep only coins priced $0.10–$2
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
     const price = coin.price ?? 0;
