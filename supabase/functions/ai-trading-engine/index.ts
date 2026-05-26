@@ -1373,9 +1373,9 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
 // Stablecoins to exclude from trading
 const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
 
-// Price filter — only trade LOW-PRICED cryptos ($2 or less, above dust floor)
+// Price filter — only trade LOW-PRICED cryptos ($0.10–$2)
 const MAX_PRICE_USD = 2.0;
-const MIN_PRICE_USD = 0.0001;
+const MIN_PRICE_USD = 0.10;
 
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
