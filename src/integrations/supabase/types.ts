@@ -19,34 +19,46 @@ export type Database = {
           action: string | null
           created_at: string | null
           decision_type: string
+          factor_scores: Json | null
           id: string
           market_regime: Database["public"]["Enums"]["market_regime"] | null
           reasoning: string
+          risk_reward: number | null
+          score: number | null
           strategy: Database["public"]["Enums"]["strategy_type"] | null
           symbol: string | null
           user_id: string | null
+          valid: boolean | null
         }
         Insert: {
           action?: string | null
           created_at?: string | null
           decision_type: string
+          factor_scores?: Json | null
           id?: string
           market_regime?: Database["public"]["Enums"]["market_regime"] | null
           reasoning: string
+          risk_reward?: number | null
+          score?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
           symbol?: string | null
           user_id?: string | null
+          valid?: boolean | null
         }
         Update: {
           action?: string | null
           created_at?: string | null
           decision_type?: string
+          factor_scores?: Json | null
           id?: string
           market_regime?: Database["public"]["Enums"]["market_regime"] | null
           reasoning?: string
+          risk_reward?: number | null
+          score?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
           symbol?: string | null
           user_id?: string | null
+          valid?: boolean | null
         }
         Relationships: []
       }
@@ -173,6 +185,78 @@ export type Database = {
           provider?: string
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      backtest_runs: {
+        Row: {
+          avg_loss: number
+          avg_win: number
+          best_trade: number
+          created_at: string
+          details: Json | null
+          ending_balance: number
+          id: string
+          initial_balance: number
+          max_drawdown: number
+          period_days: number
+          profit_factor: number
+          sharpe: number | null
+          status: string
+          strategy: string
+          symbol: string
+          timeframe: string
+          total_return: number
+          trades_count: number
+          user_id: string
+          win_rate: number
+          worst_trade: number
+        }
+        Insert: {
+          avg_loss?: number
+          avg_win?: number
+          best_trade?: number
+          created_at?: string
+          details?: Json | null
+          ending_balance?: number
+          id?: string
+          initial_balance?: number
+          max_drawdown?: number
+          period_days?: number
+          profit_factor?: number
+          sharpe?: number | null
+          status?: string
+          strategy: string
+          symbol: string
+          timeframe: string
+          total_return?: number
+          trades_count?: number
+          user_id: string
+          win_rate?: number
+          worst_trade?: number
+        }
+        Update: {
+          avg_loss?: number
+          avg_win?: number
+          best_trade?: number
+          created_at?: string
+          details?: Json | null
+          ending_balance?: number
+          id?: string
+          initial_balance?: number
+          max_drawdown?: number
+          period_days?: number
+          profit_factor?: number
+          sharpe?: number | null
+          status?: string
+          strategy?: string
+          symbol?: string
+          timeframe?: string
+          total_return?: number
+          trades_count?: number
+          user_id?: string
+          win_rate?: number
+          worst_trade?: number
         }
         Relationships: []
       }
@@ -1182,39 +1266,126 @@ export type Database = {
         }
         Relationships: []
       }
+      signal_scores: {
+        Row: {
+          action: string | null
+          created_at: string
+          ema_alignment_score: number
+          id: string
+          macd_score: number
+          reasoning: string | null
+          risk_reward: number | null
+          risk_reward_score: number
+          rsi_score: number
+          sr_score: number
+          strategy: string | null
+          symbol: string
+          total_score: number
+          trend_score: number
+          user_id: string
+          valid: boolean
+          volatility_score: number
+          volume_score: number
+          vwap_score: number
+        }
+        Insert: {
+          action?: string | null
+          created_at?: string
+          ema_alignment_score?: number
+          id?: string
+          macd_score?: number
+          reasoning?: string | null
+          risk_reward?: number | null
+          risk_reward_score?: number
+          rsi_score?: number
+          sr_score?: number
+          strategy?: string | null
+          symbol: string
+          total_score?: number
+          trend_score?: number
+          user_id: string
+          valid?: boolean
+          volatility_score?: number
+          volume_score?: number
+          vwap_score?: number
+        }
+        Update: {
+          action?: string | null
+          created_at?: string
+          ema_alignment_score?: number
+          id?: string
+          macd_score?: number
+          reasoning?: string | null
+          risk_reward?: number | null
+          risk_reward_score?: number
+          rsi_score?: number
+          sr_score?: number
+          strategy?: string | null
+          symbol?: string
+          total_score?: number
+          trend_score?: number
+          user_id?: string
+          valid?: boolean
+          volatility_score?: number
+          volume_score?: number
+          vwap_score?: number
+        }
+        Relationships: []
+      }
       strategy_performance: {
         Row: {
+          avg_loss: number | null
           avg_profit: number | null
+          avg_win: number | null
+          best_trade: number | null
+          enabled: boolean
           id: string
           market_regime: Database["public"]["Enums"]["market_regime"]
+          max_drawdown: number | null
+          profit_factor: number | null
           score: number | null
           strategy: Database["public"]["Enums"]["strategy_type"]
           total_trades: number | null
           updated_at: string | null
           user_id: string | null
           win_rate: number | null
+          worst_trade: number | null
         }
         Insert: {
+          avg_loss?: number | null
           avg_profit?: number | null
+          avg_win?: number | null
+          best_trade?: number | null
+          enabled?: boolean
           id?: string
           market_regime: Database["public"]["Enums"]["market_regime"]
+          max_drawdown?: number | null
+          profit_factor?: number | null
           score?: number | null
           strategy: Database["public"]["Enums"]["strategy_type"]
           total_trades?: number | null
           updated_at?: string | null
           user_id?: string | null
           win_rate?: number | null
+          worst_trade?: number | null
         }
         Update: {
+          avg_loss?: number | null
           avg_profit?: number | null
+          avg_win?: number | null
+          best_trade?: number | null
+          enabled?: boolean
           id?: string
           market_regime?: Database["public"]["Enums"]["market_regime"]
+          max_drawdown?: number | null
+          profit_factor?: number | null
           score?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"]
           total_trades?: number | null
           updated_at?: string | null
           user_id?: string | null
           win_rate?: number | null
+          worst_trade?: number | null
         }
         Relationships: []
       }
@@ -1311,56 +1482,116 @@ export type Database = {
         }
         Relationships: []
       }
+      trade_journal_notes: {
+        Row: {
+          created_at: string
+          id: string
+          note: string
+          tags: string[] | null
+          trade_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          note: string
+          tags?: string[] | null
+          trade_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          note?: string
+          tags?: string[] | null
+          trade_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trades: {
         Row: {
           ai_reasoning: string | null
           closed_at: string | null
+          confidence: number | null
           created_at: string | null
+          duration_seconds: number | null
           entry_price: number
+          entry_reasoning: string | null
           exit_price: number | null
+          exit_reason: string | null
+          fees_estimate: number | null
           id: string
           is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           pnl: number | null
           quantity: number
+          risk_reward: number | null
+          score: number | null
           side: Database["public"]["Enums"]["trade_side"]
+          slippage_estimate: number | null
           status: Database["public"]["Enums"]["trade_status"]
+          stop_loss_price: number | null
           strategy: Database["public"]["Enums"]["strategy_type"] | null
           symbol: string
+          take_profit_price: number | null
           user_id: string | null
         }
         Insert: {
           ai_reasoning?: string | null
           closed_at?: string | null
+          confidence?: number | null
           created_at?: string | null
+          duration_seconds?: number | null
           entry_price: number
+          entry_reasoning?: string | null
           exit_price?: number | null
+          exit_reason?: string | null
+          fees_estimate?: number | null
           id?: string
           is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           pnl?: number | null
           quantity: number
+          risk_reward?: number | null
+          score?: number | null
           side: Database["public"]["Enums"]["trade_side"]
+          slippage_estimate?: number | null
           status?: Database["public"]["Enums"]["trade_status"]
+          stop_loss_price?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
           symbol: string
+          take_profit_price?: number | null
           user_id?: string | null
         }
         Update: {
           ai_reasoning?: string | null
           closed_at?: string | null
+          confidence?: number | null
           created_at?: string | null
+          duration_seconds?: number | null
           entry_price?: number
+          entry_reasoning?: string | null
           exit_price?: number | null
+          exit_reason?: string | null
+          fees_estimate?: number | null
           id?: string
           is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
           pnl?: number | null
           quantity?: number
+          risk_reward?: number | null
+          score?: number | null
           side?: Database["public"]["Enums"]["trade_side"]
+          slippage_estimate?: number | null
           status?: Database["public"]["Enums"]["trade_status"]
+          stop_loss_price?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
           symbol?: string
+          take_profit_price?: number | null
           user_id?: string | null
         }
         Relationships: []
