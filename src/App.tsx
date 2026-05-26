@@ -9,7 +9,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CookieConsent } from "./components/CookieConsent";
 import { GoogleAnalytics } from "./components/GoogleAnalytics";
 import Dashboard from "./pages/Dashboard";
-import Strategies from "./pages/Strategies";
+// Strategies page removed — bot is scalping-only
 import AIAdvisor from "./pages/AIAdvisor";
 import AITrader from "./pages/AITrader";
 import AILearningEngine from "./pages/AILearningEngine";
@@ -42,7 +42,7 @@ const App = () => (
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/strategies" element={<Strategies />} />
+              {/* /strategies route removed — scalping-only */}
               <Route path="/ai-advisor" element={<AIAdvisor />} />
               <Route path="/ai-trader" element={<AITrader />} />
               <Route path="/ai-learning" element={<AILearningEngine />} />
