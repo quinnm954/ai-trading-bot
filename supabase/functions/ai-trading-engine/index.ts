@@ -1493,68 +1493,118 @@ const MIN_PRICE_USD = 1.0;
 const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
-// SCALP UNIVERSE FILTER: Buyable Coinbase assets with positive movement, not falling knives.
-function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
-  // Pre-filter: stablecoins out, keep only coins priced $1–$100
+// Fetch short-window (5m, 15m) momentum from Coinbase candles for a product.
+// Returns { change5m, change15m } as percentages. null on failure.
+async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    // Last ~20 min of 5-min candles (4 candles) — Coinbase returns [time, low, high, open, close, volume]
+    const start = now - 60 * 25;
+    const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
+    const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const candles = Array.isArray(data?.candles) ? data.candles : [];
+    if (candles.length < 2) return null;
+    // Coinbase returns newest-first
+    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const closes = sorted.map((c: any) => Number(c.close));
+    const last = closes[closes.length - 1];
+    const prev5 = closes[closes.length - 2];
+    const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
+    const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
+    const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
+    return { change5m, change15m };
+  } catch (_e) {
+    return null;
+  }
+}
+
+// SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
+// Async because we fetch short-window candles for the survivors of the pre-filter.
+async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
+  // Pre-filter: stablecoins out, keep only coins priced $1–$100, and 24h not deep red / not parabolic
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
     const price = coin.price ?? 0;
     const outOfRange = price < MIN_PRICE_USD || price > MAX_PRICE_USD;
-
-    if (isStablecoin) {
-      console.log(`🚫 Excluding stablecoin: ${coin.symbol}`);
-      return false;
-    }
-    if (outOfRange) {
-      console.log(`🚫 Excluding out-of-range coin: ${coin.symbol} @ $${price.toFixed(6)} (need $${MIN_PRICE_USD}–$${MAX_PRICE_USD})`);
-      return false;
-    }
-    return true;
-  });
-
-  console.log(`✅ Eligible coins ($${MIN_PRICE_USD}–$${MAX_PRICE_USD}, non-stablecoin): ${eligibleCoins.length}/${marketData.length}`);
-
-  const scalpCandidates = eligibleCoins.filter(coin => {
     const change24h = coin.change24h ?? 0;
-    const positiveMomentum = change24h >= 0.5;
-    const notParabolic = change24h < 3;
 
-    if (!positiveMomentum) {
-      console.log(`🚫 MOMENTUM SKIP: ${coin.symbol} ${change24h.toFixed(2)}% - need positive movement`);
-      return false;
-    }
-    if (!notParabolic) {
-      console.log(`🚫 PARABOLIC SKIP: ${coin.symbol} already +${change24h.toFixed(1)}% today - NOT buying at peak`);
-      return false;
-    }
-
+    if (isStablecoin) return false;
+    if (outOfRange) return false;
+    // Pre-prune obvious losers/parabolics before spending API budget on candles
+    if (change24h < -2 || change24h >= 5) return false;
     return true;
   });
 
-  console.log(`🎯 SCALP MOMENTUM FILTER: ${scalpCandidates.length} candidates (+0.5% to +3% 24h)`);
+  console.log(`✅ Eligible coins ($${MIN_PRICE_USD}–$${MAX_PRICE_USD}, non-stable, 24h ∈ [-2%, +5%)): ${eligibleCoins.length}/${marketData.length}`);
+
+  // Fetch 5m candles for eligible coins (Coinbase) — in parallel, capped to 30 to keep latency sane
+  const candleTargets = eligibleCoins.slice(0, 30);
+  await Promise.all(candleTargets.map(async (coin) => {
+    if (!coin.productId) return;
+    const m = await fetchShortWindowMomentum(coin.productId);
+    if (m) {
+      coin.change5m = m.change5m;
+      // Use 15m as a 1h proxy when CoinGecko 1h is absent (live/Coinbase path)
+      if (coin.change1h === undefined || coin.change1h === 0) {
+        coin.change1h = m.change15m;
+      }
+    }
+  }));
+
+  // SHORT-WINDOW MOMENTUM GATE — only buy when price is currently rising
+  const scalpCandidates = candleTargets.filter(coin => {
+    const c5 = coin.change5m;
+    const c1h = coin.change1h ?? 0;
+    const c24 = coin.change24h ?? 0;
+
+    // Hard requirement: last 5m must be UP (when we have data). This is the falling-knife guard.
+    if (c5 === undefined) {
+      console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
+      return false;
+    }
+    if (c5 <= 0) {
+      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping`);
+      return false;
+    }
+    if (c5 > 1.5) {
+      console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
+      return false;
+    }
+    if (c1h < 0.2) {
+      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+0.2%`);
+      return false;
+    }
+    if (c24 < 0.3) {
+      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+0.3%`);
+      return false;
+    }
+    console.log(`✅ RISING: ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
+    return true;
+  });
+
+  // Rank by current strength (5m desc, then 1h desc) so the strongest live mover wins the slot
+  scalpCandidates.sort((a, b) => {
+    const d5 = (b.change5m ?? 0) - (a.change5m ?? 0);
+    if (Math.abs(d5) > 0.05) return d5;
+    return (b.change1h ?? 0) - (a.change1h ?? 0);
+  });
+
+  console.log(`🎯 SCALP MOMENTUM FILTER: ${scalpCandidates.length} rising candidates`);
 
   const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
-    const change24h = coin.change24h ?? 0;
-    const change7d = coin.change7d ?? change24h;
-    if (change24h >= 0.5 && change24h < 3 && change7d >= -3) {
-      return {
-        ...analysis,
-        shouldTrade: true,
-        reason: `⚡ SCALP MOMENTUM: 24h +${change24h.toFixed(2)}%, trend ${change7d.toFixed(1)}% | positive movement only`,
-      };
-    }
-    return analysis;
+    return {
+      ...analysis,
+      shouldTrade: true,
+      reason: `⚡ SCALP RISING: 5m +${(coin.change5m ?? 0).toFixed(2)}% | 1h +${(coin.change1h ?? 0).toFixed(2)}% | 24h +${(coin.change24h ?? 0).toFixed(2)}%`,
+    };
   });
 
-  const tradeable = scalpCandidates.filter((coin: MarketData) => {
-    const analysis = trendAnalysis.find((t: TrendAnalysis) => t.symbol === coin.symbol);
-    return analysis?.shouldTrade ?? false;
-  });
+  console.log(`📈 Tradeable scalp candidates: ${scalpCandidates.length}`);
 
-  console.log(`📈 Tradeable scalp candidates: ${tradeable.length}`);
-
-  return { tradeable, trendAnalysis };
+  return { tradeable: scalpCandidates, trendAnalysis };
 }
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
