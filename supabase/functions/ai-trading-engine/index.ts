@@ -621,6 +621,187 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
   }
 }
 
+// Market-sell entire base quantity on Coinbase (used by loss-rotation).
+async function executeCoinbaseSell(productIdOrSymbol: string, baseQuantity: number, baseIncrement?: string): Promise<{ success: boolean; price?: number; quantity?: number; error?: string }> {
+  const apiKey = Deno.env.get('COINBASE_API_KEY');
+  const apiSecret = Deno.env.get('COINBASE_API_SECRET');
+  if (!apiKey || !apiSecret) return { success: false, error: 'API keys not configured' };
+  try {
+    const productId = productIdOrSymbol.includes('-') ? productIdOrSymbol : `${productIdOrSymbol}-USDC`;
+    const inc = Number(baseIncrement || '0.00000001') || 0.00000001;
+    const precision = Math.max(0, Math.min(8, (inc.toString().split('.')[1] || '').length));
+    const qty = Math.floor(baseQuantity / inc) * inc;
+    if (qty <= 0) return { success: false, error: 'quantity below increment' };
+
+    const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
+    const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
+    const body = {
+      client_order_id: crypto.randomUUID(),
+      product_id: productId,
+      side: 'SELL',
+      order_configuration: { market_market_ioc: { base_size: qty.toFixed(precision) } },
+    };
+    console.log(`📤 LOSS-ROTATION SELL ${qty} ${productId} (market)`);
+    const resp = await fetch('https://api.coinbase.com/api/v3/brokerage/orders', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const result = await resp.json();
+    if (resp.ok && result.success) {
+      const filledSize = parseFloat(result.order?.filled_size || qty.toString());
+      const avgPrice = parseFloat(result.order?.average_filled_price || '0');
+      return { success: true, quantity: filledSize, price: avgPrice };
+    }
+    return { success: false, error: result.error_response?.message || JSON.stringify(result).slice(0, 300) };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'unknown' };
+  }
+}
+
+// LOSS ROTATION: when slots/cash are full and a stronger candidate exists,
+// close the weakest red position (≤ 2% loss) to free room. Returns true if a swap happened.
+async function tryLossRotation(
+  supabase: any,
+  userId: string,
+  isPaperMode: boolean,
+  marketData: MarketData[],
+  topCandidate: MarketData,
+): Promise<boolean> {
+  const MAX_LOSS_PCT = -2.0;
+  const MIN_AGE_SEC = 300;
+  const MOMENTUM_EDGE = 0.5;
+  const COOLDOWN_SEC = 60;
+
+  const candC5 = topCandidate.change5m ?? 0;
+  const candC1h = topCandidate.change1h ?? 0;
+  if (candC5 < 0.3 || candC1h < 0.3) {
+    console.log(`🔁 LOSS-ROTATION: candidate ${topCandidate.symbol} not strong enough (5m ${candC5.toFixed(2)}%, 1h ${candC1h.toFixed(2)}%)`);
+    return false;
+  }
+
+  // Cooldown — check ai_decisions for recent loss_rotation
+  const sinceIso = new Date(Date.now() - COOLDOWN_SEC * 1000).toISOString();
+  const { data: recent } = await supabase
+    .from('ai_decisions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('decision_type', 'loss_rotation')
+    .gte('created_at', sinceIso)
+    .limit(1);
+  if (recent && recent.length > 0) {
+    console.log(`🔁 LOSS-ROTATION: in cooldown (last swap < ${COOLDOWN_SEC}s ago)`);
+    return false;
+  }
+
+  const { data: positions } = await supabase
+    .from('positions')
+    .select('id, symbol, side, quantity, avg_entry_price, created_at')
+    .eq('user_id', userId)
+    .eq('is_paper', isPaperMode);
+  if (!positions || positions.length === 0) return false;
+
+  const priceBySymbol = new Map(marketData.map(m => [m.symbol.toUpperCase(), m]));
+  const cutoff = Date.now() - MIN_AGE_SEC * 1000;
+  const candidates: Array<{ pos: any; pnlPct: number; c5: number; md?: MarketData }> = [];
+
+  for (const pos of positions) {
+    if (pos.symbol === topCandidate.symbol) continue;
+    const md = priceBySymbol.get(String(pos.symbol).toUpperCase());
+    if (!md || !md.price) continue;
+    const entry = Number(pos.avg_entry_price) || 0;
+    if (entry <= 0) continue;
+    const pnlPct = pos.side === 'buy'
+      ? ((md.price - entry) / entry) * 100
+      : ((entry - md.price) / entry) * 100;
+    if (pnlPct >= 0) continue; // only swap reds
+    if (pnlPct < MAX_LOSS_PCT) continue; // don't realize more than -2%
+    const ageMs = Date.now() - new Date(pos.created_at).getTime();
+    if (ageMs < MIN_AGE_SEC * 1000) continue;
+    const c5 = md.change5m ?? 0;
+    if (candC5 < c5 + MOMENTUM_EDGE) continue;
+    candidates.push({ pos, pnlPct, c5, md });
+  }
+
+  if (candidates.length === 0) {
+    console.log(`🔁 LOSS-ROTATION: no eligible red positions to swap for ${topCandidate.symbol}`);
+    return false;
+  }
+
+  // Pick weakest (most negative pnl, tiebreak lowest 5m)
+  candidates.sort((a, b) => (a.pnlPct - b.pnlPct) || (a.c5 - b.c5));
+  const victim = candidates[0];
+  const { pos, pnlPct, c5, md } = victim;
+  const qty = Number(pos.quantity);
+  const exitPrice = md!.price;
+  const proceeds = qty * exitPrice;
+  const realizedPnl = (exitPrice - Number(pos.avg_entry_price)) * qty * (pos.side === 'buy' ? 1 : -1);
+
+  console.log(`🔁 LOSS ROTATION: closing ${pos.symbol} @ ${pnlPct.toFixed(2)}% (≈$${realizedPnl.toFixed(2)}) to free $${proceeds.toFixed(2)} for ${topCandidate.symbol} (5m +${candC5.toFixed(2)}% vs ${c5.toFixed(2)}%)`);
+
+  // Execute the sell
+  if (!isPaperMode) {
+    const sellRes = await executeCoinbaseSell(md!.productId || pos.symbol, qty, md!.baseIncrement);
+    if (!sellRes.success) {
+      console.error(`❌ LOSS-ROTATION sell failed for ${pos.symbol}: ${sellRes.error}`);
+      return false;
+    }
+  } else {
+    // Paper: credit the paper account balance
+    const { data: paperAcct } = await supabase
+      .from('paper_account').select('balance').eq('user_id', userId).maybeSingle();
+    if (paperAcct) {
+      await supabase.from('paper_account')
+        .update({ balance: Number(paperAcct.balance) + proceeds, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+    }
+  }
+
+  // Close the position row + record trade + decision + risk event
+  await supabase.from('positions').delete().eq('id', pos.id);
+  await supabase.from('trades').insert({
+    user_id: userId,
+    symbol: pos.symbol,
+    side: 'sell',
+    quantity: qty,
+    entry_price: pos.avg_entry_price,
+    exit_price: exitPrice,
+    status: 'closed',
+    market_type: 'crypto',
+    strategy: 'scalp',
+    pnl: realizedPnl,
+    is_paper: isPaperMode,
+    ai_reasoning: `Loss rotation: freed capital for ${topCandidate.symbol} (5m +${candC5.toFixed(2)}% vs held ${c5.toFixed(2)}%)`,
+  });
+  await supabase.from('ai_decisions').insert({
+    user_id: userId,
+    decision_type: 'loss_rotation',
+    symbol: pos.symbol,
+    action: 'sell',
+    strategy: 'scalp',
+    reasoning: `Swap → ${topCandidate.symbol}: candidate 5m +${candC5.toFixed(2)}% vs held 5m ${c5.toFixed(2)}%, realized ${pnlPct.toFixed(2)}%`,
+    valid: true,
+  });
+  await supabase.from('risk_events').insert({
+    user_id: userId,
+    event_type: 'loss_rotation',
+    severity: 'info',
+    message: `Closed ${pos.symbol} at ${pnlPct.toFixed(2)}% to enter ${topCandidate.symbol}`,
+    details: {
+      closed_symbol: pos.symbol,
+      target_symbol: topCandidate.symbol,
+      realized_pnl: realizedPnl,
+      pnl_pct: pnlPct,
+      proceeds,
+      candidate_5m: candC5,
+      held_5m: c5,
+      is_paper: isPaperMode,
+    },
+  });
+
+  return true;
+}
+
 // Get actual USDC balance from Coinbase and auto-convert DAI if needed
 async function getAvailableUsdcBalance(): Promise<{ usdcBalance: number; daiConverted: number }> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
@@ -2454,16 +2635,10 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .eq('is_paper', isPaperMode);
 
-    if ((openPositions || 0) >= settings.max_concurrent_trades) {
-      console.log(`🛑 Max concurrent trades reached (${openPositions}/${settings.max_concurrent_trades})`);
-      return new Response(JSON.stringify({ 
-        message: 'Max concurrent trades reached',
-        openPositions,
-        maxAllowed: settings.max_concurrent_trades,
-        status: 'at_limit'
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    let openPositionsCount = openPositions || 0;
+    if (openPositionsCount >= settings.max_concurrent_trades) {
+      console.log(`⚠️ Slots full (${openPositionsCount}/${settings.max_concurrent_trades}) — will attempt loss-rotation after candidate scan`);
+      // Don't early-return; let the deeper check at remainingSlots===0 try loss-rotation.
     }
 
     // 📉 DAILY LOSS CHECK - Stop trading if daily loss limit exceeded
@@ -2765,15 +2940,24 @@ serve(async (req) => {
     // CRITICAL: Limit decisions to remaining trade slots (respecting max_concurrent_trades)
     // Scalp mode is also hard-capped at SCALP_MAX_CONCURRENT regardless of user setting
     const effectiveMaxTrades = Math.min(settings.max_concurrent_trades, SCALP_MAX_CONCURRENT);
-    const remainingSlots = Math.max(0, effectiveMaxTrades - (openPositions || 0));
-    console.log(`📊 Trade slots: ${openPositions || 0} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
-    
+    let remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
+    console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
+
+    if (remainingSlots === 0 && tradeable.length > 0) {
+      const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0]);
+      if (rotated) {
+        openPositionsCount = Math.max(0, openPositionsCount - 1);
+        remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
+        console.log(`🔁 LOSS-ROTATION freed a slot — now ${remainingSlots} remaining`);
+      }
+    }
+
     if (remainingSlots === 0) {
       console.log('⚠️ No remaining trade slots - skipping all new trades');
       return new Response(JSON.stringify({
         status: 'at_limit',
         message: 'Max concurrent trades reached',
-        openPositions: openPositions || 0,
+        openPositions: openPositionsCount,
         maxAllowed: settings.max_concurrent_trades,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -3117,7 +3301,7 @@ serve(async (req) => {
           stopLoss: defaultStopLoss,
         },
         currentEquityForRisk,
-        openPositions || 0,
+        openPositionsCount,
         openPositionsValue,
         openPositionsUnrealizedPnl
       );
