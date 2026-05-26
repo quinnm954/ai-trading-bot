@@ -47,6 +47,17 @@ const ENTRY_LOOKBACK_BARS = 5;    // momentum measured over last 5 mins
 const FEE_ROUND_TRIP = 0.002;     // 0.2% round-trip fee assumption
 const COOLDOWN_BARS = 6;          // 6-min cooldown after exit
 
+// Multi-confirmation gates (mirror live ai-trading-engine scalp case)
+const VOL_WINDOW_BARS = 1440;       // 24h rolling window for daily range/volume
+const TREND_WINDOW_BARS = 10080;    // 7d window for trend bleeding check
+const MAX_MOMENTUM = 0.03;          // skip parabolic >3%
+const MIN_DAILY_RANGE_PCT = 1.5;    // volatility band lower bound
+const MAX_DAILY_RANGE_PCT = 12;     // volatility band upper bound
+const MIN_RANGE_POSITION = 0.30;    // no capitulation buys
+const MAX_RANGE_POSITION = 0.80;    // no blow-off-top buys
+const MIN_24H_QUOTE_VOLUME = 5_000_000; // liquidity / spread proxy
+const MIN_7D_TREND_PCT = -3;        // skip bleeders
+
 async function fetchKlines(symbol: string, minutes: number): Promise<Kline[]> {
   const limit = Math.min(minutes, 1000);
   const chunks: Kline[] = [];
