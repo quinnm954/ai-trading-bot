@@ -1919,14 +1919,15 @@ TREND ANALYSIS:
 ${trendContext}
 
 LIVE MARKET DATA:
-${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
+${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 TRADING RULES:
-1. Only trade assets in UPTREND or STRONG_UPTREND
-2. Higher confidence = larger position (within limits)
-3. Target ${config.TARGET_PROFIT}% profit per trade
-4. Use ${leverage}x leverage on high-conviction trades only
-5. Prioritize trades with best risk/reward ratio
+1. Only buy assets rising right now: 5m ≥ +${ENTRY_CONFIRM_MIN_5M_PCT}%, 15m ≥ +${ENTRY_CONFIRM_MIN_15M_PCT}%, 24h ≥ +${ENTRY_CONFIRM_MIN_24H_PCT}%
+2. Never buy dips, pullbacks, weak bounces, or assets with negative/flat 5m momentum
+3. Higher confidence = larger position (within limits)
+4. Target ${config.TARGET_PROFIT}% profit per trade
+5. Use ${leverage}x leverage on high-conviction trades only
+6. Prioritize trades with best risk/reward ratio
 
 Return ONLY JSON array with your TOP ${config.TOP_TRADES_PER_CYCLE} trade decisions:
 [{"symbol":"BTC","action":"buy","confidence":0.85,"reason":"Strong uptrend with momentum","pattern":"trend_continuation","size_percent":${Math.min(30, maxPositionSize)},"leverage":${leverage}}]
