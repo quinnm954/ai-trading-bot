@@ -2935,6 +2935,10 @@ serve(async (req) => {
         ? actualEntryPrice * (1 - maxStopDistancePct)
         : undefined;
       
+      // currentEquity = cash + value of open positions (NOT cash alone),
+      // otherwise risk-manager computes availableCash = equity − positionsValue → negative.
+      const currentEquityForRisk = balance + openPositionsValue;
+
       const riskValidation = await validateTradeWithRiskManager(
         supabase,
         user.id,
@@ -2946,7 +2950,7 @@ serve(async (req) => {
           positionValue: prePositionValue,
           stopLoss: defaultStopLoss,
         },
-        balance,
+        currentEquityForRisk,
         openPositions || 0,
         openPositionsValue,
         openPositionsUnrealizedPnl
