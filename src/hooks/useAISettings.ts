@@ -59,7 +59,7 @@ export function useAISettings() {
     fetchSettings();
 
     const channel = supabase
-      .channel('ai-settings-changes')
+      .channel(`ai-settings-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

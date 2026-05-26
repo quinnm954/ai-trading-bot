@@ -320,8 +320,9 @@ export function useDashboardData() {
     
     // Subscribe to real-time updates with reconnection handling
     const setupChannels = () => {
+      const suffix = Math.random().toString(36).slice(2);
       const tradesChannel = supabase
-        .channel('dashboard-trades-changes')
+        .channel(`dashboard-trades-changes-${suffix}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'trades' },
@@ -330,7 +331,7 @@ export function useDashboardData() {
         .subscribe();
 
       const positionsChannel = supabase
-        .channel('dashboard-positions-changes')
+        .channel(`dashboard-positions-changes-${suffix}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'positions' },
@@ -339,7 +340,7 @@ export function useDashboardData() {
         .subscribe();
 
       const paperChannel = supabase
-        .channel('dashboard-paper-changes')
+        .channel(`dashboard-paper-changes-${suffix}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'paper_account' },
@@ -348,7 +349,7 @@ export function useDashboardData() {
         .subscribe();
 
       const liveAccountChannel = supabase
-        .channel('dashboard-live-account-changes')
+        .channel(`dashboard-live-account-changes-${suffix}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'live_account' },
