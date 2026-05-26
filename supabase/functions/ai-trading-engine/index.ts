@@ -3026,15 +3026,9 @@ serve(async (req) => {
             quantity = buyResult.quantity;
             actualEntryPrice = buyResult.price;
             
-            // DUST PREVENTION: Verify the quantity we received is sellable
-            const precisionMap: Record<string, number> = {
-              'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
-              'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
-              'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
-              'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
-            };
-            const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
-            const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+            // DUST PREVENTION: Verify the quantity we received is sellable using Coinbase's market increment.
+            const baseIncrement = Number(coinData.baseIncrement || '0.00000001') || 0.00000001;
+            const roundedQty = Math.floor(quantity / baseIncrement) * baseIncrement;
             const positionValue = roundedQty * actualEntryPrice;
             
             if (roundedQty <= 0 || positionValue < MIN_TRADE_VALUE) {
