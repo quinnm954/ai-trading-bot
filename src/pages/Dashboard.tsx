@@ -377,6 +377,10 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* Scalping Performance Stats (6 cards) */}
+      <ScalpingStatsRow />
+
+
       {/* Live Accounts Summary (only show in live mode) */}
       {isLiveMode && liveAccounts.length > 0 && (
         <div className="glass-panel p-4">
