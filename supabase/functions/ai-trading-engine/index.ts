@@ -1385,7 +1385,7 @@ const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
 // DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
-  // Pre-filter: stablecoins out, keep only coins priced $0.0001–$2
+  // Pre-filter: stablecoins out, keep only coins priced $0.10–$2
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
     const price = coin.price ?? 0;
