@@ -85,6 +85,8 @@ async function fetchKlines(symbol: string, minutes: number): Promise<Kline[]> {
       high: parseFloat(k[2] as string),
       low: parseFloat(k[3] as string),
       close: parseFloat(k[4] as string),
+      // Binance kline index 7 is quote-asset (USDT) volume
+      quoteVolume: parseFloat((k[7] as string) ?? '0'),
     }));
     chunks.unshift(...parsed);
     endTime = parsed[0].openTime - 1;
