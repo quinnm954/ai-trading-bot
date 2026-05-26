@@ -3301,7 +3301,7 @@ serve(async (req) => {
           stopLoss: defaultStopLoss,
         },
         currentEquityForRisk,
-        openPositions || 0,
+        openPositionsCount,
         openPositionsValue,
         openPositionsUnrealizedPnl
       );
