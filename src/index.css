@@ -103,6 +103,14 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: none;
+    touch-action: manipulation;
+  }
+
+  html, body {
+    overflow-x: hidden;
   }
 
   .font-mono {
