@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Play, Loader2, TrendingUp, TrendingDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
@@ -22,6 +23,8 @@ interface ReplayResult {
   symbol: string;
   lookbackMinutes: number;
   barsAnalyzed: number;
+  strictConfirmations?: boolean;
+  dataSource?: string;
   firstBar: string;
   lastBar: string;
   metrics: {
@@ -31,9 +34,13 @@ interface ReplayResult {
     avgPnlPct: number;
     maxDrawdownPct: number;
     avgHoldMinutes: number;
+    entriesSkipped?: number;
+    skipReasonCounts?: Record<string, number>;
   };
   sampleTrades: Trade[];
+  sampleSkips?: { time: string; reason: string }[];
 }
+
 
 const LOOKBACKS = [
   { label: '1h', minutes: 60 },
@@ -46,6 +53,7 @@ const LOOKBACKS = [
 export function ScalpingReplayPanel() {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [lookback, setLookback] = useState(1440);
+  const [strict, setStrict] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +64,11 @@ export function ScalpingReplayPanel() {
     setResult(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke('scalping-replay', {
-        body: { symbol: symbol.toUpperCase().trim(), lookbackMinutes: lookback },
+        body: {
+          symbol: symbol.toUpperCase().trim(),
+          lookbackMinutes: lookback,
+          strictConfirmations: strict,
+        },
       });
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
@@ -71,14 +83,15 @@ export function ScalpingReplayPanel() {
   return (
     <div className="space-y-4">
       <Card className="glass-panel">
+
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Play className="w-4 h-4 text-primary" />
             Scalping Paper Replay
           </CardTitle>
           <CardDescription>
-            Replay the live scalping logic over recent Binance 1-minute klines.
-            Advisory only — does not affect the bot or your paper balance.
+            Backtests the live scalping logic on real recorded Binance 1-minute
+            klines — no mock-price distortion. Advisory only; does not affect the bot or your paper balance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -109,6 +122,18 @@ export function ScalpingReplayPanel() {
               </div>
             </div>
           </div>
+
+          <div className="flex items-start justify-between gap-3 p-3 rounded-md bg-muted/30 border border-border/50">
+            <div className="space-y-0.5">
+              <Label htmlFor="strict-conf" className="text-sm">Strict confirmations</Label>
+              <p className="text-xs text-muted-foreground">
+                Mirror the live bot: volatility band, range/whipsaw filter, liquidity & trend gates.
+              </p>
+            </div>
+            <Switch id="strict-conf" checked={strict} onCheckedChange={setStrict} />
+          </div>
+
+
 
           <Button onClick={runReplay} disabled={loading} className="w-full sm:w-auto">
             {loading ? (
@@ -212,6 +237,31 @@ export function ScalpingReplayPanel() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {result.metrics.skipReasonCounts &&
+            Object.keys(result.metrics.skipReasonCounts).length > 0 && (
+            <Card className="glass-panel">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Entries skipped by confirmation gate ({result.metrics.entriesSkipped ?? 0})
+                </CardTitle>
+                <CardDescription>
+                  Bars where momentum fired but a confirmation blocked entry.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(result.metrics.skipReasonCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([reason, count]) => (
+                      <Badge key={reason} variant="outline" className="text-xs">
+                        {reason.replace(/_/g, ' ')} · {count}
+                      </Badge>
+                    ))}
                 </div>
               </CardContent>
             </Card>
