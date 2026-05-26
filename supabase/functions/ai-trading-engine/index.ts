@@ -3016,7 +3016,7 @@ serve(async (req) => {
     console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
 
     if (remainingSlots === 0 && tradeable.length > 0) {
-      const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0]);
+      const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0], scalpCfg);
       if (rotated) {
         openPositionsCount = Math.max(0, openPositionsCount - 1);
         remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
@@ -3135,9 +3135,9 @@ serve(async (req) => {
       DUPLICATE_TRADE_COOLDOWN_MINUTES
     );
     const openPositionSymbols = await getOpenPositionSymbols(supabase, user.id, isPaperMode);
-    const recentExits = await getRecentExits(supabase, user.id, isPaperMode, CHASE_GUARD_WINDOW_MINUTES);
+    const recentExits = await getRecentExits(supabase, user.id, isPaperMode, scalpCfg.chase_guard_minutes);
     console.log(
-      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m), ${recentExits.size} recent exit(s) (chase window ${CHASE_GUARD_WINDOW_MINUTES}m)`
+      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m), ${recentExits.size} recent exit(s) (chase window ${scalpCfg.chase_guard_minutes}m)`
     );
 
     // ============================================================
@@ -3256,10 +3256,10 @@ serve(async (req) => {
         if (lastExit && lastExit.exitPrice > 0) {
           const currPrice = coinData.price;
           const priceDeltaPct = ((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
-          if (priceDeltaPct <= REENTRY_BREAKOUT_CONFIRM_PCT) {
+          if (priceDeltaPct <= scalpCfg.reentry_breakout_pct) {
             const minsAgo = (Date.now() - lastExit.closedAt) / (1000 * 60);
             console.log(
-              `🧯 SKIP rebuy ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (${priceDeltaPct.toFixed(2)}%). Need +${REENTRY_BREAKOUT_CONFIRM_PCT}% above exit before re-entry`
+              `🧯 SKIP rebuy ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (${priceDeltaPct.toFixed(2)}%). Need +${scalpCfg.reentry_breakout_pct}% above exit before re-entry`
             );
             continue;
           }
