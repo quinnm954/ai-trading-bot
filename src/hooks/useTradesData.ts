@@ -78,13 +78,13 @@ export function useTradesData() {
       const mode = (aiSettings?.trading_mode as 'paper' | 'live') || 'paper';
       setTradingMode(mode);
 
-      // Fetch closed trades
+      // Fetch trades across BOTH paper and live so users see everything
       const { data: tradesData, error: tradesError } = await supabase
         .from('trades')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_paper', mode === 'paper')
         .order('created_at', { ascending: false });
+
 
       if (tradesError) {
         console.error('Error fetching trades:', tradesError);
@@ -115,13 +115,13 @@ export function useTradesData() {
         })));
       }
 
-      // Fetch open positions
+      // Fetch open positions across BOTH paper and live
       const { data: positionsData, error: positionsError } = await supabase
         .from('positions')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_paper', mode === 'paper')
         .order('created_at', { ascending: false });
+
 
       if (positionsError) {
         console.error('Error fetching positions:', positionsError);

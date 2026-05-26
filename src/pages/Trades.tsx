@@ -29,16 +29,20 @@ export default function Trades() {
   const [minScore, setMinScore] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | open | closed | cancelled
 
-  const closedTrades = useMemo(() => trades.filter((t) => t.status === 'closed'), [trades]);
+  const visibleTrades = useMemo(() => {
+    if (statusFilter === 'all') return trades;
+    return trades.filter((t) => t.status === statusFilter);
+  }, [trades, statusFilter]);
 
   const strategies = useMemo(
-    () => Array.from(new Set(closedTrades.map((t) => t.strategy).filter(Boolean) as string[])),
-    [closedTrades],
+    () => Array.from(new Set(trades.map((t) => t.strategy).filter(Boolean) as string[])),
+    [trades],
   );
 
   const filtered = useMemo(() => {
-    return closedTrades.filter((t) => {
+    return visibleTrades.filter((t) => {
       if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
       if (strategyFilter !== 'all' && t.strategy !== strategyFilter) return false;
       if (resultFilter === 'win' && (t.pnl ?? 0) <= 0) return false;
@@ -46,11 +50,13 @@ export default function Trades() {
       if (modeFilter === 'paper' && !t.isPaper) return false;
       if (modeFilter === 'live' && t.isPaper) return false;
       if (minScore && (t.score ?? 0) < Number(minScore)) return false;
-      if (dateFrom && t.closedAt && t.closedAt < new Date(dateFrom)) return false;
-      if (dateTo && t.closedAt && t.closedAt > new Date(dateTo + 'T23:59:59')) return false;
+      const refDate = t.closedAt ?? t.createdAt;
+      if (dateFrom && refDate < new Date(dateFrom)) return false;
+      if (dateTo && refDate > new Date(dateTo + 'T23:59:59')) return false;
       return true;
     });
-  }, [closedTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
+  }, [visibleTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
+
 
   const exportCsv = () => {
     const rows = [
@@ -158,6 +164,16 @@ export default function Trades() {
               <SelectItem value="live">Live</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="open">Active (open)</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+
           <Input type="number" placeholder="Min score" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
@@ -169,14 +185,15 @@ export default function Trades() {
         <button onClick={() => setActiveTab('history')}
           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
             activeTab === 'history' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
-          History ({filtered.length})
+          All Trades ({filtered.length})
         </button>
         <button onClick={() => setActiveTab('open')}
           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
             activeTab === 'open' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
-          Open ({positions.length})
+          Open Positions ({positions.length})
         </button>
       </div>
+
 
       {activeTab === 'history' && (
         <div className="glass-panel overflow-hidden">
@@ -191,6 +208,7 @@ export default function Trades() {
                 <thead>
                   <tr className="border-b border-border bg-secondary/50 text-xs uppercase text-muted-foreground">
                     <th className="text-left py-3 px-4">Symbol</th>
+                    <th className="text-left py-3 px-4">Status</th>
                     <th className="text-left py-3 px-4">Side</th>
                     <th className="text-right py-3 px-4">Qty</th>
                     <th className="text-right py-3 px-4">Entry</th>
@@ -200,15 +218,25 @@ export default function Trades() {
                     <th className="text-left py-3 px-4">Strategy</th>
                     <th className="text-left py-3 px-4">Mode</th>
                     <th className="text-right py-3 px-4">Duration</th>
-                    <th className="text-left py-3 px-4">Closed</th>
+                    <th className="text-left py-3 px-4">Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((trade) => {
                     const pos = (trade.pnl ?? 0) >= 0;
+                    const isOpen = trade.status === 'open';
                     return (
                       <tr key={trade.id} className="border-b border-border/50 hover:bg-secondary/30">
                         <td className="py-3 px-4 font-medium text-foreground">{trade.symbol}</td>
+                        <td className="py-3 px-4">
+                          <span className={cn('px-2 py-0.5 rounded text-xs uppercase',
+                            trade.status === 'open' ? 'bg-primary/20 text-primary' :
+                            trade.status === 'closed' ? 'bg-secondary text-muted-foreground' :
+                            'bg-muted text-muted-foreground')}>
+                            {trade.status === 'open' ? 'Active' : trade.status}
+                          </span>
+                        </td>
+
                         <td className="py-3 px-4">
                           <span className={cn('px-2 py-0.5 rounded text-xs uppercase',
                             trade.side === 'buy' ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive')}>
@@ -217,12 +245,14 @@ export default function Trades() {
                         </td>
                         <td className="py-3 px-4 text-right font-mono">{trade.quantity}</td>
                         <td className="py-3 px-4 text-right font-mono text-muted-foreground">${trade.entryPrice.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">${trade.exitPrice?.toLocaleString() ?? '-'}</td>
-                        <td className={cn('py-3 px-4 text-right font-mono', pos ? 'text-profit' : 'text-loss')}>
-                          <span className="inline-flex items-center gap-1">
-                            {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                            {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
-                          </span>
+                        <td className="py-3 px-4 text-right font-mono">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : '—'}</td>
+                        <td className={cn('py-3 px-4 text-right font-mono', trade.pnl == null ? 'text-muted-foreground' : pos ? 'text-profit' : 'text-loss')}>
+                          {trade.pnl == null ? '—' : (
+                            <span className="inline-flex items-center gap-1">
+                              {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                              {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right font-mono">{trade.score != null ? Math.round(trade.score) : '—'}</td>
                         <td className="py-3 px-4">
@@ -233,9 +263,10 @@ export default function Trades() {
                         </td>
                         <td className="py-3 px-4 text-xs">{trade.isPaper ? 'Paper' : 'Live'}</td>
                         <td className="py-3 px-4 text-right text-xs text-muted-foreground">
-                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : '—'}
+                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : isOpen ? 'Active' : '—'}
                         </td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{trade.closedAt?.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">{(trade.closedAt ?? trade.createdAt).toLocaleString()}</td>
+
                       </tr>
                     );
                   })}
