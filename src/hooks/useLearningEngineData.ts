@@ -203,7 +203,7 @@ export function useLearningEngineData() {
 
     // Subscribe to real-time updates
     const channel = supabase
-      .channel('strategy-performance-changes')
+      .channel(`strategy-performance-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

@@ -71,7 +71,7 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4) {
     const intervalId = setInterval(fetchTrades, 10000);
 
     const channel = supabase
-      .channel('trades-changes')
+      .channel(`trades-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

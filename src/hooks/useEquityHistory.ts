@@ -50,7 +50,7 @@ export function useEquityHistory(days: number = 30) {
     const intervalId = setInterval(fetchEquityHistory, 30000);
 
     const channel = supabase
-      .channel('equity-history-changes')
+      .channel(`equity-history-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

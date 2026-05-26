@@ -153,7 +153,7 @@ export function useAITraderData() {
     
     // Subscribe to real-time paper account updates
     const paperChannel = supabase
-      .channel('paper-account-changes')
+      .channel(`paper-account-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {
@@ -171,7 +171,7 @@ export function useAITraderData() {
 
     // Subscribe to real-time live account updates
     const liveChannel = supabase
-      .channel('live-account-changes')
+      .channel(`live-account-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

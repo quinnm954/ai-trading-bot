@@ -206,7 +206,7 @@ export function useSubscription() {
     if (!isAuthenticated || !user) return;
 
     const channel = supabase
-      .channel('subscription-changes')
+      .channel(`subscription-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

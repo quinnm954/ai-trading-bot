@@ -73,7 +73,7 @@ export function useCopyTradeSignals() {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel('copy-trade-signals-realtime')
+      .channel(`copy-trade-signals-realtime-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

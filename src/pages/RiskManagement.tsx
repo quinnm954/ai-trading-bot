@@ -73,7 +73,7 @@ export default function RiskManagement() {
 
     // Real-time updates
     const channel = supabase
-      .channel('risk-events-full')
+      .channel(`risk-events-full-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

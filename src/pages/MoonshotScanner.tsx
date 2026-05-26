@@ -227,7 +227,7 @@ export default function MoonshotScanner() {
 
     // Set up realtime subscription
     const channel = supabase
-      .channel('moonshot-signals')
+      .channel(`moonshot-signals-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'moonshot_signals' },
