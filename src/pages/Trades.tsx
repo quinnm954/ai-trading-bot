@@ -28,17 +28,21 @@ export default function Trades() {
   const [modeFilter, setModeFilter] = useState('all');
   const [minScore, setMinScore] = useState('');
   const [dateFrom, setDateFrom] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [dateTo, setDateTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | open | closed | cancelled
 
-  const closedTrades = useMemo(() => trades.filter((t) => t.status === 'closed'), [trades]);
+  const visibleTrades = useMemo(() => {
+    if (statusFilter === 'all') return trades;
+    return trades.filter((t) => t.status === statusFilter);
+  }, [trades, statusFilter]);
 
   const strategies = useMemo(
-    () => Array.from(new Set(closedTrades.map((t) => t.strategy).filter(Boolean) as string[])),
-    [closedTrades],
+    () => Array.from(new Set(trades.map((t) => t.strategy).filter(Boolean) as string[])),
+    [trades],
   );
 
   const filtered = useMemo(() => {
-    return closedTrades.filter((t) => {
+    return visibleTrades.filter((t) => {
       if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
       if (strategyFilter !== 'all' && t.strategy !== strategyFilter) return false;
       if (resultFilter === 'win' && (t.pnl ?? 0) <= 0) return false;
@@ -46,11 +50,13 @@ export default function Trades() {
       if (modeFilter === 'paper' && !t.isPaper) return false;
       if (modeFilter === 'live' && t.isPaper) return false;
       if (minScore && (t.score ?? 0) < Number(minScore)) return false;
-      if (dateFrom && t.closedAt && t.closedAt < new Date(dateFrom)) return false;
-      if (dateTo && t.closedAt && t.closedAt > new Date(dateTo + 'T23:59:59')) return false;
+      const refDate = t.closedAt ?? t.createdAt;
+      if (dateFrom && refDate < new Date(dateFrom)) return false;
+      if (dateTo && refDate > new Date(dateTo + 'T23:59:59')) return false;
       return true;
     });
-  }, [closedTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
+  }, [visibleTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
+
 
   const exportCsv = () => {
     const rows = [
