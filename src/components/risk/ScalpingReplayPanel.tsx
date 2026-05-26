@@ -23,6 +23,8 @@ interface ReplayResult {
   symbol: string;
   lookbackMinutes: number;
   barsAnalyzed: number;
+  strictConfirmations?: boolean;
+  dataSource?: string;
   firstBar: string;
   lastBar: string;
   metrics: {
@@ -32,9 +34,13 @@ interface ReplayResult {
     avgPnlPct: number;
     maxDrawdownPct: number;
     avgHoldMinutes: number;
+    entriesSkipped?: number;
+    skipReasonCounts?: Record<string, number>;
   };
   sampleTrades: Trade[];
+  sampleSkips?: { time: string; reason: string }[];
 }
+
 
 const LOOKBACKS = [
   { label: '1h', minutes: 60 },
