@@ -14,13 +14,55 @@ const corsHeaders = {
 type TradeSide = 'buy' | 'sell';
 
 const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
-const CHASE_GUARD_WINDOW_MINUTES = 120; // window to block rebuys after exits unless price proves a new breakout
-const REENTRY_BREAKOUT_CONFIRM_PCT = 0.25; // never rebuy below/near the last exit; require a fresh upside break
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
-const ENTRY_CONFIRM_MIN_5M_PCT = 0.3; // fast scalps only enter when the last candle is materially rising
-const ENTRY_CONFIRM_MIN_15M_PCT = 0.2; // confirms the 5m move is not a one-tick fakeout
-const ENTRY_CONFIRM_MIN_24H_PCT = 0.3; // avoids buying broader-session weakness
+
+// Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
+const SCALP_CFG_DEFAULTS = {
+  entry_min_5m_pct: 0.3,
+  entry_min_15m_pct: 0.2,
+  entry_min_1h_pct: 0.3,
+  entry_min_24h_pct: 0.3,
+  reentry_breakout_pct: 0.25,
+  chase_guard_minutes: 120,
+  take_profit_pct: 1.0,
+  trailing_drop_pct: 1.5,
+  hard_stop_loss_pct: 3.0,
+  momentum_rotation_min_pct: 0.5,
+  loss_rotation_enabled: true,
+  loss_rotation_max_loss_pct: -2.0,
+  loss_rotation_momentum_edge_pct: 0.5,
+  loss_rotation_min_age_sec: 300,
+  loss_rotation_cooldown_sec: 60,
+  max_concurrent_positions: 12,
+  target_position_size_usd: 50,
+  max_capital_usage_pct: 80,
+};
+type ScalpCfg = typeof SCALP_CFG_DEFAULTS;
+
+async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
+  try {
+    const { data } = await supabase
+      .from('scalp_settings').select('*').eq('user_id', userId).maybeSingle();
+    const cfg: ScalpCfg = { ...SCALP_CFG_DEFAULTS };
+    if (data) {
+      for (const k of Object.keys(SCALP_CFG_DEFAULTS) as (keyof ScalpCfg)[]) {
+        if (data[k] !== null && data[k] !== undefined) (cfg as any)[k] = data[k];
+      }
+    }
+    return cfg;
+  } catch (e) {
+    console.warn('loadScalpCfg fallback to defaults:', e);
+    return { ...SCALP_CFG_DEFAULTS };
+}
+
+// Legacy aliases so callers without a cfg fall back to defaults
+const ENTRY_CONFIRM_MIN_5M_PCT = SCALP_CFG_DEFAULTS.entry_min_5m_pct;
+const ENTRY_CONFIRM_MIN_15M_PCT = SCALP_CFG_DEFAULTS.entry_min_15m_pct;
+const ENTRY_CONFIRM_MIN_24H_PCT = SCALP_CFG_DEFAULTS.entry_min_24h_pct;
+const CHASE_GUARD_WINDOW_MINUTES = SCALP_CFG_DEFAULTS.chase_guard_minutes;
+const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
+}
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
@@ -670,15 +712,20 @@ async function tryLossRotation(
   isPaperMode: boolean,
   marketData: MarketData[],
   topCandidate: MarketData,
+  cfg: ScalpCfg = SCALP_CFG_DEFAULTS,
 ): Promise<boolean> {
-  const MAX_LOSS_PCT = -2.0;
-  const MIN_AGE_SEC = 300;
-  const MOMENTUM_EDGE = 0.5;
-  const COOLDOWN_SEC = 60;
+  if (!cfg.loss_rotation_enabled) {
+    console.log('🔁 LOSS-ROTATION: disabled by user settings');
+    return false;
+  }
+  const MAX_LOSS_PCT = cfg.loss_rotation_max_loss_pct;
+  const MIN_AGE_SEC = cfg.loss_rotation_min_age_sec;
+  const MOMENTUM_EDGE = cfg.loss_rotation_momentum_edge_pct;
+  const COOLDOWN_SEC = cfg.loss_rotation_cooldown_sec;
 
   const candC5 = topCandidate.change5m ?? 0;
   const candC1h = topCandidate.change1h ?? 0;
-  if (candC5 < 0.3 || candC1h < 0.3) {
+  if (candC5 < cfg.entry_min_5m_pct || candC1h < cfg.entry_min_1h_pct) {
     console.log(`🔁 LOSS-ROTATION: candidate ${topCandidate.symbol} not strong enough (5m ${candC5.toFixed(2)}%, 1h ${candC1h.toFixed(2)}%)`);
     return false;
   }
@@ -1706,7 +1753,7 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
 
 // SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
 // Async because we fetch short-window candles for the survivors of the pre-filter.
-async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
+async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG_DEFAULTS): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
   // Pre-filter: stablecoins out, keep only coins priced $1–$100, and 24h not deep red / not parabolic
   const eligibleCoins = marketData.filter(coin => {
     const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
@@ -1748,20 +1795,20 @@ async function filterByTrend(marketData: MarketData[]): Promise<{ tradeable: Mar
       console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
       return false;
     }
-    if (c5 < ENTRY_CONFIRM_MIN_5M_PCT) {
-      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping`);
+    if (c5 < cfg.entry_min_5m_pct) {
+      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping (need ≥+${cfg.entry_min_5m_pct}%)`);
       return false;
     }
     if (c5 > 1.5) {
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    if (c1h < ENTRY_CONFIRM_MIN_15M_PCT) {
-      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+${ENTRY_CONFIRM_MIN_15M_PCT}%`);
+    if (c1h < cfg.entry_min_1h_pct) {
+      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+${cfg.entry_min_1h_pct}%`);
       return false;
     }
-    if (c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
-      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${ENTRY_CONFIRM_MIN_24H_PCT}%`);
+    if (c24 < cfg.entry_min_24h_pct) {
+      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${cfg.entry_min_24h_pct}%`);
       return false;
     }
     console.log(`✅ RISING: ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
@@ -2640,6 +2687,15 @@ serve(async (req) => {
       .eq('is_paper', isPaperMode);
 
     let openPositionsCount = openPositions || 0;
+
+    // Load user-tunable scalp settings (entry/exit/loss-rotation/sizing knobs)
+    const scalpCfg = await loadScalpCfg(supabase, user.id);
+    console.log('⚙️ Scalp cfg:', JSON.stringify({
+      entry: [scalpCfg.entry_min_5m_pct, scalpCfg.entry_min_1h_pct, scalpCfg.entry_min_24h_pct],
+      reentry: scalpCfg.reentry_breakout_pct, chase_min: scalpCfg.chase_guard_minutes,
+      loss_rot: { en: scalpCfg.loss_rotation_enabled, max: scalpCfg.loss_rotation_max_loss_pct, edge: scalpCfg.loss_rotation_momentum_edge_pct },
+      slots: scalpCfg.max_concurrent_positions, cap_pct: scalpCfg.max_capital_usage_pct,
+    }));
     if (openPositionsCount >= settings.max_concurrent_trades) {
       console.log(`⚠️ Slots full (${openPositionsCount}/${settings.max_concurrent_trades}) — will attempt loss-rotation after candidate scan`);
       // Don't early-return; let the deeper check at remainingSlots===0 try loss-rotation.
@@ -2746,7 +2802,7 @@ serve(async (req) => {
     console.log(`📊 Detected market regime: ${regime}`);
 
     // 📈 TREND ANALYSIS - Filter out downtrending coins
-    const { tradeable, trendAnalysis } = await filterByTrend(marketData);
+    const { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg);
     console.log(`📈 Trend Analysis:`);
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
     console.log(`✅ Tradeable coins: ${tradeable.map(c => c.symbol).join(', ') || 'NONE - All in downtrend'}`);
@@ -2960,7 +3016,7 @@ serve(async (req) => {
     console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
 
     if (remainingSlots === 0 && tradeable.length > 0) {
-      const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0]);
+      const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0], scalpCfg);
       if (rotated) {
         openPositionsCount = Math.max(0, openPositionsCount - 1);
         remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
@@ -3079,9 +3135,9 @@ serve(async (req) => {
       DUPLICATE_TRADE_COOLDOWN_MINUTES
     );
     const openPositionSymbols = await getOpenPositionSymbols(supabase, user.id, isPaperMode);
-    const recentExits = await getRecentExits(supabase, user.id, isPaperMode, CHASE_GUARD_WINDOW_MINUTES);
+    const recentExits = await getRecentExits(supabase, user.id, isPaperMode, scalpCfg.chase_guard_minutes);
     console.log(
-      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m), ${recentExits.size} recent exit(s) (chase window ${CHASE_GUARD_WINDOW_MINUTES}m)`
+      `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m), ${recentExits.size} recent exit(s) (chase window ${scalpCfg.chase_guard_minutes}m)`
     );
 
     // ============================================================
@@ -3200,10 +3256,10 @@ serve(async (req) => {
         if (lastExit && lastExit.exitPrice > 0) {
           const currPrice = coinData.price;
           const priceDeltaPct = ((currPrice - lastExit.exitPrice) / lastExit.exitPrice) * 100;
-          if (priceDeltaPct <= REENTRY_BREAKOUT_CONFIRM_PCT) {
+          if (priceDeltaPct <= scalpCfg.reentry_breakout_pct) {
             const minsAgo = (Date.now() - lastExit.closedAt) / (1000 * 60);
             console.log(
-              `🧯 SKIP rebuy ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (${priceDeltaPct.toFixed(2)}%). Need +${REENTRY_BREAKOUT_CONFIRM_PCT}% above exit before re-entry`
+              `🧯 SKIP rebuy ${symbolUpper}: exited $${lastExit.exitPrice.toFixed(4)} ${minsAgo.toFixed(1)}m ago, now $${currPrice.toFixed(4)} (${priceDeltaPct.toFixed(2)}%). Need +${scalpCfg.reentry_breakout_pct}% above exit before re-entry`
             );
             continue;
           }
