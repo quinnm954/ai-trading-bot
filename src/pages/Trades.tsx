@@ -257,7 +257,7 @@ export default function Trades() {
                         <td className="py-3 px-4 text-right font-mono">{trade.score != null ? Math.round(trade.score) : '—'}</td>
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 rounded text-xs bg-secondary text-muted-foreground inline-flex items-center gap-1">
-                            {trade.strategy || 'Manual'}
+                            {trade.strategy || 'scalp'}
                             {trade.aiReason && <Brain className="w-3 h-3 text-primary" />}
                           </span>
                         </td>
@@ -308,7 +308,7 @@ export default function Trades() {
                         <td className={cn('py-3 px-4 text-right font-mono', pnl >= 0 ? 'text-profit' : 'text-loss')}>
                           {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                         </td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{p.strategy || 'Manual'}</td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">{p.strategy || 'scalp'}</td>
                       </tr>
                     );
                   })}
