@@ -1484,13 +1484,15 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
 const strategyDescriptions: Record<string, string> = {
-  rsi: 'RSI SCALP: Aggressive oversold bounces. Buy RSI < 35, target 0.5% gain in minutes. Fast in/out.',
-  ema_crossover: 'EMA SCALP: Ride momentum waves. Buy on ANY upward cross, exit at 0.5%+ gain. Speed is key.',
-  macd: 'MACD SCALP: Trade histogram momentum spikes. Enter on rising histogram, exit fast at 0.5%.',
-  trend_breakout: 'BREAKOUT SCALP: Chase breakouts aggressively. Enter on ANY breakout, quick 0.5% target.',
-  volatility_breakout: 'VOLATILITY SCALP: Exploit high volatility for quick gains. Enter low, exit on any spike.',
-  grid: 'GRID SCALP: Rapid range trading. Buy low, sell high within tight ranges for quick profits.',
-  dca: 'DCA SCALP: Accumulate on dips, sell on ANY bounce for quick 0.5%+ gains.',
+  scalp: 'PURE SCALP: Short-window momentum entries (0.5%–3% over last few minutes). Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%. No traditional indicators.',
+  rsi: 'DISABLED — scalp-only mode',
+  ema_crossover: 'DISABLED — scalp-only mode',
+  macd: 'DISABLED — scalp-only mode',
+  trend_breakout: 'DISABLED — scalp-only mode',
+  volatility_breakout: 'DISABLED — scalp-only mode',
+  grid: 'DISABLED — scalp-only mode',
+  dca: 'DISABLED — scalp-only mode',
+
   custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
 };
 
@@ -1704,32 +1706,14 @@ function detectMarketRegime(marketData: MarketData[]): string {
   return 'ranging';
 }
 
-// Get best strategy for current regime from performance data
-async function getBestStrategyForRegime(supabase: any, userId: string, regime: string): Promise<string> {
-  const { data: performance } = await supabase
-    .from('strategy_performance')
-    .select('strategy, score, win_rate, enabled')
-    .eq('user_id', userId)
-    .eq('market_regime', regime)
-    .eq('enabled', true)
-    .order('score', { ascending: false })
-    .limit(1);
-
-  if (performance && performance.length > 0) {
-    console.log(`🎯 Best ENABLED strategy for ${regime}: ${performance[0].strategy} (score: ${performance[0].score}, win: ${performance[0].win_rate}%)`);
-    return performance[0].strategy;
-  }
-
-  console.log(`⚠️ No enabled strategy for ${regime}, using default`);
-  const defaults: Record<string, string> = {
-    'trending': 'ema_crossover',
-    'ranging': 'rsi',
-    'high_volatility': 'volatility_breakout',
-    'low_volatility': 'dca',
-    'news_driven': 'custom'
-  };
-  return defaults[regime] || 'rsi';
+// SCALPING ONLY: Traditional strategies (RSI/EMA/MACD/grid/DCA/breakout) are disabled.
+// The bot exclusively runs the unified scalp entry — short-window momentum with
+// trailing/hard stops handled in auto-take-profit. This matches scalping-replay.
+async function getBestStrategyForRegime(_supabase: any, _userId: string, _regime: string): Promise<string> {
+  console.log(`⚡ SCALP-ONLY mode: ignoring traditional strategies, using pure momentum scalp`);
+  return 'scalp';
 }
+
 
 // ============= SIGNAL SCORING (0-100) — synthesized from per-coin metrics =============
 function buildSignalFactors(coin: any, _regime: string, confidence: number, side: 'buy' | 'sell') {
@@ -1804,6 +1788,25 @@ function analyzeWithRules(
     const isInDowntrend = coin.change24h < -5 || ((coin as any).change7d ?? 0) < -10;
     
     switch (bestStrategy) {
+      case 'scalp': {
+        // PURE SCALP — momentum entry matching scalping-replay logic.
+        // Enter when 24h momentum sits in the sweet spot (0.5%–3%) and the asset
+        // isn't already extended at the top of its daily range.
+        if (isInDowntrend) {
+          break;
+        }
+        const m = coin.change24h;
+        if (m >= 0.5 && m < 3 && pricePosition < 0.85) {
+          action = 'buy';
+          // Higher confidence when momentum is fresh and price is mid-range
+          confidence = m >= 1 && pricePosition < 0.7 ? 0.92 : 0.78;
+          reason = `⚡ SCALP: +${m.toFixed(2)}% momentum, range pos ${(pricePosition * 100).toFixed(0)}%`;
+          pattern = 'scalp_momentum';
+        }
+        break;
+      }
+
+
       case 'rsi':
         // TREND-FILTERED RSI - Only buy oversold in uptrending assets
         // FIX: Previous RSI was buying in downtrends, causing consistent losses
