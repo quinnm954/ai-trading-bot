@@ -90,8 +90,8 @@ export function ScalpingReplayPanel() {
             Scalping Paper Replay
           </CardTitle>
           <CardDescription>
-            Replay the live scalping logic over recent Binance 1-minute klines.
-            Advisory only — does not affect the bot or your paper balance.
+            Backtests the live scalping logic on real recorded Binance 1-minute
+            klines — no mock-price distortion. Advisory only; does not affect the bot or your paper balance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
