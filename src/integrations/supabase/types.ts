@@ -1770,6 +1770,7 @@ export type Database = {
         | "grid"
         | "dca"
         | "custom"
+        | "scalp"
       trade_side: "buy" | "sell"
       trade_status: "open" | "closed" | "cancelled"
     }
@@ -1918,6 +1919,7 @@ export const Constants = {
         "grid",
         "dca",
         "custom",
+        "scalp",
       ],
       trade_side: ["buy", "sell"],
       trade_status: ["open", "closed", "cancelled"],

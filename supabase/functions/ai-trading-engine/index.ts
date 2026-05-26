@@ -476,7 +476,9 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
   }
   
   try {
-    const productId = `${symbol}-USDC`;
+    const [rawSymbol, rawBaseIncrement] = symbol.split('|');
+    const productId = rawSymbol.includes('-') ? rawSymbol : `${rawSymbol}-USDC`;
+    const baseSymbol = productId.split('-')[0];
     const uri = `POST api.coinbase.com/api/v3/brokerage/orders`;
     const jwt = await generateCdpJwt(apiKey, apiSecret, uri);
     
@@ -496,15 +498,9 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
       // Calculate quantity from USD amount
       const quantity = usdAmount / currentPrice;
       
-      // Get precision for this symbol
-      const precisionMap: Record<string, number> = {
-        'BTC': 8, 'ETH': 8, 'SOL': 6, 'XRP': 2, 'DOGE': 2, 'ADA': 2, 'AVAX': 4,
-        'DOT': 4, 'LINK': 4, 'UNI': 4, 'LTC': 6, 'ATOM': 4, 'NEAR': 4, 'APT': 4,
-        'ARB': 2, 'OP': 4, 'INJ': 4, 'SUI': 4, 'TON': 4, 'ICP': 4, 'FIL': 4,
-        'RENDER': 4, 'FET': 2, 'TAO': 6, 'AAVE': 6, 'GRT': 2, 'SHIB': 0, 'PEPE': 0,
-      };
-      const precision = precisionMap[symbol.toUpperCase()] ?? 4;
-      const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+      const baseIncrement = Number(rawBaseIncrement || '0.00000001') || 0.00000001;
+      const precision = Math.max(0, Math.min(8, (baseIncrement.toString().split('.')[1] || '').length));
+      const roundedQty = Math.floor(quantity / baseIncrement) * baseIncrement;
       
       // Use LIMIT order with post_only for MAKER fees (0.4% vs 0.6% taker)
       // Buy at current price to maximize fill chance while getting maker fee
@@ -520,7 +516,7 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
           }
         }
       };
-      console.log(`📤 LIMIT BUY ${roundedQty} ${symbol} @ $${currentPrice.toFixed(4)} (maker fee: 0.4%)...`);
+      console.log(`📤 LIMIT BUY ${roundedQty} ${baseSymbol} @ $${currentPrice.toFixed(4)} (maker fee: 0.4%)...`);
     } else {
       // Fallback to market order if can't get price
       console.log(`⚠️ Could not get price for ${symbol}, using market order (0.6% fee)`);
@@ -1071,6 +1067,10 @@ interface MarketData {
   volume: number;
   high24h: number;
   low24h: number;
+  productId?: string;
+  baseIncrement?: string;
+  quoteMinSize?: number;
+  spreadPercent?: number;
 }
 
 interface AITradingDecision {
@@ -1090,9 +1090,73 @@ interface TrendAnalysis {
   reason: string;
 }
 
-// Fetch current crypto prices from CoinGecko with retry logic
+// Fetch current crypto prices from Coinbase first so live execution can use every buyable Coinbase USDC market.
 async function fetchMarketData(): Promise<MarketData[]> {
-  // Top 100+ cryptocurrencies by market cap for maximum scalping opportunities
+  try {
+    const response = await fetch('https://api.coinbase.com/api/v3/brokerage/market/products?limit=500', {
+      headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const products = Array.isArray(data?.products) ? data.products : [];
+      const tradableUsdcMarkets = products
+        .filter((product: any) => {
+          const quote = String(product.quote_currency_id || '').toUpperCase();
+          const base = String(product.base_currency_id || '').toUpperCase();
+          const price = Number(product.price || product.mid_market_price || 0);
+          return quote === 'USDC'
+            && base
+            && price > 0
+            && product.status === 'online'
+            && !product.is_disabled
+            && !product.trading_disabled
+            && !product.cancel_only
+            && !product.view_only
+            && product.product_type !== 'FUTURE';
+        })
+        .map((product: any) => {
+          const price = Number(product.price || product.mid_market_price || 0);
+          let high24h = Number(product.high_24h || 0);
+          let low24h = Number(product.low_24h || 0);
+          const volume = Number(product.approximate_quote_24h_volume || 0) || (Number(product.volume_24h || 0) * price);
+          const bestBid = Number(product.best_bid_price || 0);
+          const bestAsk = Number(product.best_ask_price || 0);
+          const spreadPercent = bestBid > 0 && bestAsk > bestBid ? ((bestAsk - bestBid) / price) * 100 : undefined;
+          const change24h = Number(product.price_percentage_change_24h || 0);
+          if (!high24h || !low24h || high24h <= low24h) {
+            const estimatedRangePct = Math.min(12, Math.max(1.8, Math.abs(change24h) * 1.4));
+            high24h = price * (1 + estimatedRangePct / 200);
+            low24h = price * (1 - estimatedRangePct / 200);
+          }
+
+          return {
+            symbol: String(product.base_currency_id).toUpperCase(),
+            price,
+            change24h,
+            // Coinbase market list does not expose 7d change; use 24h as the short-window trend proxy for scalp gating.
+            change7d: change24h,
+            volume,
+            high24h,
+            low24h,
+            productId: product.product_id,
+            baseIncrement: product.base_increment,
+            quoteMinSize: Number(product.quote_min_size || 1),
+            spreadPercent,
+          } as MarketData;
+        })
+        .sort((a: MarketData, b: MarketData) => b.volume - a.volume);
+
+      console.log(`📊 Fetched ${tradableUsdcMarkets.length} tradable Coinbase USDC markets`);
+      if (tradableUsdcMarkets.length > 0) return tradableUsdcMarkets;
+    } else {
+      console.error('Coinbase products API error:', response.status);
+    }
+  } catch (error) {
+    console.error('Error fetching Coinbase market data:', error);
+  }
+
+  // Fallback only if Coinbase market discovery fails.
   const cryptos = [
     // Top 50
     'bitcoin', 'ethereum', 'tether', 'xrp', 'bnb', 'solana', 'usdc', 'dogecoin',
@@ -1381,7 +1445,7 @@ const MIN_PRICE_USD = 1.0;
 const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
-// DIP-BUYING STRATEGY: Buy pullbacks in uptrending assets (not peaks)
+// SCALP UNIVERSE FILTER: Buyable Coinbase assets with positive movement, not falling knives.
 function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], trendAnalysis: TrendAnalysis[] } {
   // Pre-filter: stablecoins out, keep only coins priced $1–$100
   const eligibleCoins = marketData.filter(coin => {
@@ -1401,83 +1465,46 @@ function filterByTrend(marketData: MarketData[]): { tradeable: MarketData[], tre
   });
 
   console.log(`✅ Eligible coins ($${MIN_PRICE_USD}–$${MAX_PRICE_USD}, non-stablecoin): ${eligibleCoins.length}/${marketData.length}`);
-  
-  // Step 1: Find DIP-BUY candidates - assets that:
-  // - Have positive 7-day trend (overall uptrend)
-  // - 24h change is between -5% and +1% (BUYING DIPS, NOT PUMPS)
-  // - This prevents the old mistake of buying "+9% 24h" assets at their peak
-  const dipBuyCandidates = eligibleCoins.filter(coin => {
+
+  const scalpCandidates = eligibleCoins.filter(coin => {
     const change24h = coin.change24h ?? 0;
-    const change7d = coin.change7d ?? 0;
-    const has7dUptrend = change7d > 2; // Asset is up >2% over 7 days (uptrend)
-    const hasDip = change24h <= MAX_24H_CHANGE_FOR_ENTRY && change24h >= MIN_24H_CHANGE_FOR_ENTRY;
-    
-    // Log parabolic rejections for visibility
-    if (change24h > MAX_24H_CHANGE_FOR_ENTRY) {
+    const positiveMomentum = change24h >= 0.5;
+    const notParabolic = change24h < 3;
+
+    if (!positiveMomentum) {
+      console.log(`🚫 MOMENTUM SKIP: ${coin.symbol} ${change24h.toFixed(2)}% - need positive movement`);
+      return false;
+    }
+    if (!notParabolic) {
       console.log(`🚫 PARABOLIC SKIP: ${coin.symbol} already +${change24h.toFixed(1)}% today - NOT buying at peak`);
       return false;
     }
-    if (change24h < MIN_24H_CHANGE_FOR_ENTRY) {
-      console.log(`🚫 CRASH SKIP: ${coin.symbol} down ${change24h.toFixed(1)}% - avoiding falling knife`);
-      return false;
-    }
-    
-    return has7dUptrend && hasDip;
+
+    return true;
   });
-  
-  // REMOVED momentum plays that allowed buying pumped assets
-  // Old code allowed buying if change24h > 3% which caused the losses
-  // Now we ONLY buy dips in uptrending assets
-  
-  console.log(`🎯 DIP-BUY FILTER: ${dipBuyCandidates.length} dip candidates (24h change ${MIN_24H_CHANGE_FOR_ENTRY}% to +${MAX_24H_CHANGE_FOR_ENTRY}% only)`);
-  
-  // Step 2: Analyze trends for candidates (now only dip candidates, no parabolic plays)
-  const trendAnalysis: TrendAnalysis[] = dipBuyCandidates.map((coin: MarketData) => {
+
+  console.log(`🎯 SCALP MOMENTUM FILTER: ${scalpCandidates.length} candidates (+0.5% to +3% 24h)`);
+
+  const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
     const change24h = coin.change24h ?? 0;
-    const change7d = coin.change7d ?? 0;
-    // For dip-buying, we want to trade pullbacks in uptrending assets
-    const isDipBuy = change7d > 2 && change24h <= MAX_24H_CHANGE_FOR_ENTRY;
-    if (isDipBuy && change24h >= MIN_24H_CHANGE_FOR_ENTRY) {
-      // Override to allow trading dips in uptrending assets
+    const change7d = coin.change7d ?? change24h;
+    if (change24h >= 0.5 && change24h < 3 && change7d >= -3) {
       return {
         ...analysis,
         shouldTrade: true,
-        reason: `🔄 DIP-BUY: 7d: +${change7d.toFixed(1)}% uptrend, 24h: ${change24h.toFixed(1)}% pullback | NOT buying at peak`,
+        reason: `⚡ SCALP MOMENTUM: 24h +${change24h.toFixed(2)}%, trend ${change7d.toFixed(1)}% | positive movement only`,
       };
     }
     return analysis;
   });
-  
-  let tradeable = dipBuyCandidates.filter((coin: MarketData) => {
+
+  const tradeable = scalpCandidates.filter((coin: MarketData) => {
     const analysis = trendAnalysis.find((t: TrendAnalysis) => t.symbol === coin.symbol);
     return analysis?.shouldTrade ?? false;
   });
 
-  // 🩹 STARVATION RELAXATION: When the dip pool is too small, allow mild-momentum entries
-  // (+1% to +4% 24h in a 7d uptrend). Prevents the bot from being forced to either no-trade
-  // or pick the single bad setup left over. Sizing should be halved by the caller for these.
-  if (tradeable.length < 3) {
-    const mildMomentum = eligibleCoins.filter(coin => {
-      const c24 = coin.change24h ?? 0;
-      const c7 = coin.change7d ?? 0;
-      return c7 > 2 && c24 > MAX_24H_CHANGE_FOR_ENTRY && c24 <= 4
-        && !tradeable.find(t => t.symbol === coin.symbol);
-    });
-    if (mildMomentum.length > 0) {
-      console.log(`🩹 STARVATION RELAX: adding ${mildMomentum.length} mild-momentum candidates (+1% to +4% 24h in 7d uptrend)`);
-      mildMomentum.forEach(coin => {
-        trendAnalysis.push({
-          ...analyzeTrend(coin),
-          shouldTrade: true,
-          reason: `🩹 MILD-MOMENTUM (starvation relax): 7d +${(coin.change7d ?? 0).toFixed(1)}%, 24h +${(coin.change24h ?? 0).toFixed(1)}%`,
-        });
-      });
-      tradeable = tradeable.concat(mildMomentum);
-    }
-  }
-
-  console.log(`📈 Tradeable (dips + relaxed): ${tradeable.length}`);
+  console.log(`📈 Tradeable scalp candidates: ${tradeable.length}`);
 
   return { tradeable, trendAnalysis };
 }
@@ -1797,7 +1824,8 @@ function analyzeWithRules(
         //      (too tight = no profit room / noise; too wide = chop/whipsaw)
         //   4) Range/whipsaw filter: pricePosition in 0.30–0.80
         //      (avoids capitulation bottoms and blow-off tops)
-        //   5) Liquidity gate: 24h volume ≥ $5M (proxy for tight spread)
+        //   5) Liquidity gate: 24h volume ≥ $250k (Coinbase USDC markets only)
+        //   6) Spread gate: reject wide bid/ask spreads when Coinbase exposes them
         if (isInDowntrend) {
           break;
         }
@@ -1816,18 +1844,20 @@ function analyzeWithRules(
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
         // Range band: no capitulation buys near lows, no blow-off-top buys near highs
         const rangeOk = pricePosition >= 0.30 && pricePosition <= 0.80;
-        const liquidityOk = vol24h >= 5_000_000;
+        const liquidityOk = vol24h >= 250_000;
+        const spreadOk = coin.spreadPercent === undefined || coin.spreadPercent <= 0.8;
 
         if (!momentumOk) {
           console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.5% to +3% (positive only)`);
           break;
         }
-        if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk) {
+        if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk || !spreadOk) {
           const failed = [
             !trendOk && `trend(7d ${ch7d.toFixed(1)}%)`,
             !volatilityOk && `volatility(${volPct.toFixed(1)}%)`,
             !rangeOk && `range(${(pricePosition * 100).toFixed(0)}%)`,
-            !liquidityOk && `liquidity($${(vol24h / 1e6).toFixed(1)}M)`,
+            !liquidityOk && `liquidity($${(vol24h / 1e6).toFixed(2)}M)`,
+            !spreadOk && `spread(${(coin.spreadPercent ?? 0).toFixed(2)}%)`,
           ].filter(Boolean).join(', ');
           console.log(`🚫 SCALP SKIP ${coin.symbol}: failed ${failed}`);
           break;
@@ -2892,15 +2922,8 @@ serve(async (req) => {
       }
       
       // PRE-VALIDATE: Check if quantity will be 0 after precision rounding BEFORE executing
-      const precisionMap: Record<string, number> = {
-        'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
-        'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
-        'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
-        'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
-        'ADA': 0, 'DOT': 2, 'MATIC': 0, 'BCH': 4, 'SAND': 0, 'MANA': 0, 'ENJ': 0,
-      };
-      const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
-      const preRoundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+      const baseIncrement = Number(coinData.baseIncrement || '0.00000001') || 0.00000001;
+      const preRoundedQty = Math.floor(quantity / baseIncrement) * baseIncrement;
       const prePositionValue = preRoundedQty * actualEntryPrice;
       
       if (preRoundedQty <= 0 || prePositionValue < MIN_TRADE_VALUE) {
@@ -3001,21 +3024,16 @@ serve(async (req) => {
         } else {
           // 💰 EXECUTE CRYPTO TRADE via Coinbase
           console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
-          const buyResult = await executeCoinbaseBuy(decision.symbol, tradeValue);
+          const coinbaseSymbol = coinData.productId ? `${coinData.productId}|${coinData.baseIncrement || '0.00000001'}` : decision.symbol;
+          const buyResult = await executeCoinbaseBuy(coinbaseSymbol, tradeValue);
           
           if (buyResult.success && buyResult.quantity && buyResult.price) {
             quantity = buyResult.quantity;
             actualEntryPrice = buyResult.price;
             
-            // DUST PREVENTION: Verify the quantity we received is sellable
-            const precisionMap: Record<string, number> = {
-              'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
-              'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
-              'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
-              'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
-            };
-            const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
-            const roundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+            // DUST PREVENTION: Verify the quantity we received is sellable using Coinbase's market increment.
+            const baseIncrement = Number(coinData.baseIncrement || '0.00000001') || 0.00000001;
+            const roundedQty = Math.floor(quantity / baseIncrement) * baseIncrement;
             const positionValue = roundedQty * actualEntryPrice;
             
             if (roundedQty <= 0 || positionValue < MIN_TRADE_VALUE) {
