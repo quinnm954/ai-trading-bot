@@ -4,7 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
-const LIVE_STARTING_EQUITY = 50;
+const LIVE_STARTING_EQUITY = 65;
 
 interface MilestoneData {
   currentEquity: number;
