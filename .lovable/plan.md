@@ -1,63 +1,37 @@
+## Goal
 
-# Simplify to a single market scalper
+Force-close every open **paper** position right now (ICP, DOT, MKR×2, CAKE, ENS, AVAX, SOL — 8 positions) at current market price, credit the proceeds back to the $100k paper cash balance, and let the bot restart fresh under the tightened 1% TP / -1.5% SL rules.
 
-You want one thing: a bot that scalps the market. No strategy picker, no "moonshot vs trend vs breakout" menus. Here's what I'd do.
+## Approach
 
-## What gets removed (UI)
+Create a new one-shot edge function `close-all-paper-positions` that:
 
-- **Strategies page / strategy selector** — hide the route and nav entry (Sidebar + BottomNav).
-- **Moonshot Scanner page** — hide route + nav entry.
-- **Strategy Advisor card / "best opportunity" recommendation UI** on the dashboard.
-- **Any "choose a strategy" toggles** in Risk Management / Settings — keep only risk tolerance + kill-switch.
-- **Learning Engine UI** — keep the backend running silently, just hide the page (it still tunes scalper params in the background).
+1. Authenticates the caller (uses the user's JWT)
+2. Pulls all `positions` rows where `is_paper = true` for the user
+3. Fetches current USD prices for each symbol from CoinGecko (same source the bot already uses)
+4. For each position:
+   - Computes `exit_price = current_price`, `pnl = (current_price - avg_entry_price) * quantity`
+   - Updates the matching open `trades` row: `status='closed'`, `exit_price`, `pnl`, `closed_at=now()`
+   - Adds `current_price * quantity` to the paper account balance
+   - Deletes the `positions` row
+5. Inserts one `ai_decisions` row summarizing the cleanup (count + total realized P&L)
+6. Returns a JSON summary
 
-Nothing is deleted from the codebase — routes and components stay so we can restore later — they're just unmounted from navigation and the router.
+Add a small **"Close all paper positions"** button on the Dashboard (admin/creator-visible only, since this is a one-time cleanup tool) that calls the function with a confirm dialog.
 
-## What stays / becomes the only strategy
+## What this does NOT do
 
-A single hardcoded scalper using the parameters already tuned in `supabase/functions/auto-take-profit/index.ts`:
+- Does **not** touch live positions
+- Does **not** change `auto-take-profit` logic — the tightened 1% TP / -1.5% SL already applies to all new entries going forward
+- Does **not** delete trades — losses stay on record, just marked closed at current market
 
-- TP rotation threshold: **1.0%**
-- Stop loss: **-1.5%**
-- Trailing stop: activate at **+0.6%** peak, exit on **0.5%** drop from peak
-- Entry filter: existing trend filter + 6h cooldown + parabolic/crash skip + $1 min price + duplicate guard
-- Fee-aware: maker-only limit orders (already in place)
-- Universe: existing top-50 CoinGecko crypto list
-- Mode: paper/live toggle stays (that's not a "strategy", it's an execution mode)
+## Expected outcome
 
-## What stays in Risk Management
+- 8 positions closed at live prices
+- Paper cash balance jumps back up (most positions are roughly break-even or small drawdown from entry)
+- Bot starts the next scan cycle with a clean slate; every new entry will have the proper -1.5% stop enforced from the first tick
 
-Only the things that actually protect capital:
-- Risk tolerance profile (Conservative / Balanced / Aggressive / Custom) — drives position size + daily-loss limit
-- Daily loss kill-switch
-- Max drawdown kill-switch
-- Per-trade size cap
+## Files touched
 
-Everything else (strategy weights, regime overrides, moonshot toggle, advisor toggle) gets hidden.
-
-## Dashboard after
-
-- Equity / cash / positions
-- Open positions list
-- Recent trades
-- Milestone progress
-- Bot status: **Idle / Scanning / Trading** (no strategy name shown)
-
-## Files I'd touch (UI only, no business-logic deletion)
-
-- `src/components/layout/Sidebar.tsx` — remove Strategies, Moonshot, Learning Engine, Advisor links
-- `src/components/layout/BottomNav.tsx` — same
-- `src/App.tsx` (or wherever routes live) — comment out those routes
-- `src/pages/RiskManagement.tsx` — hide strategy/advisor/moonshot sections
-- `src/pages/Index.tsx` (dashboard) — remove StrategyAdvisor card and any "current strategy" badge
-
-Backend edge functions (`auto-take-profit`, scanner, learning engine) are **not touched** — they already implement the scalper and will keep running.
-
-## One question before I build
-
-Do you want me to:
-
-**A.** Hide the pages/nav only (fastest, fully reversible, code stays)
-**B.** Hide nav + also rip the strategy-selection logic out of the backend so there's literally one code path
-
-I recommend **A** — same user experience, zero risk of breaking the running bot.
+- New: `supabase/functions/close-all-paper-positions/index.ts`
+- Edit: `src/pages/Dashboard.tsx` — add the cleanup button (creator-only, guarded by `useIsAdmin`)
