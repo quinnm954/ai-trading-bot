@@ -1117,13 +1117,18 @@ async function fetchMarketData(): Promise<MarketData[]> {
         })
         .map((product: any) => {
           const price = Number(product.price || product.mid_market_price || 0);
-          const high24h = Number(product.high_24h || price);
-          const low24h = Number(product.low_24h || price);
+          let high24h = Number(product.high_24h || 0);
+          let low24h = Number(product.low_24h || 0);
           const volume = Number(product.approximate_quote_24h_volume || 0) || (Number(product.volume_24h || 0) * price);
           const bestBid = Number(product.best_bid_price || 0);
           const bestAsk = Number(product.best_ask_price || 0);
           const spreadPercent = bestBid > 0 && bestAsk > bestBid ? ((bestAsk - bestBid) / price) * 100 : undefined;
           const change24h = Number(product.price_percentage_change_24h || 0);
+          if (!high24h || !low24h || high24h <= low24h) {
+            const estimatedRangePct = Math.min(12, Math.max(1.8, Math.abs(change24h) * 1.4));
+            high24h = price * (1 + estimatedRangePct / 200);
+            low24h = price * (1 - estimatedRangePct / 200);
+          }
 
           return {
             symbol: String(product.base_currency_id).toUpperCase(),
