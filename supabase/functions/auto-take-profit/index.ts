@@ -1163,24 +1163,25 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     // Use latency-adjusted thresholds - ROTATION MODE
     const rotationThreshold = getAdjustedRotationThreshold();
-    const adjustedStopLoss = getAdjustedStopLoss();
-    
+    // Per-user hard stop adjusted for execution-latency slippage (widen slightly under high latency).
+    const adjustedStopLoss = cfgHardStopLossPct - latencyTracker.slippageBuffer;
+
     // TRUE TRAILING STOP LOGIC
-    // Track peak PnL and sell when current drops 1.5% below peak
+    // Track peak PnL and sell when current drops cfgTrailingDropPct below peak
     const previousPeakPnl = Number(position.peak_pnl_percent || 0);
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
-    
+
     // Check if trailing stop triggered:
     // 1. Peak must be at least TRAILING_STOP_MIN_PEAK (e.g., 0.8%) to activate
-    // 2. Current PnL must be TRAILING_STOP_DROP (e.g., 0.5%) below peak
+    // 2. Current PnL must be cfgTrailingDropPct below peak
     const trailingStopActive = newPeakPnl >= TRAILING_STOP_MIN_PEAK;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    const hitTrailingStop = trailingStopActive && dropFromPeak >= TRAILING_STOP_DROP;
+    const hitTrailingStop = trailingStopActive && dropFromPeak >= cfgTrailingDropPct;
 
-    const hitHardTakeProfit = pnlPercent >= HARD_TAKE_PROFIT_PCT;
+    const hitHardTakeProfit = pnlPercent >= cfgTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
-    
+
     // Log position status for monitoring (even when not triggering)
     const statusIcon = hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : hitStopLoss ? '🛑' : '👀';
     const distToRotate = (rotationThreshold - pnlPercent).toFixed(2);
@@ -1190,7 +1191,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     // Trigger sell on: hard take-profit, rotation target, trailing stop, or hard stop loss
     if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss) {
-      const triggerReason = hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${HARD_TAKE_PROFIT_PCT}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitTrailingStop ? `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)` : '🛑 STOP TRIGGERED';
+      const triggerReason = hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitTrailingStop ? `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)` : '🛑 STOP TRIGGERED';
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
