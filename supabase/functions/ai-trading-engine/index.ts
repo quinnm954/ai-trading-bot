@@ -1836,7 +1836,7 @@ function analyzeWithRules(
         
       case 'ema_crossover':
       case 'macd':
-        // AGGRESSIVE MOMENTUM - Any positive signal
+        // AGGRESSIVE MOMENTUM - Any positive signal, plus dip-buy entries
         if (coin.change24h > 1.5) {
           action = 'buy';
           confidence = 0.95;
@@ -1852,6 +1852,12 @@ function analyzeWithRules(
           confidence = 0.75;
           reason = `⬆️ MOMENTUM SCALP: Early move +${coin.change24h.toFixed(2)}%`;
           pattern = 'momentum_early';
+        } else if (isIn7dUptrend && coin.change24h >= -3) {
+          // DIP-BUY: 7d uptrend with intraday pullback — filterByTrend already validated this is a dip candidate
+          action = 'buy';
+          confidence = 0.78;
+          reason = `🔄 DIP-BUY: 7d uptrend with ${coin.change24h.toFixed(2)}% pullback`;
+          pattern = 'momentum_dip';
         }
         break;
         
