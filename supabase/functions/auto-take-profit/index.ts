@@ -12,12 +12,13 @@ const corsHeaders = {
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
 // Rotation threshold: when position gains X%, rotate into rising asset
-const ROTATION_PROFIT_THRESHOLD = 5.0; // 5% profit triggers rotation (~4.2% net after fees)
-// Stop loss: emergency protection (tightened from -2.5% to -2.0% to cap losses)
-const BASE_STOP_LOSS_PERCENT = -2.0;
+// SCALP MODE: 1.0% gross ≈ 0.2% net after 0.8% round-trip fees. Targeting 0.5–2%/day.
+const ROTATION_PROFIT_THRESHOLD = 1.0; // 1% profit triggers rotation
+// Stop loss: emergency protection — kept tight for scalping
+const BASE_STOP_LOSS_PERCENT = -1.5;
 // Trailing stop: sell when gain drops X% below peak gain
-const TRAILING_STOP_DROP = 1.5; // Sell when current gain is 1.5% below peak gain
-const TRAILING_STOP_MIN_PEAK = 1.0; // Only activate trailing stop once peak gain reaches 1%
+const TRAILING_STOP_DROP = 0.5; // Sell when current gain is 0.5% below peak gain
+const TRAILING_STOP_MIN_PEAK = 0.6; // Activate trailing stop once peak gain reaches 0.6%
 // Minimum momentum for target asset (must be rising)
 const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
 // Maximum momentum - avoid buying at the top
