@@ -1711,18 +1711,19 @@ function detectMarketRegime(marketData: MarketData[]): string {
 async function getBestStrategyForRegime(supabase: any, userId: string, regime: string): Promise<string> {
   const { data: performance } = await supabase
     .from('strategy_performance')
-    .select('strategy, score, win_rate')
+    .select('strategy, score, win_rate, enabled')
     .eq('user_id', userId)
     .eq('market_regime', regime)
+    .eq('enabled', true)
     .order('score', { ascending: false })
     .limit(1);
-  
+
   if (performance && performance.length > 0) {
-    console.log(`🎯 Best strategy for ${regime}: ${performance[0].strategy} (score: ${performance[0].score}, win: ${performance[0].win_rate}%)`);
+    console.log(`🎯 Best ENABLED strategy for ${regime}: ${performance[0].strategy} (score: ${performance[0].score}, win: ${performance[0].win_rate}%)`);
     return performance[0].strategy;
   }
-  
-  // Fallback defaults by regime
+
+  console.log(`⚠️ No enabled strategy for ${regime}, using default`);
   const defaults: Record<string, string> = {
     'trending': 'ema_crossover',
     'ranging': 'rsi',
@@ -1731,6 +1732,51 @@ async function getBestStrategyForRegime(supabase: any, userId: string, regime: s
     'news_driven': 'custom'
   };
   return defaults[regime] || 'rsi';
+}
+
+// ============= SIGNAL SCORING (0-100) — synthesized from per-coin metrics =============
+function buildSignalFactors(coin: any, _regime: string, confidence: number, side: 'buy' | 'sell') {
+  const priceRange = (coin.high24h ?? coin.price) - (coin.low24h ?? coin.price);
+  const pricePosition = priceRange > 0 ? (coin.price - coin.low24h) / priceRange : 0.5;
+  const volPct = priceRange > 0 ? (priceRange / coin.price) * 100 : 0;
+  const ch24 = coin.change24h ?? 0;
+  const ch7d = (coin as any).change7d ?? ch24;
+  const clamp = (x: number) => Math.max(0, Math.min(1, x));
+
+  const trend = side === 'buy'
+    ? clamp((ch24 > 0 ? 0.6 : 0.2) + (ch7d > 0 ? 0.3 : 0))
+    : clamp((ch24 < 0 ? 0.6 : 0.2) + (ch7d < 0 ? 0.3 : 0));
+  const emaAlignment = clamp(1 - Math.abs(ch24 - ch7d) / 10);
+  const rsiScore = side === 'buy' ? clamp(1 - pricePosition + 0.1) : clamp(pricePosition + 0.1);
+  const macdScore = side === 'buy' ? (ch24 > 0 ? 0.85 : 0.35) : (ch24 < 0 ? 0.85 : 0.35);
+  const vwapScore = side === 'buy' ? (pricePosition > 0.5 ? 0.8 : 0.5) : (pricePosition < 0.5 ? 0.8 : 0.5);
+  const volume = 0.6;
+  const sr = side === 'buy' ? clamp(1 - pricePosition + 0.2) : clamp(pricePosition + 0.2);
+  const volatility = volPct < 0.2 ? 0.3 : volPct > 6 ? 0.25 : clamp(1 - Math.abs(volPct - 1.5) / 3);
+  const riskReward = clamp((confidence - 0.5) * 1.5);
+
+  const W = { trend: 18, emaAlignment: 14, rsi: 12, macd: 10, vwap: 10, volume: 12, sr: 8, volatility: 8, riskReward: 8 };
+  const total = Math.round(
+    trend * W.trend + emaAlignment * W.emaAlignment + rsiScore * W.rsi + macdScore * W.macd +
+    vwapScore * W.vwap + volume * W.volume + sr * W.sr + volatility * W.volatility + riskReward * W.riskReward
+  );
+  const rr = Math.max(1, confidence * 2.5);
+  const valid = total >= 75 && rr >= 1.5;
+
+  return {
+    trend_score: Math.round(trend * 100) / 100,
+    ema_alignment_score: Math.round(emaAlignment * 100) / 100,
+    rsi_score: Math.round(rsiScore * 100) / 100,
+    macd_score: Math.round(macdScore * 100) / 100,
+    vwap_score: Math.round(vwapScore * 100) / 100,
+    volume_score: Math.round(volume * 100) / 100,
+    sr_score: Math.round(sr * 100) / 100,
+    volatility_score: Math.round(volatility * 100) / 100,
+    risk_reward_score: Math.round(riskReward * 100) / 100,
+    total_score: total,
+    risk_reward: Math.round(rr * 100) / 100,
+    valid,
+  };
 }
 
 // SPEED SCALPING: Strategy-specific rule-based analysis optimized for fastest profits
@@ -2606,6 +2652,17 @@ serve(async (req) => {
           });
         
         if (!pendingError) {
+          // Persist signal score for visibility
+          const factors = buildSignalFactors(coinData, regime, decision.confidence, decision.action as 'buy' | 'sell');
+          await supabase.from('signal_scores').insert({
+            user_id: user.id,
+            symbol: decision.symbol,
+            strategy: bestStrategy,
+            action: decision.action,
+            reasoning: decision.reason,
+            ...factors,
+          });
+
           pendingTrades.push({
             symbol: decision.symbol,
             side: decision.action,
@@ -2613,8 +2670,9 @@ serve(async (req) => {
             price: coinData.price,
             value: tradeValue,
             confidence: decision.confidence,
+            score: factors.total_score,
           });
-          console.log(`📋 Queued: ${decision.action.toUpperCase()} ${quantity.toFixed(6)} ${decision.symbol} @ $${coinData.price.toFixed(2)}`);
+          console.log(`📋 Queued: ${decision.action.toUpperCase()} ${quantity.toFixed(6)} ${decision.symbol} @ $${coinData.price.toFixed(2)} (score ${factors.total_score})`);
         } else {
           console.error(`Failed to queue pending trade for ${decision.symbol}:`, pendingError);
         }
@@ -2945,15 +3003,30 @@ serve(async (req) => {
         balance -= tradeValue;
       }
 
-      // Log AI decision with pattern info
+      // Compute and persist 0-100 signal score
+      const factors = buildSignalFactors(coinData, regime, decision.confidence, decision.action as 'buy' | 'sell');
+      await supabase.from('signal_scores').insert({
+        user_id: user.id,
+        symbol: decision.symbol,
+        strategy: strategyType,
+        action: decision.action,
+        reasoning: decision.reason,
+        ...factors,
+      });
+
+      // Log AI decision with score + factor breakdown
       await supabase.from('ai_decisions').insert({
         user_id: user.id,
         decision_type: 'ai_trade_execution',
         symbol: decision.symbol,
         action: decision.action,
-        reasoning: `${decision.reason} | Pattern: ${decision.pattern || 'N/A'} | Confidence: ${(decision.confidence * 100).toFixed(0)}%`,
+        reasoning: `${decision.reason} | Pattern: ${decision.pattern || 'N/A'} | Confidence: ${(decision.confidence * 100).toFixed(0)}% | Score: ${factors.total_score}`,
         market_regime: regime,
         strategy: strategyType,
+        score: factors.total_score,
+        risk_reward: factors.risk_reward,
+        valid: factors.valid,
+        factor_scores: factors,
       });
 
       executedTrades.push({
