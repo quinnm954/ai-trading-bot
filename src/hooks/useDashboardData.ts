@@ -270,7 +270,7 @@ export function useDashboardData() {
         // Live account balance can briefly be synced as tradable USDC only.
         // Use broker equity as the source of truth, then derive cash from equity minus open positions.
         cashBalance = liveBrokerEquity > 0 ? Math.max(0, liveBrokerEquity - positionsValue) : liveBrokerCash;
-        accountBasis = LIVE_STARTING_EQUITY;
+        accountBasis = liveInitialInvestment;
       }
 
       // Total equity = cash + positions value; in live mode prefer broker-reported equity to avoid cash/position sync races.
