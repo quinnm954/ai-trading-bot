@@ -2805,12 +2805,12 @@ serve(async (req) => {
       const key = tradeKey(symbolUpper, side);
       const lastAt = lastTradeByKey.get(key);
 
-      if (side === 'buy' && openPositionSymbols.has(symbolUpper)) {
+      if (side === 'buy' && openPositionSymbols.has(symbolUpper) && !(decision as any)._topup) {
         console.log(`🧯 SKIP duplicate BUY: already holding ${symbolUpper}`);
         continue;
       }
 
-      if (lastAt && Date.now() - lastAt < DUPLICATE_TRADE_COOLDOWN_MINUTES * 60 * 1000) {
+      if (lastAt && Date.now() - lastAt < DUPLICATE_TRADE_COOLDOWN_MINUTES * 60 * 1000 && !(decision as any)._topup) {
         const minsAgo = (Date.now() - lastAt) / (1000 * 60);
         console.log(
           `🧯 SKIP duplicate ${side.toUpperCase()} ${symbolUpper}: last ${minsAgo.toFixed(1)}m ago (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m)`
