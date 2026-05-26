@@ -2687,6 +2687,15 @@ serve(async (req) => {
       .eq('is_paper', isPaperMode);
 
     let openPositionsCount = openPositions || 0;
+
+    // Load user-tunable scalp settings (entry/exit/loss-rotation/sizing knobs)
+    const scalpCfg = await loadScalpCfg(supabase, user.id);
+    console.log('⚙️ Scalp cfg:', JSON.stringify({
+      entry: [scalpCfg.entry_min_5m_pct, scalpCfg.entry_min_1h_pct, scalpCfg.entry_min_24h_pct],
+      reentry: scalpCfg.reentry_breakout_pct, chase_min: scalpCfg.chase_guard_minutes,
+      loss_rot: { en: scalpCfg.loss_rotation_enabled, max: scalpCfg.loss_rotation_max_loss_pct, edge: scalpCfg.loss_rotation_momentum_edge_pct },
+      slots: scalpCfg.max_concurrent_positions, cap_pct: scalpCfg.max_capital_usage_pct,
+    }));
     if (openPositionsCount >= settings.max_concurrent_trades) {
       console.log(`⚠️ Slots full (${openPositionsCount}/${settings.max_concurrent_trades}) — will attempt loss-rotation after candidate scan`);
       // Don't early-return; let the deeper check at remainingSlots===0 try loss-rotation.
