@@ -1808,18 +1808,18 @@ function analyzeWithRules(
         const volPct = coin.price > 0 ? ((high24h - low24h) / coin.price) * 100 : 0;
         const vol24h = coin.volume ?? 0;
 
-        // Accept both small dips (-2% to 0.5%) AND fresh momentum (0.5% to 3%).
-        // Dip-buying in a 7d uptrend is a valid scalp entry; the trend gate
-        // (ch7d >= -3) ensures we're not catching falling knives.
-        const momentumOk = m >= -2 && m < 3;
+        // Scalping rides POSITIVE momentum only — never catch falling knives.
+        // Require +0.5%–+3% short-term momentum; below that there's nothing to
+        // scalp, above that we're chasing a parabolic blow-off.
+        const momentumOk = m >= 0.5 && m < 3;
         const trendOk = ch7d >= -3;
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
-        // Wider range band: allow capitulation-style dip entries near lows
-        const rangeOk = pricePosition >= 0.10 && pricePosition <= 0.85;
+        // Range band: no capitulation buys near lows, no blow-off-top buys near highs
+        const rangeOk = pricePosition >= 0.30 && pricePosition <= 0.80;
         const liquidityOk = vol24h >= 5_000_000;
 
         if (!momentumOk) {
-          console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% outside band (-2% to 3%)`);
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.5% to +3% (positive only)`);
           break;
         }
         if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk) {
