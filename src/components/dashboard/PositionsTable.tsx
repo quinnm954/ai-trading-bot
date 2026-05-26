@@ -29,17 +29,13 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
       }
 
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-take-profit?action=force-sell&position_id=${encodeURIComponent(position.id)}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ 
-            action: 'force-sell',
-            positionId: position.id 
-          }),
         }
       );
 
@@ -106,7 +102,7 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Invested</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Value</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">P&L</th>
-                {isLiveMode && <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Action</th>}
+                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -158,23 +154,21 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
                         </span>
                       </div>
                     </td>
-                    {isLiveMode && (
-                      <td className="py-4 px-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleSellPosition(position)}
-                          disabled={isSelling}
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        >
-                          {isSelling ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <X className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </td>
-                    )}
+                    <td className="py-4 px-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSellPosition(position)}
+                        disabled={isSelling}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        {isSelling ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>Sell <X className="w-4 h-4 ml-1" /></>
+                        )}
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}
