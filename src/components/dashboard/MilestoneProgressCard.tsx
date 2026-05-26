@@ -4,6 +4,8 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
+const LIVE_STARTING_EQUITY = 50;
+
 interface MilestoneData {
   currentEquity: number;
   cashBalance: number;
@@ -42,6 +44,7 @@ export function MilestoneProgressCard() {
         const isLiveMode = aiSettings?.trading_mode === 'live';
         
         let cashBalance = 0;
+        let liveEquity = 0;
         let startingBalance = 100000;
         let tradingStartTime: Date | null = null;
 
@@ -53,8 +56,9 @@ export function MilestoneProgressCard() {
             .eq('user_id', user.id)
             .maybeSingle();
           
-          cashBalance = liveAccount?.balance || 0;
-          startingBalance = 50; // Initial deposit for live
+          cashBalance = Number(liveAccount?.balance || 0);
+          liveEquity = Number(liveAccount?.equity || 0);
+          startingBalance = LIVE_STARTING_EQUITY;
           tradingStartTime = liveAccount?.created_at ? new Date(liveAccount.created_at) : null;
         } else {
           // Get paper account balance
@@ -90,7 +94,10 @@ export function MilestoneProgressCard() {
           const price = p.current_price || p.avg_entry_price;
           return sum + (Number(p.quantity) * Number(price));
         }, 0) || 0;
-        const currentEquity = cashBalance + positionsValue;
+        if (isLiveMode && liveEquity > 0) {
+          cashBalance = Math.max(0, liveEquity - positionsValue);
+        }
+        const currentEquity = isLiveMode && liveEquity > 0 ? liveEquity : cashBalance + positionsValue;
         
         // Calculate profit rate from recent trades
         let profitRate = 0;
