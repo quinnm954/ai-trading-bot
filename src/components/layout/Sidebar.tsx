@@ -15,7 +15,9 @@ import {
   X,
   Shield,
   Rocket,
-  ShieldCheck
+  ShieldCheck,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
@@ -24,19 +26,22 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
-const navItems = [
+const primaryNav = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/ai-trader', icon: Bot, label: 'AI Trader' },
   { path: '/strategies', icon: Layers, label: 'Strategies' },
-  { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
-  { path: '/ai-trader', icon: Bot, label: 'Autonomous AI', badge: 'AUTO' },
-  { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning', badge: 'NEW' },
-  { path: '/moonshot-scanner', icon: Rocket, label: 'Moonshot Scanner', badge: '🚀' },
-  { path: '/crypto-signals', icon: Zap, label: 'Crypto Signals', badge: 'NEW' },
-  { path: '/risk-management', icon: Shield, label: 'Risk Management' },
+  { path: '/risk-management', icon: Shield, label: 'Risk' },
   { path: '/trades', icon: History, label: 'Trade History' },
+  { path: '/settings', icon: Settings, label: 'Settings' },
+];
+
+const advancedNav = [
+  { path: '/ai-advisor', icon: Brain, label: 'AI Advisor' },
+  { path: '/ai-learning', icon: GraduationCap, label: 'AI Learning' },
+  { path: '/moonshot-scanner', icon: Rocket, label: 'Moonshot Scanner' },
+  { path: '/crypto-signals', icon: Zap, label: 'Crypto Signals' },
   { path: '/api-keys', icon: Key, label: 'API Keys' },
   { path: '/pricing', icon: TrendingUp, label: 'Pricing' },
-  { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 interface LiveAccount {
