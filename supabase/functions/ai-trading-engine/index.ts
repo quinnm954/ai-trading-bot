@@ -2763,7 +2763,7 @@ serve(async (req) => {
             quantity,
             price: coinData.price,
             position_value: tradeValue,
-            strategy: bestStrategy,
+            strategy: 'scalp',
             ai_reasoning: decision.reason,
             confidence: decision.confidence,
             market_regime: regime,
@@ -2777,7 +2777,7 @@ serve(async (req) => {
           await supabase.from('signal_scores').insert({
             user_id: user.id,
             symbol: decision.symbol,
-            strategy: bestStrategy,
+            strategy: 'scalp',
             action: decision.action,
             reasoning: decision.reason,
             ...factors,
@@ -2804,7 +2804,7 @@ serve(async (req) => {
         message: `${pendingTrades.length} trade(s) queued for your approval`,
         pendingTrades,
         regime,
-        strategy: bestStrategy,
+        strategy: 'scalp',
         balance,
         isPaperMode,
       }), {
