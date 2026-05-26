@@ -15,7 +15,6 @@ type TradeSide = 'buy' | 'sell';
 
 const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
 const CHASE_GUARD_WINDOW_MINUTES = 120; // window to block rebuys after exits unless price proves a new breakout
-const CHASE_GUARD_PRICE_TOLERANCE_PCT = 0.5; // skip re-entry if current price within 0.5% of recent exit
 const REENTRY_BREAKOUT_CONFIRM_PCT = 0.25; // never rebuy below/near the last exit; require a fresh upside break
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
