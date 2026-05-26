@@ -142,7 +142,15 @@ export function usePositionsData(isPaper: boolean = true) {
         };
       });
 
-      setPositions(updatedPositions);
+      // Filter out dust positions (< $1 notional value) — these are leftover
+      // tiny balances from broker syncs that clutter the UI.
+      const DUST_THRESHOLD_USD = 1;
+      const cleanedPositions = updatedPositions.filter(pos => {
+        const notional = (pos.currentPrice ?? 0) * pos.quantity;
+        return notional >= DUST_THRESHOLD_USD;
+      });
+
+      setPositions(cleanedPositions);
     } catch (error) {
       console.error('Error fetching positions:', error);
     } finally {
