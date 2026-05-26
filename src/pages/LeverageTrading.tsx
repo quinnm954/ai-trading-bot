@@ -116,6 +116,7 @@ export default function LeverageTrading() {
   const [settings, setSettings] = useState<LeverageSettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [executing, setExecuting] = useState(false);
 
   // Calculator state
   const [calc, setCalc] = useState({
@@ -536,15 +537,75 @@ export default function LeverageTrading() {
               <Row label="Fees" value={`$${result.fees.toFixed(2)}`} />
 
               <div className="flex gap-2 pt-4">
-                <Button variant="destructive" className="flex-1" disabled>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={async () => {
+                    if (!user) return;
+                    const { error } = await supabase
+                      .from('futures_positions')
+                      .update({ status: 'closed', closed_at: new Date().toISOString() } as never)
+                      .eq('user_id', user.id)
+                      .eq('status', 'open')
+                      .eq('is_paper', true);
+                    if (error) {
+                      toast({ title: 'Close failed', description: error.message, variant: 'destructive' });
+                    } else {
+                      toast({ title: 'All paper leverage positions closed' });
+                    }
+                  }}
+                >
                   Emergency Close All
                 </Button>
-                <Button className="flex-1" disabled={!settings.enabled || !result.safe || !meetsSignal}>
-                  {settings.live_enabled ? 'Open Live Position' : 'Open Paper Position'}
+                <Button
+                  className="flex-1"
+                  disabled={!settings.enabled || !result.safe || !meetsSignal || executing}
+                  onClick={async () => {
+                    if (!user) return;
+                    if (settings.live_enabled) {
+                      toast({
+                        title: 'Live execution not wired yet',
+                        description: 'Connect a futures exchange with trade permissions to enable live orders.',
+                        variant: 'destructive',
+                      });
+                      return;
+                    }
+                    setExecuting(true);
+                    const { error } = await supabase.from('futures_positions').insert({
+                      user_id: user.id,
+                      symbol: calc.symbol,
+                      side: calc.side,
+                      quantity: result.quantity,
+                      entry_price: calc.entry,
+                      stop_loss: calc.stop,
+                      take_profit: calc.takeProfit,
+                      leverage: calc.leverage,
+                      margin_used: result.marginRequired,
+                      position_value: result.positionValue,
+                      estimated_liquidation_price: result.liqPrice,
+                      estimated_fees: result.fees,
+                      margin_mode: settings.margin_mode,
+                      is_paper: true,
+                      status: 'open',
+                    } as never);
+                    setExecuting(false);
+                    if (error) {
+                      toast({ title: 'Open failed', description: error.message, variant: 'destructive' });
+                    } else {
+                      toast({
+                        title: 'Paper position opened',
+                        description: `${calc.side.toUpperCase()} ${calc.symbol} ${calc.leverage}x — margin $${result.marginRequired.toFixed(2)}`,
+                      });
+                    }
+                  }}
+                >
+                  {executing ? 'Opening…' : settings.live_enabled ? 'Open Live Position' : 'Open Paper Position'}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground pt-2">
-                Trade execution wiring is staged behind exchange connections. Connect a futures exchange below to enable.
+                {settings.live_enabled
+                  ? 'Live execution requires a connected futures exchange with trade permissions.'
+                  : 'Paper positions are recorded with simulated margin and liquidation in your leverage trade history.'}
               </p>
             </CardContent>
           </Card>
