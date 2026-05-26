@@ -101,12 +101,33 @@ serve(async (req) => {
     // Process each signal for each follower
     for (const signal of pendingSignals) {
       const signalFollowers = followers?.filter(f => f.trader_id === signal.trader_id) || [];
-      
-      log(`Processing signal for ${signal.symbol}`, { 
-        action: signal.action, 
+
+      log(`Processing signal for ${signal.symbol}`, {
+        action: signal.action,
         traderName: signal.top_traders?.display_name,
-        followersCount: signalFollowers.length 
+        followersCount: signalFollowers.length
       });
+
+      // 🛡️ STALE-PRICE GUARD: reject signals whose entry price drifts >1.5% from live market.
+      // This was the root cause of catastrophic copy-trade losses (e.g. ETH@$3100 vs live $2000).
+      const livePrice = await fetchLivePrice(signal.symbol);
+      let executionPrice = Number(signal.entry_price);
+      if (livePrice && executionPrice > 0) {
+        const driftPct = Math.abs(executionPrice - livePrice) / livePrice * 100;
+        if (driftPct > MAX_PRICE_DRIFT_PERCENT) {
+          log(`🚫 STALE-PRICE SKIP ${signal.symbol}: signal $${executionPrice} vs live $${livePrice} (drift ${driftPct.toFixed(2)}%)`);
+          await supabase.from('copy_trade_signals')
+            .update({ status: 'rejected_stale_price' })
+            .eq('id', signal.id);
+          continue;
+        }
+        // Use the verified live price for execution to be safe.
+        executionPrice = livePrice;
+      } else if (!livePrice) {
+        log(`🚫 NO LIVE PRICE for ${signal.symbol} — skipping copy trade to avoid stale-price risk`);
+        continue;
+      }
+
 
       for (const follower of signalFollowers) {
         try {
