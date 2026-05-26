@@ -161,7 +161,7 @@ export function usePositionsData(isPaper: boolean = true) {
 
     // Subscribe to position changes with status monitoring
     const channel = supabase
-      .channel('positions-changes')
+      .channel(`positions-changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {

@@ -180,7 +180,7 @@ export function usePendingTrades() {
     if (!user) return;
 
     const channel = supabase
-      .channel('pending_trades_changes')
+      .channel(`pending_trades_changes-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {
