@@ -2940,15 +2940,24 @@ serve(async (req) => {
     // CRITICAL: Limit decisions to remaining trade slots (respecting max_concurrent_trades)
     // Scalp mode is also hard-capped at SCALP_MAX_CONCURRENT regardless of user setting
     const effectiveMaxTrades = Math.min(settings.max_concurrent_trades, SCALP_MAX_CONCURRENT);
-    const remainingSlots = Math.max(0, effectiveMaxTrades - (openPositions || 0));
-    console.log(`📊 Trade slots: ${openPositions || 0} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
-    
+    let remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
+    console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
+
+    if (remainingSlots === 0 && tradeable.length > 0) {
+      const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0]);
+      if (rotated) {
+        openPositionsCount = Math.max(0, openPositionsCount - 1);
+        remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
+        console.log(`🔁 LOSS-ROTATION freed a slot — now ${remainingSlots} remaining`);
+      }
+    }
+
     if (remainingSlots === 0) {
       console.log('⚠️ No remaining trade slots - skipping all new trades');
       return new Response(JSON.stringify({
         status: 'at_limit',
         message: 'Max concurrent trades reached',
-        openPositions: openPositions || 0,
+        openPositions: openPositionsCount,
         maxAllowed: settings.max_concurrent_trades,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
