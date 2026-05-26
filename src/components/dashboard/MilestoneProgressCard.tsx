@@ -133,15 +133,31 @@ export function MilestoneProgressCard() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 5000); // Update every 5 seconds
+    const interval = setInterval(fetchData, 5000); // Safety fallback poll
 
-    return () => clearInterval(interval);
+    // Realtime: refresh immediately on any change to balances, positions, or trades
+    const channel = supabase
+      .channel(`milestone-progress-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'positions', filter: `user_id=eq.${user.id}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trades', filter: `user_id=eq.${user.id}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'paper_account', filter: `user_id=eq.${user.id}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_account', filter: `user_id=eq.${user.id}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_settings', filter: `user_id=eq.${user.id}` }, fetchData)
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
-  const progress = Math.min(100, (data.currentEquity / data.targetMilestone) * 100);
+  // Progress is measured from starting balance to target, not from $0
+  const totalGoalDistance = Math.max(1, data.targetMilestone - data.startingBalance);
+  const distanceCovered = data.currentEquity - data.startingBalance;
+  const progress = Math.max(0, Math.min(100, (distanceCovered / totalGoalDistance) * 100));
   const remaining = Math.max(0, data.targetMilestone - data.currentEquity);
   const totalPnl = data.currentEquity - data.startingBalance;
-  const pnlPercent = ((data.currentEquity - data.startingBalance) / data.startingBalance) * 100;
+  const pnlPercent = (totalPnl / data.startingBalance) * 100;
 
   // Calculate estimated time to milestone
   let estimatedTime = 'Calculating...';
