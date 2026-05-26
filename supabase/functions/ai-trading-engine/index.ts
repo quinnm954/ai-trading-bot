@@ -14,13 +14,48 @@ const corsHeaders = {
 type TradeSide = 'buy' | 'sell';
 
 const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
-const CHASE_GUARD_WINDOW_MINUTES = 120; // window to block rebuys after exits unless price proves a new breakout
-const REENTRY_BREAKOUT_CONFIRM_PCT = 0.25; // never rebuy below/near the last exit; require a fresh upside break
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
-const ENTRY_CONFIRM_MIN_5M_PCT = 0.3; // fast scalps only enter when the last candle is materially rising
-const ENTRY_CONFIRM_MIN_15M_PCT = 0.2; // confirms the 5m move is not a one-tick fakeout
-const ENTRY_CONFIRM_MIN_24H_PCT = 0.3; // avoids buying broader-session weakness
+
+// Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
+const SCALP_CFG_DEFAULTS = {
+  entry_min_5m_pct: 0.3,
+  entry_min_15m_pct: 0.2,
+  entry_min_1h_pct: 0.3,
+  entry_min_24h_pct: 0.3,
+  reentry_breakout_pct: 0.25,
+  chase_guard_minutes: 120,
+  take_profit_pct: 1.0,
+  trailing_drop_pct: 1.5,
+  hard_stop_loss_pct: 3.0,
+  momentum_rotation_min_pct: 0.5,
+  loss_rotation_enabled: true,
+  loss_rotation_max_loss_pct: -2.0,
+  loss_rotation_momentum_edge_pct: 0.5,
+  loss_rotation_min_age_sec: 300,
+  loss_rotation_cooldown_sec: 60,
+  max_concurrent_positions: 12,
+  target_position_size_usd: 50,
+  max_capital_usage_pct: 80,
+};
+type ScalpCfg = typeof SCALP_CFG_DEFAULTS;
+
+async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
+  try {
+    const { data } = await supabase
+      .from('scalp_settings').select('*').eq('user_id', userId).maybeSingle();
+    const cfg: ScalpCfg = { ...SCALP_CFG_DEFAULTS };
+    if (data) {
+      for (const k of Object.keys(SCALP_CFG_DEFAULTS) as (keyof ScalpCfg)[]) {
+        if (data[k] !== null && data[k] !== undefined) (cfg as any)[k] = data[k];
+      }
+    }
+    return cfg;
+  } catch (e) {
+    console.warn('loadScalpCfg fallback to defaults:', e);
+    return { ...SCALP_CFG_DEFAULTS };
+  }
+}
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
