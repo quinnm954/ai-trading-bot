@@ -1230,7 +1230,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
     try {
       // CoinGecko allows up to 250 coins per request
       // Include 7d change for dip-buying strategy
-      const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d&per_page=100`;
+      const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=1h,24h,7d&per_page=100`;
       const response = await fetch(url);
       
       if (response.status === 429) {
@@ -1252,6 +1252,7 @@ async function fetchMarketData(): Promise<MarketData[]> {
         price: coin.current_price,
         change24h: coin.price_change_percentage_24h || 0,
         change7d: coin.price_change_percentage_7d_in_currency || 0,
+        change1h: coin.price_change_percentage_1h_in_currency || 0,
         volume: coin.total_volume,
         high24h: coin.high_24h,
         low24h: coin.low_24h,
