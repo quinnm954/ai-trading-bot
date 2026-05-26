@@ -1819,7 +1819,8 @@ function analyzeWithRules(
         //      (too tight = no profit room / noise; too wide = chop/whipsaw)
         //   4) Range/whipsaw filter: pricePosition in 0.30–0.80
         //      (avoids capitulation bottoms and blow-off tops)
-        //   5) Liquidity gate: 24h volume ≥ $5M (proxy for tight spread)
+        //   5) Liquidity gate: 24h volume ≥ $250k (Coinbase USDC markets only)
+        //   6) Spread gate: reject wide bid/ask spreads when Coinbase exposes them
         if (isInDowntrend) {
           break;
         }
@@ -1838,18 +1839,20 @@ function analyzeWithRules(
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
         // Range band: no capitulation buys near lows, no blow-off-top buys near highs
         const rangeOk = pricePosition >= 0.30 && pricePosition <= 0.80;
-        const liquidityOk = vol24h >= 5_000_000;
+        const liquidityOk = vol24h >= 250_000;
+        const spreadOk = coin.spreadPercent === undefined || coin.spreadPercent <= 0.8;
 
         if (!momentumOk) {
           console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.5% to +3% (positive only)`);
           break;
         }
-        if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk) {
+        if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk || !spreadOk) {
           const failed = [
             !trendOk && `trend(7d ${ch7d.toFixed(1)}%)`,
             !volatilityOk && `volatility(${volPct.toFixed(1)}%)`,
             !rangeOk && `range(${(pricePosition * 100).toFixed(0)}%)`,
-            !liquidityOk && `liquidity($${(vol24h / 1e6).toFixed(1)}M)`,
+            !liquidityOk && `liquidity($${(vol24h / 1e6).toFixed(2)}M)`,
+            !spreadOk && `spread(${(coin.spreadPercent ?? 0).toFixed(2)}%)`,
           ].filter(Boolean).join(', ');
           console.log(`🚫 SCALP SKIP ${coin.symbol}: failed ${failed}`);
           break;
