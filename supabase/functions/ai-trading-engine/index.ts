@@ -559,7 +559,7 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
 }
 
 // Execute REAL buy on Coinbase - uses USDC to buy crypto with LIMIT orders for lower fees
-async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ success: boolean; quantity?: number; price?: number; error?: string }> {
+async function executeCoinbaseBuy(symbol: string, usdAmount: number, fallbackPrice = 0): Promise<{ success: boolean; quantity?: number; price?: number; error?: string }> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
   const apiSecret = Deno.env.get('COINBASE_API_SECRET');
   
@@ -582,7 +582,7 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
       headers: { 'Authorization': `Bearer ${tickerJwt}` },
     });
     const priceData = await priceResponse.json();
-    const currentPrice = parseFloat(priceData.price || '0');
+    const currentPrice = parseFloat(priceData.price || '0') || fallbackPrice;
     
     const orderId = crypto.randomUUID();
     let orderBody: any;
@@ -3457,7 +3457,7 @@ serve(async (req) => {
           // 💰 EXECUTE CRYPTO TRADE via Coinbase
           console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
           const coinbaseSymbol = coinData.productId ? `${coinData.productId}|${coinData.baseIncrement || '0.00000001'}` : decision.symbol;
-          const buyResult = await executeCoinbaseBuy(coinbaseSymbol, tradeValue);
+          const buyResult = await executeCoinbaseBuy(coinbaseSymbol, tradeValue, coinData.price);
           
           if (buyResult.success && buyResult.quantity && buyResult.price) {
             quantity = buyResult.quantity;
