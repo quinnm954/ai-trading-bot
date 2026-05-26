@@ -179,7 +179,7 @@ export function ScalpSettingsPanel() {
         <div className="space-y-3">
           <h4 className="text-sm font-semibold flex items-center gap-2"><Layers className="w-4 h-4 text-primary" />Sizing & slots</h4>
           <SliderRow label="Max concurrent positions" value={s.max_concurrent_positions} min={1} max={30} step={1} suffix="" onChange={v => update('max_concurrent_positions', v)} />
-          <SliderRow label="Target position size" value={s.target_position_size_usd} min={5} max={500} step={5} suffix=" USD" onChange={v => update('target_position_size_usd', v)} />
+          <SliderRow label="Target position size" value={s.target_position_size_usd} min={1} max={500} step={1} suffix=" USD" onChange={v => update('target_position_size_usd', v)} />
           <SliderRow label="Max capital usage" value={s.max_capital_usage_pct} min={10} max={100} step={5} suffix="%" onChange={v => update('max_capital_usage_pct', v)} />
         </div>
 
