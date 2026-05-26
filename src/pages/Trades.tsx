@@ -208,6 +208,7 @@ export default function Trades() {
                 <thead>
                   <tr className="border-b border-border bg-secondary/50 text-xs uppercase text-muted-foreground">
                     <th className="text-left py-3 px-4">Symbol</th>
+                    <th className="text-left py-3 px-4">Status</th>
                     <th className="text-left py-3 px-4">Side</th>
                     <th className="text-right py-3 px-4">Qty</th>
                     <th className="text-right py-3 px-4">Entry</th>
@@ -217,15 +218,25 @@ export default function Trades() {
                     <th className="text-left py-3 px-4">Strategy</th>
                     <th className="text-left py-3 px-4">Mode</th>
                     <th className="text-right py-3 px-4">Duration</th>
-                    <th className="text-left py-3 px-4">Closed</th>
+                    <th className="text-left py-3 px-4">Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((trade) => {
                     const pos = (trade.pnl ?? 0) >= 0;
+                    const isOpen = trade.status === 'open';
                     return (
                       <tr key={trade.id} className="border-b border-border/50 hover:bg-secondary/30">
                         <td className="py-3 px-4 font-medium text-foreground">{trade.symbol}</td>
+                        <td className="py-3 px-4">
+                          <span className={cn('px-2 py-0.5 rounded text-xs uppercase',
+                            trade.status === 'open' ? 'bg-primary/20 text-primary' :
+                            trade.status === 'closed' ? 'bg-secondary text-muted-foreground' :
+                            'bg-muted text-muted-foreground')}>
+                            {trade.status === 'open' ? 'Active' : trade.status}
+                          </span>
+                        </td>
+
                         <td className="py-3 px-4">
                           <span className={cn('px-2 py-0.5 rounded text-xs uppercase',
                             trade.side === 'buy' ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive')}>
