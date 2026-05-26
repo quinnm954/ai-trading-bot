@@ -2757,8 +2757,10 @@ serve(async (req) => {
         0
       );
       
-      // Default stop loss for live trades (2.5% below entry)
-      const defaultStopLoss = isPaperMode ? undefined : actualEntryPrice * 0.975;
+      // Stop-loss left undefined for both modes — trailing-stop logic in
+      // auto-take-profit applies identically to paper and live so the engines
+      // behave the same way pre-execution.
+      const defaultStopLoss = undefined;
       
       const riskValidation = await validateTradeWithRiskManager(
         supabase,
