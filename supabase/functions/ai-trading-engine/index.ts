@@ -54,6 +54,7 @@ async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
   } catch (e) {
     console.warn('loadScalpCfg fallback to defaults:', e);
     return { ...SCALP_CFG_DEFAULTS };
+  }
 }
 
 // Legacy aliases so callers without a cfg fall back to defaults
@@ -62,6 +63,14 @@ const ENTRY_CONFIRM_MIN_15M_PCT = SCALP_CFG_DEFAULTS.entry_min_15m_pct;
 const ENTRY_CONFIRM_MIN_24H_PCT = SCALP_CFG_DEFAULTS.entry_min_24h_pct;
 const CHASE_GUARD_WINDOW_MINUTES = SCALP_CFG_DEFAULTS.chase_guard_minutes;
 const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
+
+function getEntryMomentumStatus(coin: MarketData, cfg: ScalpCfg) {
+  const c5 = coin.change5m;
+  const c1h = coin.change1h ?? 0;
+  const c24 = coin.change24h ?? 0;
+  const strict = c5 !== undefined && c5 >= cfg.entry_min_5m_pct && c1h >= cfg.entry_min_1h_pct && c24 >= cfg.entry_min_24h_pct;
+  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= Math.max(0.05, cfg.entry_min_1h_pct * 0.5) && c24 >= Math.max(0.3, cfg.entry_min_24h_pct);
+  return { ok: strict || steady, mode: strict ? 'strict' : steady ? 'steady' : 'blocked', c5, c1h, c24 };
 }
 
 function tradeKey(symbol: string, side: TradeSide) {
@@ -550,7 +559,7 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
 }
 
 // Execute REAL buy on Coinbase - uses USDC to buy crypto with LIMIT orders for lower fees
-async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ success: boolean; quantity?: number; price?: number; error?: string }> {
+async function executeCoinbaseBuy(symbol: string, usdAmount: number, fallbackPrice = 0): Promise<{ success: boolean; quantity?: number; price?: number; error?: string }> {
   const apiKey = Deno.env.get('COINBASE_API_KEY');
   const apiSecret = Deno.env.get('COINBASE_API_SECRET');
   
@@ -573,7 +582,7 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number): Promise<{ 
       headers: { 'Authorization': `Bearer ${tickerJwt}` },
     });
     const priceData = await priceResponse.json();
-    const currentPrice = parseFloat(priceData.price || '0');
+    const currentPrice = parseFloat(priceData.price || '0') || fallbackPrice;
     
     const orderId = crypto.randomUUID();
     let orderBody: any;
@@ -1715,8 +1724,8 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
 const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
 
 // Price filter — trade cryptos priced $1–$100
-const MAX_PRICE_USD = 100.0;
-const MIN_PRICE_USD = 1.0;
+const MAX_PRICE_USD = 2.0;
+const MIN_PRICE_USD = 0.0001;
 
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
@@ -1795,23 +1804,16 @@ async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG
       console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
       return false;
     }
-    if (c5 < cfg.entry_min_5m_pct) {
-      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping (need ≥+${cfg.entry_min_5m_pct}%)`);
+    const momentumStatus = getEntryMomentumStatus(coin, cfg);
+    if (!momentumStatus.ok) {
+      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping (need rising short-window confirmation)`);
       return false;
     }
     if (c5 > 1.5) {
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    if (c1h < cfg.entry_min_1h_pct) {
-      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+${cfg.entry_min_1h_pct}%`);
-      return false;
-    }
-    if (c24 < cfg.entry_min_24h_pct) {
-      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${cfg.entry_min_24h_pct}%`);
-      return false;
-    }
-    console.log(`✅ RISING: ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
+    console.log(`✅ RISING (${momentumStatus.mode}): ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
     return true;
   });
 
@@ -1968,7 +1970,7 @@ LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 TRADING RULES:
-1. Only buy assets rising right now: 5m ≥ +${ENTRY_CONFIRM_MIN_5M_PCT}%, 15m ≥ +${ENTRY_CONFIRM_MIN_15M_PCT}%, 24h ≥ +${ENTRY_CONFIRM_MIN_24H_PCT}%
+1. Only buy assets rising right now: prefer configured scalp thresholds, but allow steady micro-momentum when 5m, 15m, and 24h are all positive
 2. Never buy dips, pullbacks, weak bounces, or assets with negative/flat 5m momentum
 3. Higher confidence = larger position (within limits)
 4. Target ${config.TARGET_PROFIT}% profit per trade
@@ -2167,9 +2169,9 @@ function analyzeWithRules(
         const vol24h = coin.volume ?? 0;
 
         // Scalping rides POSITIVE momentum only — never catch falling knives.
-        // Require +0.5%–+3% short-term momentum; below that there's nothing to
+        // Require +0.3%–+5% daily momentum; below that there's nothing to
         // scalp, above that we're chasing a parabolic blow-off.
-        const momentumOk = m >= 0.5 && m < 3;
+        const momentumOk = m >= 0.3 && m < 5;
         const trendOk = ch7d >= -3;
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
         // Range band: no capitulation buys near lows, no blow-off-top buys near highs
@@ -2178,7 +2180,7 @@ function analyzeWithRules(
         const spreadOk = coin.spreadPercent === undefined || coin.spreadPercent <= 0.8;
 
         if (!momentumOk) {
-          console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.5% to +3% (positive only)`);
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.3% to +5% (positive only)`);
           break;
         }
         if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk || !spreadOk) {
@@ -3005,11 +3007,10 @@ serve(async (req) => {
       // Final entry safety net: AI and rules are only allowed to buy confirmed risers.
       if (d.action === 'buy') {
         const coin = marketData.find(m => m.symbol === d.symbol);
-        const c5 = coin?.change5m;
-        const c15 = coin?.change1h ?? 0;
-        const c24 = coin?.change24h ?? 0;
-        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
-          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} — needs rising 5m/15m/24h, got 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%`);
+        if (!coin) return false;
+        const momentumStatus = getEntryMomentumStatus(coin, scalpCfg);
+        if (!momentumStatus.ok) {
+          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} — needs rising short-window confirmation, got 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%`);
           return false;
         }
       }
@@ -3178,7 +3179,8 @@ serve(async (req) => {
         const c5 = coin?.change5m;
         const c15 = coin?.change1h ?? 0;
         const c24 = coin?.change24h ?? 0;
-        if (price < avgEntry || c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
+        const momentumStatus = coin ? getEntryMomentumStatus(coin, scalpCfg) : { ok: false };
+        if (price < avgEntry || !momentumStatus.ok) {
           console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
           continue;
         }
@@ -3277,15 +3279,18 @@ serve(async (req) => {
       // Last-moment live momentum confirmation before sizing/risk/execution.
       if (side === 'buy') {
         const freshMomentum = coinData.productId ? await fetchShortWindowMomentum(coinData.productId) : null;
-        const c5 = freshMomentum?.change5m ?? coinData.change5m;
-        const c15 = freshMomentum?.change15m ?? coinData.change1h ?? 0;
-        const c24 = coinData.change24h ?? 0;
-        if (c5 === undefined || c5 < ENTRY_CONFIRM_MIN_5M_PCT || c15 < ENTRY_CONFIRM_MIN_15M_PCT || c24 < ENTRY_CONFIRM_MIN_24H_PCT) {
-          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+        const liveMomentumCoin = {
+          ...coinData,
+          change5m: freshMomentum?.change5m ?? coinData.change5m,
+          change1h: freshMomentum?.change15m ?? coinData.change1h ?? 0,
+        };
+        const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
+        if (!momentumStatus.ok) {
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%)`);
           continue;
         }
-        coinData.change5m = c5;
-        coinData.change1h = c15;
+        coinData.change5m = momentumStatus.c5;
+        coinData.change1h = momentumStatus.c1h;
       }
 
       // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
@@ -3298,8 +3303,11 @@ serve(async (req) => {
       const maxPositionSize = settings.max_position_size || 10;
       const availableCapital = balance * (maxCapitalUsage / 100);
       
-      // Calculate position value respecting YOUR max position size setting
-      const baseValue = availableCapital * (decisionSizePercent / 100);
+      // Calculate position value respecting scalp sizing first, then broader risk settings.
+      const configuredTargetValue = Number(scalpCfg.target_position_size_usd || 0);
+      const baseValue = (configuredTargetValue > 0 && !(decision as any)._topup)
+        ? Math.min(configuredTargetValue, availableCapital)
+        : availableCapital * (decisionSizePercent / 100);
       const leveragedNotional = baseValue * decisionLeverage;
       
       // Actual capital used = base value, capped by YOUR max_capital_usage
@@ -3449,7 +3457,7 @@ serve(async (req) => {
           // 💰 EXECUTE CRYPTO TRADE via Coinbase
           console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
           const coinbaseSymbol = coinData.productId ? `${coinData.productId}|${coinData.baseIncrement || '0.00000001'}` : decision.symbol;
-          const buyResult = await executeCoinbaseBuy(coinbaseSymbol, tradeValue);
+          const buyResult = await executeCoinbaseBuy(coinbaseSymbol, tradeValue, coinData.price);
           
           if (buyResult.success && buyResult.quantity && buyResult.price) {
             quantity = buyResult.quantity;
