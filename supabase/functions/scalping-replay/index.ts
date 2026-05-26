@@ -274,6 +274,7 @@ function simulate(bars: Kline[], strict: boolean): {
 
   return {
     trades,
+    skips,
     metrics: {
       totalTrades,
       winRate: Math.round(winRate * 100) / 100,
@@ -281,6 +282,8 @@ function simulate(bars: Kline[], strict: boolean): {
       avgPnlPct: Math.round(avgPnlPct * 100) / 100,
       maxDrawdownPct: Math.round(maxDd * 100) / 100,
       avgHoldMinutes: Math.round(avgHoldMinutes * 10) / 10,
+      entriesSkipped: Object.values(skipCounts).reduce((s, n) => s + n, 0),
+      skipReasonCounts: skipCounts,
     },
   };
 }
