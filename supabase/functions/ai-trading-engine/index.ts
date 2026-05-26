@@ -1813,14 +1813,6 @@ async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    if (c1h < cfg.entry_min_1h_pct) {
-      console.log(`🚫 1h WEAK: ${coin.symbol} 1h ${c1h.toFixed(2)}% — need ≥+${cfg.entry_min_1h_pct}%`);
-      return false;
-    }
-    if (c24 < cfg.entry_min_24h_pct) {
-      console.log(`🚫 24h WEAK: ${coin.symbol} 24h ${c24.toFixed(2)}% — need ≥+${cfg.entry_min_24h_pct}%`);
-      return false;
-    }
     console.log(`✅ RISING (${momentumStatus.mode}): ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
     return true;
   });
