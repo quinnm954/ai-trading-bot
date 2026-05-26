@@ -520,15 +520,7 @@ export default function Auth() {
           )}
         </div>
 
-        {/* Pricing Link */}
-        <div className="mt-8 text-center">
-          <Link 
-            to="/pricing" 
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
-          >
-            View pricing plans →
-          </Link>
-        </div>
+        {/* Pricing link hidden — subscriptions disabled during testing */}
       </div>
     </div>
   );
