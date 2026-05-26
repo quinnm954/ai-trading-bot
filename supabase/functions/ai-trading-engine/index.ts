@@ -3136,7 +3136,7 @@ serve(async (req) => {
       }
 
       // Strategy already determined above - use it for trade tagging
-      const strategyType = bestStrategy;
+      const strategyType = 'scalp'; // Force all autonomous trades to scalp strategy
 
       const tradeData = {
         user_id: user.id,
