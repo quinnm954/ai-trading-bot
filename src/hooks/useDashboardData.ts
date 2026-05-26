@@ -318,14 +318,17 @@ export function useDashboardData() {
   useEffect(() => {
     fetchData();
     
-    // Subscribe to real-time updates with reconnection handling
+    // Subscribe to real-time updates, scoped to this user
     const setupChannels = () => {
+      if (!user) return null;
       const suffix = Math.random().toString(36).slice(2);
+      const userFilter = `user_id=eq.${user.id}`;
+
       const tradesChannel = supabase
         .channel(`dashboard-trades-changes-${suffix}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'trades' },
+          { event: '*', schema: 'public', table: 'trades', filter: userFilter },
           () => { triggerRealtimeUpdate(); fetchData(); }
         )
         .subscribe();
@@ -334,7 +337,7 @@ export function useDashboardData() {
         .channel(`dashboard-positions-changes-${suffix}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'positions' },
+          { event: '*', schema: 'public', table: 'positions', filter: userFilter },
           () => { triggerRealtimeUpdate(); fetchData(); }
         )
         .subscribe();
@@ -343,7 +346,7 @@ export function useDashboardData() {
         .channel(`dashboard-paper-changes-${suffix}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'paper_account' },
+          { event: '*', schema: 'public', table: 'paper_account', filter: userFilter },
           () => { triggerRealtimeUpdate(); fetchData(); }
         )
         .subscribe();
@@ -352,17 +355,27 @@ export function useDashboardData() {
         .channel(`dashboard-live-account-changes-${suffix}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'live_account' },
+          { event: '*', schema: 'public', table: 'live_account', filter: userFilter },
           () => { triggerRealtimeUpdate(); fetchData(); }
         )
         .subscribe();
 
-      return { tradesChannel, positionsChannel, paperChannel, liveAccountChannel };
+      // Refresh when trading mode (paper/live) flips
+      const aiSettingsChannel = supabase
+        .channel(`dashboard-ai-settings-changes-${suffix}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'ai_settings', filter: userFilter },
+          () => { triggerRealtimeUpdate(); fetchData(); }
+        )
+        .subscribe();
+
+      return { tradesChannel, positionsChannel, paperChannel, liveAccountChannel, aiSettingsChannel };
     };
 
     const channels = setupChannels();
 
-    // Consistent 5-second refresh for ALL data (stats + positions together)
+    // Consistent 5-second refresh as a safety fallback
     const intervalId = setInterval(() => {
       fetchData();
     }, 5000);
@@ -377,18 +390,21 @@ export function useDashboardData() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleOnline);
-    
+
     return () => {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleOnline);
-      supabase.removeChannel(channels.tradesChannel);
-      supabase.removeChannel(channels.positionsChannel);
-      supabase.removeChannel(channels.paperChannel);
-      supabase.removeChannel(channels.liveAccountChannel);
+      if (channels) {
+        supabase.removeChannel(channels.tradesChannel);
+        supabase.removeChannel(channels.positionsChannel);
+        supabase.removeChannel(channels.paperChannel);
+        supabase.removeChannel(channels.liveAccountChannel);
+        supabase.removeChannel(channels.aiSettingsChannel);
+      }
     };
-  }, [fetchData, triggerRealtimeUpdate]);
+  }, [fetchData, triggerRealtimeUpdate, user]);
 
   return {
     stats,
