@@ -13,7 +13,7 @@ const corsHeaders = {
 
 type TradeSide = 'buy' | 'sell';
 
-const DUPLICATE_TRADE_COOLDOWN_MINUTES = 90; // prevents stacking the same trade every minute
+const DUPLICATE_TRADE_COOLDOWN_MINUTES = 5; // scalp mode: prevent immediate re-entry without freezing trading for an hour+
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
