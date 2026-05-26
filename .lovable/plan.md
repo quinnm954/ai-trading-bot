@@ -1,66 +1,42 @@
-## Penny Stock Scanner Module
+## Goal
 
-A new, isolated module added to TitanAI alongside existing crypto features. Paper-trading only by default; live trading gated behind admin unlock.
+Let you flip between Paper and Live at any time. The bot should keep running, immediately start scanning in the new mode, and never get auto-disabled by the switch itself.
 
-### What gets built
+## What's already working
 
-**1. New page & route** — `/penny-stocks` with sidebar/bottom-nav entry
-- Tabs: Scanner · Signals · Setups · Paper Trades · Performance · Settings
-- Top banner disclaimer: "Penny stocks are extremely risky, highly volatile, and often illiquid. TitanAI does not guarantee profits. Paper trade first."
+- Each mode has its own positions, trades, balance, and daily-loss tally (filtered by `is_paper`), so switching modes naturally exposes a fresh budget.
+- The trading engine only gates on `settings.enabled` (not `bot_status` or `trading_mode`), so a mode flip alone doesn't stop trading.
+- The frontend loop in `useAITraderData` re-runs the engine every 30s and take-profit checker every 5s based on `enabled`.
 
-**2. Scanner UI** with filters
-- Price < $1 (locked), min volume, relative volume, float size, market cap range
-- Exchange checkboxes: NASDAQ, NYSE, AMEX (OTC disabled by default with warning toggle)
-- Result table: symbol, price, %chg, volume, rel-vol, float, spread%, catalyst tag, warning flags
+## What's fragile today
 
-**3. Bad-stock filters** (auto applied, shown as warning chips on each row)
-- Low volume, wide spread, reverse-split risk, dilution flag, OTC-only, pump-spike pattern, no catalyst, repeated offerings
+1. `setTradingMode('live')` **hard-refuses** the switch when no broker is connected — toast appears and nothing changes. You can't toggle to live to inspect or pre-configure.
+2. After a `trading_mode` write, the next engine tick is up to 30s away — feels like trading "stopped" momentarily.
+3. If the daily-loss limit tripped in one mode, `bot_status` was flipped to `idle` (cosmetic only, but the UI badge reads "Idle" even though the other mode is still tradable).
+4. No visible confirmation in the UI that the bot is still active after a switch.
 
-**4. Signal Engine** (`src/lib/pennyStockScoring.ts`)
-- 0–100 weighted score across: relative volume, news catalyst, breakout, VWAP reclaim, EMA trend, momentum, float, spread, liquidity
-- Valid gate: score ≥ 80, spread acceptable, strong volume, stop loss set, R/R ≥ 2:1
-- Mirrors structure of existing `signalScoring.ts`
+## Changes
 
-**5. Setup detectors** (`src/lib/pennyStockSetups.ts`)
-- VWAP reclaim, high rel-vol breakout, pre-market gapper continuation, first pullback after breakout, support bounce, momentum scalp
+### `src/hooks/useAITraderData.ts`
+- `setTradingMode(mode)`:
+  - Keep `enabled` and `bot_status: 'trading'` untouched (or re-assert `'trading'` if currently `'idle'` from a prior daily-loss in the *other* mode).
+  - For `mode === 'live'` with no connected broker: keep the warning toast but **still allow the switch** so the user can prep. Add a secondary toast clarifying that live trades will be skipped until a broker is connected (engine already no-ops without keys).
+  - Immediately call `runTradingEngine()` and `runTakeProfitChecker()` after the update so the new mode kicks in instantly instead of waiting for the next 30s tick.
+- Add a tiny `isSwitchingMode` flag for UI feedback (optional polish).
 
-**6. Risk rules** (penny-stock-specific, separate from crypto risk)
-- Max risk/trade: 0.25%–0.5% (slider), no averaging down, no trading during halts, no overnight holds (auto-close at session end), pause after 2 consecutive losses, 2% daily loss limit, emergency pause button
+### `supabase/functions/ai-trading-engine/index.ts`
+- When the daily-loss limit trips, scope the `bot_status: 'idle'` write to be informational only — do **not** set it if the *other* mode still has budget. Simplest fix: stop writing `bot_status` here entirely and rely on `enabled` (which we leave alone). This prevents a Paper loss from making the UI look paused in Live and vice-versa.
+- No other engine changes — the per-mode `is_paper` filters already isolate balances, positions, daily loss, and cooldowns.
 
-**7. Paper trades table** tracks: entry, exit, P&L, slippage, spread cost, volume at entry, strategy, entry reason, exit reason
+### `src/components/trading/` (light UI)
+- The mode toggle should reflect that flipping is non-blocking. Keep the existing toggle component; just remove any disabled state tied to "no broker" so the switch is always clickable.
 
-**8. Dashboard widgets**
-- Top movers under $1, highest rel-vol, news-catalyst list, biggest-spread warnings, halt-risk warnings, active setups, paper performance summary
+## Out of scope
 
-**9. Broker placeholder card** — Alpaca / IBKR / Tradier listed as "Coming soon — admin unlock required"; live trading toggle disabled
+- No changes to risk filters, price band ($0.10–$2), uptrend rules, or cooldowns.
+- No changes to live execution (Coinbase) — if keys aren't present, live mode still safely skips real orders.
+- No DB schema changes.
 
-### Technical details
+## Result
 
-**New tables (migration):**
-- `penny_stock_settings` — per-user filters, risk params, paper-only flag
-- `penny_stock_signals` — scanned candidates with score, factors, warnings, catalyst
-- `penny_stock_trades` — paper trades with slippage/spread/volume columns
-
-**New edge function:** `penny-stock-scanner`
-- Fetches under-$1 US equities (uses existing `stock-data-provider` pattern; Alpaca-compatible mock data initially with clear TODO for real provider key)
-- Computes scores, persists top candidates to `penny_stock_signals`
-- Runs on-demand from UI button (no cron initially)
-
-**Frontend files:**
-- `src/pages/PennyStocks.tsx` (page shell + tabs)
-- `src/components/penny/ScannerTable.tsx`
-- `src/components/penny/SignalRow.tsx`
-- `src/components/penny/RiskRulesPanel.tsx`
-- `src/components/penny/PaperTradesPanel.tsx`
-- `src/components/penny/BrokerPlaceholderCard.tsx`
-- `src/hooks/usePennyStockScanner.ts`
-- `src/lib/pennyStockScoring.ts`, `src/lib/pennyStockSetups.ts`
-
-**Untouched:** all crypto code, dashboards, trading engine, existing risk manager. Penny stocks are a parallel module with its own data + own UI.
-
-### Out of scope (call out)
-- Real live-trading execution to Alpaca/IBKR/Tradier — placeholders only until admin unlock
-- Real-time news catalyst feed — initial version uses a simple flag from scanner data; a real news API can be wired later
-- Cron-based auto-scanning — first version is manual scan button
-
-After you approve, I'll run the migration first, then build the module.
+Toggle Paper ↔ Live anytime → bot stays `enabled`, engine re-runs within a second in the new mode, each mode keeps its independent capital and loss budget, and the UI never falsely shows "Idle" because the other mode hit a limit.

@@ -2334,8 +2334,9 @@ serve(async (req) => {
 
       await supabase
         .from('ai_settings')
-        .update({ bot_status: 'idle', updated_at: new Date().toISOString() })
+        .update({ updated_at: new Date().toISOString() })
         .eq('user_id', user.id);
+
 
       return new Response(JSON.stringify({
         message: 'Daily loss limit reached - trading paused',
@@ -2520,9 +2521,9 @@ serve(async (req) => {
         .from('ai_settings')
         .update({ 
           current_regime: regime,
-          bot_status: 'idle',
           updated_at: new Date().toISOString()
         })
+
         .eq('user_id', user.id);
 
       // Log the decision to skip
