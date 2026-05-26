@@ -2251,38 +2251,53 @@ serve(async (req) => {
     }
 
     // 📉 DAILY LOSS CHECK - Stop trading if daily loss limit exceeded
+    // Use EQUITY (cash + open position value) as the base, not just cash,
+    // otherwise cash collapses as positions are opened and the limit becomes meaningless.
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    
+
+    const { data: openPosRows } = await supabase
+      .from('positions')
+      .select('quantity, avg_entry_price, current_price')
+      .eq('user_id', user.id)
+      .eq('is_paper', isPaperMode);
+
+    const positionsValue = (openPosRows || []).reduce((sum: number, p: any) => {
+      const px = Number(p.current_price) || Number(p.avg_entry_price) || 0;
+      return sum + (Number(p.quantity) || 0) * px;
+    }, 0);
+    const equityBase = Math.max(balance + positionsValue, 1000);
+
     const { data: todaysTrades } = await supabase
       .from('trades')
       .select('pnl')
       .eq('user_id', user.id)
       .eq('is_paper', isPaperMode)
       .gte('created_at', todayStart.toISOString());
-    
+
     const todaysLoss = (todaysTrades || []).reduce((sum, t) => sum + (t.pnl && t.pnl < 0 ? t.pnl : 0), 0);
-    const maxDailyLossAmount = balance * ((settings.max_daily_loss || 5) / 100);
-    
+    const maxDailyLossAmount = equityBase * ((settings.max_daily_loss || 5) / 100);
+
     if (Math.abs(todaysLoss) >= maxDailyLossAmount) {
-      console.log(`🛑 DAILY LOSS LIMIT HIT: Lost $${Math.abs(todaysLoss).toFixed(2)} (max: $${maxDailyLossAmount.toFixed(2)})`);
-      
+      console.log(`🛑 DAILY LOSS LIMIT HIT: Lost $${Math.abs(todaysLoss).toFixed(2)} (max: $${maxDailyLossAmount.toFixed(2)} on equity $${equityBase.toFixed(2)})`);
+
       await supabase
         .from('ai_settings')
         .update({ bot_status: 'idle', updated_at: new Date().toISOString() })
         .eq('user_id', user.id);
-      
-      return new Response(JSON.stringify({ 
+
+      return new Response(JSON.stringify({
         message: 'Daily loss limit reached - trading paused',
         todaysLoss: Math.abs(todaysLoss),
         maxDailyLoss: maxDailyLossAmount,
+        equity: equityBase,
         status: 'daily_limit'
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    
-    console.log(`📊 Daily P&L: $${todaysLoss.toFixed(2)} (limit: -$${maxDailyLossAmount.toFixed(2)})`)
+
+    console.log(`📊 Daily P&L: $${todaysLoss.toFixed(2)} (limit: -$${maxDailyLossAmount.toFixed(2)} on equity $${equityBase.toFixed(2)})`);
 
     // ==========================================================================
     // MULTI-ASSET MARKET DATA FETCHING
