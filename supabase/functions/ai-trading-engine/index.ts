@@ -2917,15 +2917,8 @@ serve(async (req) => {
       }
       
       // PRE-VALIDATE: Check if quantity will be 0 after precision rounding BEFORE executing
-      const precisionMap: Record<string, number> = {
-        'BTC': 8, 'ETH': 8, 'SOL': 4, 'XRP': 0, 'DOGE': 0, 'LTC': 4, 'APT': 2,
-        'AVAX': 2, 'LINK': 2, 'UNI': 2, 'ATOM': 2, 'NEAR': 2, 'ARB': 0, 'OP': 2,
-        'INJ': 2, 'SEI': 0, 'SUI': 2, 'FIL': 2, 'RENDER': 2, 'AAVE': 4, 'GRT': 0,
-        'HBAR': 0, 'XLM': 0, 'ALGO': 0, 'CHZ': 0, 'SHIB': 0, 'PEPE': 0, 'FLOKI': 0,
-        'ADA': 0, 'DOT': 2, 'MATIC': 0, 'BCH': 4, 'SAND': 0, 'MANA': 0, 'ENJ': 0,
-      };
-      const precision = precisionMap[decision.symbol.toUpperCase()] ?? 2;
-      const preRoundedQty = Math.floor(quantity * Math.pow(10, precision)) / Math.pow(10, precision);
+      const baseIncrement = Number(coinData.baseIncrement || '0.00000001') || 0.00000001;
+      const preRoundedQty = Math.floor(quantity / baseIncrement) * baseIncrement;
       const prePositionValue = preRoundedQty * actualEntryPrice;
       
       if (preRoundedQty <= 0 || prePositionValue < MIN_TRADE_VALUE) {
@@ -3026,7 +3019,8 @@ serve(async (req) => {
         } else {
           // 💰 EXECUTE CRYPTO TRADE via Coinbase
           console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
-          const buyResult = await executeCoinbaseBuy(decision.symbol, tradeValue);
+          const coinbaseSymbol = coinData.productId ? `${coinData.productId}|${coinData.baseIncrement || '0.00000001'}` : decision.symbol;
+          const buyResult = await executeCoinbaseBuy(coinbaseSymbol, tradeValue);
           
           if (buyResult.success && buyResult.quantity && buyResult.price) {
             quantity = buyResult.quantity;
