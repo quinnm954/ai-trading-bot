@@ -45,9 +45,46 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isClosingPaper, setIsClosingPaper] = useState(false);
   const [clearHistory, setClearHistory] = useState(true);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
+
+  const handleClosePaperPositions = async () => {
+    if (!confirm('Close ALL open paper positions at current market price?')) return;
+    setIsClosingPaper(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast({ title: 'Not authenticated', variant: 'destructive' });
+        return;
+      }
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/close-all-paper-positions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        }
+      );
+      const result = await res.json();
+      if (result.success) {
+        toast({
+          title: `✅ Closed ${result.closed} positions`,
+          description: `Proceeds: $${Number(result.totalProceeds || 0).toFixed(2)} · Realized P&L: $${Number(result.totalPnl || 0).toFixed(2)}`,
+        });
+        refetch();
+      } else {
+        toast({ title: 'Close failed', description: result.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Close failed', description: e?.message, variant: 'destructive' });
+    } finally {
+      setIsClosingPaper(false);
+    }
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
