@@ -1173,15 +1173,13 @@ async function fetchMarketData(): Promise<MarketData[]> {
     console.error('CoinCap API also failed:', error);
   }
   
-  // Last resort: Return mock data for major coins
-  console.log('Using fallback mock data');
-  return [
-    { symbol: 'BTC', price: 90000, change24h: -1.5, change7d: 5, volume: 40000000000, high24h: 92000, low24h: 89000 },
-    { symbol: 'ETH', price: 3100, change24h: -0.5, change7d: 3, volume: 20000000000, high24h: 3200, low24h: 3050 },
-    { symbol: 'SOL', price: 130, change24h: -0.8, change7d: 8, volume: 5000000000, high24h: 138, low24h: 128 },
-    { symbol: 'XRP', price: 2.05, change24h: -0.7, change7d: 4, volume: 3000000000, high24h: 2.15, low24h: 2.00 },
-    { symbol: 'DOGE', price: 0.14, change24h: 0.5, change7d: 2, volume: 1000000000, high24h: 0.145, low24h: 0.138 },
-  ];
+  // SAFETY: Never trade on hardcoded/stale prices. If both live price APIs failed,
+  // return an empty market list so this tick is skipped instead of entering at fake
+  // prices (which previously caused catastrophic losses like ETH $3100→$2091 when
+  // the real market was nowhere near the mock value).
+  console.error('❌ All price feeds failed — skipping this trading cycle (no mock fallback).');
+  return [];
+
 }
 
 // Multi-timeframe analysis structure
