@@ -1,16 +1,18 @@
-import { useState } from 'react';
-import { 
-  History, 
-  Filter, 
-  Download,
-  ArrowUpRight,
-  ArrowDownRight,
+import { useState, useMemo } from 'react';
+import {
+  History,
+  Filter as FilterIcon,
   Brain,
   Loader2,
   Banknote,
-  Wallet
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useTradesData } from '@/hooks/useTradesData';
 
@@ -20,7 +22,57 @@ export default function Trades() {
   const [activeTab, setActiveTab] = useState<TabType>('history');
   const { trades, positions, isLoading, tradingMode, stats } = useTradesData();
 
-  const closedTrades = trades.filter(t => t.status === 'closed');
+  const [symbolFilter, setSymbolFilter] = useState('');
+  const [strategyFilter, setStrategyFilter] = useState('all');
+  const [resultFilter, setResultFilter] = useState('all');
+  const [modeFilter, setModeFilter] = useState('all');
+  const [minScore, setMinScore] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const closedTrades = useMemo(() => trades.filter((t) => t.status === 'closed'), [trades]);
+
+  const strategies = useMemo(
+    () => Array.from(new Set(closedTrades.map((t) => t.strategy).filter(Boolean) as string[])),
+    [closedTrades],
+  );
+
+  const filtered = useMemo(() => {
+    return closedTrades.filter((t) => {
+      if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
+      if (strategyFilter !== 'all' && t.strategy !== strategyFilter) return false;
+      if (resultFilter === 'win' && (t.pnl ?? 0) <= 0) return false;
+      if (resultFilter === 'loss' && (t.pnl ?? 0) >= 0) return false;
+      if (modeFilter === 'paper' && !t.isPaper) return false;
+      if (modeFilter === 'live' && t.isPaper) return false;
+      if (minScore && (t.score ?? 0) < Number(minScore)) return false;
+      if (dateFrom && t.closedAt && t.closedAt < new Date(dateFrom)) return false;
+      if (dateTo && t.closedAt && t.closedAt > new Date(dateTo + 'T23:59:59')) return false;
+      return true;
+    });
+  }, [closedTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
+
+  const exportCsv = () => {
+    const rows = [
+      ['symbol', 'side', 'qty', 'entry', 'exit', 'pnl', 'score', 'confidence', 'strategy', 'mode', 'duration_s', 'opened', 'closed', 'entry_reason', 'exit_reason'],
+      ...filtered.map((t) => [
+        t.symbol, t.side, t.quantity, t.entryPrice, t.exitPrice ?? '',
+        t.pnl ?? '', t.score ?? '', t.confidence ?? '', t.strategy ?? '',
+        t.isPaper ? 'paper' : 'live', t.durationSeconds ?? '',
+        t.createdAt.toISOString(), t.closedAt?.toISOString() ?? '',
+        (t.entryReasoning ?? t.aiReason ?? '').replace(/[\r\n,]/g, ' '),
+        (t.exitReason ?? '').replace(/[\r\n,]/g, ' '),
+      ]),
+    ];
+    const csv = rows.map((r) => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trade-journal-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (isLoading) {
     return (
@@ -32,29 +84,24 @@ export default function Trades() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <History className="w-7 h-7 text-primary" />
-            Trade Management
+            Trade Journal
           </h1>
-          <p className="text-muted-foreground">View and analyze your trading history</p>
+          <p className="text-muted-foreground">Filter, review, and export every trade.</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={cn(
             'px-3 py-1 text-xs font-medium rounded-full flex items-center gap-1',
-            tradingMode === 'live' ? 'bg-loss/20 text-loss' : 'bg-primary/20 text-primary'
+            tradingMode === 'live' ? 'bg-loss/20 text-loss' : 'bg-primary/20 text-primary',
           )}>
             {tradingMode === 'live' ? <Banknote className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
-            {tradingMode === 'live' ? 'Live' : 'Paper'} Trades
+            {tradingMode === 'live' ? 'Live' : 'Paper'}
           </span>
-          <Button variant="outline" className="gap-2">
-            <Filter className="w-4 h-4" />
-            Filter
-          </Button>
-          <Button variant="outline" className="gap-2">
-            <Download className="w-4 h-4" />
-            Export
+          <Button variant="outline" className="gap-2" onClick={exportCsv}>
+            <Download className="w-4 h-4" /> Export CSV
           </Button>
         </div>
       </div>
@@ -71,10 +118,7 @@ export default function Trades() {
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Total P&L</p>
-          <p className={cn(
-            'text-2xl font-bold',
-            stats.totalPnl >= 0 ? 'text-profit' : 'text-loss'
-          )}>
+          <p className={cn('text-2xl font-bold', stats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
             {stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
         </div>
@@ -84,117 +128,117 @@ export default function Trades() {
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="glass-panel p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <FilterIcon className="w-4 h-4" /> Filters
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          <Input placeholder="Symbol" value={symbolFilter} onChange={(e) => setSymbolFilter(e.target.value)} />
+          <Select value={strategyFilter} onValueChange={setStrategyFilter}>
+            <SelectTrigger><SelectValue placeholder="Strategy" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All strategies</SelectItem>
+              {strategies.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={resultFilter} onValueChange={setResultFilter}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All results</SelectItem>
+              <SelectItem value="win">Wins</SelectItem>
+              <SelectItem value="loss">Losses</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={modeFilter} onValueChange={setModeFilter}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Paper + Live</SelectItem>
+              <SelectItem value="paper">Paper</SelectItem>
+              <SelectItem value="live">Live</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input type="number" placeholder="Min score" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
+          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-2">
-        <button
-          onClick={() => setActiveTab('history')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-            activeTab === 'history'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-secondary text-muted-foreground hover:text-foreground'
-          )}
-        >
-          Trade History ({closedTrades.length})
+        <button onClick={() => setActiveTab('history')}
+          className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'history' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
+          History ({filtered.length})
         </button>
-        <button
-          onClick={() => setActiveTab('open')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-            activeTab === 'open'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-secondary text-muted-foreground hover:text-foreground'
-          )}
-        >
-          Open Positions ({positions.length})
+        <button onClick={() => setActiveTab('open')}
+          className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'open' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
+          Open ({positions.length})
         </button>
       </div>
 
-      {/* Trade History */}
       {activeTab === 'history' && (
         <div className="glass-panel overflow-hidden">
-          {closedTrades.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="p-12 text-center">
               <History className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No closed trades yet</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Trades will appear here when the AI executes them
-              </p>
+              <p className="text-muted-foreground">No trades match these filters.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-secondary/50">
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Symbol</th>
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Side</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Qty</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Entry</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Exit</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">P&L</th>
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Strategy</th>
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
+                  <tr className="border-b border-border bg-secondary/50 text-xs uppercase text-muted-foreground">
+                    <th className="text-left py-3 px-4">Symbol</th>
+                    <th className="text-left py-3 px-4">Side</th>
+                    <th className="text-right py-3 px-4">Qty</th>
+                    <th className="text-right py-3 px-4">Entry</th>
+                    <th className="text-right py-3 px-4">Exit</th>
+                    <th className="text-right py-3 px-4">P&L</th>
+                    <th className="text-right py-3 px-4">Score</th>
+                    <th className="text-left py-3 px-4">Strategy</th>
+                    <th className="text-left py-3 px-4">Mode</th>
+                    <th className="text-right py-3 px-4">Duration</th>
+                    <th className="text-left py-3 px-4">Closed</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {closedTrades.map((trade) => (
-                    <tr 
-                      key={trade.id}
-                      className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
-                    >
-                      <td className="py-4 px-6">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center text-xs font-bold">
-                            {trade.symbol.slice(0, 2)}
-                          </div>
-                          <span className="font-medium text-foreground">{trade.symbol}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6">
-                        <span className={cn(
-                          'px-2 py-1 rounded text-xs font-medium uppercase',
-                          trade.side === 'buy' ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'
-                        )}>
-                          {trade.side}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-right font-mono text-sm">{trade.quantity}</td>
-                      <td className="py-4 px-6 text-right font-mono text-sm text-muted-foreground">
-                        ${trade.entryPrice.toLocaleString()}
-                      </td>
-                      <td className="py-4 px-6 text-right font-mono text-sm">
-                        ${trade.exitPrice?.toLocaleString()}
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <div className={cn(
-                          'flex items-center justify-end gap-1',
-                          trade.pnl && trade.pnl >= 0 ? 'text-profit' : 'text-loss'
-                        )}>
-                          {trade.pnl && trade.pnl >= 0 ? (
-                            <ArrowUpRight className="w-4 h-4" />
-                          ) : (
-                            <ArrowDownRight className="w-4 h-4" />
-                          )}
-                          <span className="font-mono text-sm font-medium">
-                            {trade.pnl && trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toFixed(2)}
+                  {filtered.map((trade) => {
+                    const pos = (trade.pnl ?? 0) >= 0;
+                    return (
+                      <tr key={trade.id} className="border-b border-border/50 hover:bg-secondary/30">
+                        <td className="py-3 px-4 font-medium text-foreground">{trade.symbol}</td>
+                        <td className="py-3 px-4">
+                          <span className={cn('px-2 py-0.5 rounded text-xs uppercase',
+                            trade.side === 'buy' ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive')}>
+                            {trade.side}
                           </span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-1 rounded text-xs bg-secondary text-muted-foreground">
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono">{trade.quantity}</td>
+                        <td className="py-3 px-4 text-right font-mono text-muted-foreground">${trade.entryPrice.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right font-mono">${trade.exitPrice?.toLocaleString() ?? '-'}</td>
+                        <td className={cn('py-3 px-4 text-right font-mono', pos ? 'text-profit' : 'text-loss')}>
+                          <span className="inline-flex items-center gap-1">
+                            {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                            {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono">{trade.score != null ? Math.round(trade.score) : '—'}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded text-xs bg-secondary text-muted-foreground inline-flex items-center gap-1">
                             {trade.strategy || 'Manual'}
+                            {trade.aiReason && <Brain className="w-3 h-3 text-primary" />}
                           </span>
-                          {trade.aiReason && (
-                            <Brain className="w-4 h-4 text-primary" />
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-4 px-6 text-sm text-muted-foreground">
-                        {trade.closedAt?.toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-3 px-4 text-xs">{trade.isPaper ? 'Paper' : 'Live'}</td>
+                        <td className="py-3 px-4 text-right text-xs text-muted-foreground">
+                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">{trade.closedAt?.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -202,95 +246,38 @@ export default function Trades() {
         </div>
       )}
 
-      {/* Open Positions */}
       {activeTab === 'open' && (
-        <div className="glass-panel overflow-hidden">
+        <div className="glass-panel p-6">
           {positions.length === 0 ? (
-            <div className="p-12 text-center">
-              <History className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No open positions</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Open positions will appear here when the AI enters trades
-              </p>
-            </div>
+            <p className="text-center text-muted-foreground py-12">No open positions.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-secondary/50">
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Symbol</th>
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Side</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Qty</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Entry</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Current</th>
-                    <th className="text-right py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Unrealized P&L</th>
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Strategy</th>
-                    <th className="text-left py-4 px-6 text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
+                  <tr className="border-b border-border text-xs uppercase text-muted-foreground">
+                    <th className="text-left py-3 px-4">Symbol</th>
+                    <th className="text-left py-3 px-4">Side</th>
+                    <th className="text-right py-3 px-4">Qty</th>
+                    <th className="text-right py-3 px-4">Entry</th>
+                    <th className="text-right py-3 px-4">Current</th>
+                    <th className="text-right py-3 px-4">Unrealized</th>
+                    <th className="text-left py-3 px-4">Strategy</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {positions.map((position) => {
-                    const pnl = position.unrealizedPnl || 0;
-                    const pnlPercent = position.entryPrice > 0 && position.currentPrice 
-                      ? ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100 
-                      : 0;
-                    
+                  {positions.map((p) => {
+                    const pnl = p.unrealizedPnl ?? 0;
                     return (
-                      <tr 
-                        key={position.id}
-                        className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
-                      >
-                        <td className="py-4 px-6">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center text-xs font-bold">
-                              {position.symbol.slice(0, 2)}
-                            </div>
-                            <span className="font-medium text-foreground">{position.symbol}</span>
-                          </div>
+                      <tr key={p.id} className="border-b border-border/50">
+                        <td className="py-3 px-4 font-medium">{p.symbol}</td>
+                        <td className="py-3 px-4 capitalize">{p.side === 'buy' ? 'long' : 'short'}</td>
+                        <td className="py-3 px-4 text-right font-mono">{p.quantity}</td>
+                        <td className="py-3 px-4 text-right font-mono">${p.entryPrice.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right font-mono">${p.currentPrice?.toLocaleString() ?? '-'}</td>
+                        <td className={cn('py-3 px-4 text-right font-mono', pnl >= 0 ? 'text-profit' : 'text-loss')}>
+                          {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                         </td>
-                        <td className="py-4 px-6">
-                          <span className={cn(
-                            'px-2 py-1 rounded text-xs font-medium uppercase',
-                            position.side === 'buy' ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'
-                          )}>
-                            {position.side === 'buy' ? 'long' : 'short'}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-right font-mono text-sm">{position.quantity}</td>
-                        <td className="py-4 px-6 text-right font-mono text-sm text-muted-foreground">
-                          ${position.entryPrice.toLocaleString()}
-                        </td>
-                        <td className="py-4 px-6 text-right font-mono text-sm">
-                          ${position.currentPrice?.toLocaleString() || '-'}
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          <div className={cn(
-                            'flex items-center justify-end gap-1',
-                            pnl >= 0 ? 'text-profit' : 'text-loss'
-                          )}>
-                            {pnl >= 0 ? (
-                              <ArrowUpRight className="w-4 h-4" />
-                            ) : (
-                              <ArrowDownRight className="w-4 h-4" />
-                            )}
-                            <span className="font-mono text-sm font-medium">
-                              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
-                            </span>
-                            <span className="text-xs">
-                              ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <span className="px-2 py-1 rounded text-xs bg-secondary text-muted-foreground">
-                            {position.strategy || 'Manual'}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6">
-                          <Button variant="destructive" size="sm">
-                            Close
-                          </Button>
-                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">{p.strategy || 'Manual'}</td>
                       </tr>
                     );
                   })}
@@ -302,4 +289,11 @@ export default function Trades() {
       )}
     </div>
   );
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`;
+  return `${(seconds / 86400).toFixed(1)}d`;
 }

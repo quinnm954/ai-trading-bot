@@ -198,8 +198,9 @@ function validateTrade(
   // ==========================================================================
   // CHECK 8: Stop Loss Required for Live Trading
   // ==========================================================================
-  if (settings.tradingMode === 'live' && !proposal.stopLoss && proposal.side === 'buy') {
-    violations.push('stop_loss_required: Live trades must have a stop loss');
+  // Stop loss required for ALL buy trades (paper + live)
+  if (!proposal.stopLoss && proposal.side === 'buy') {
+    violations.push('stop_loss_required: Every trade must have a stop loss');
     approved = false;
     severity = 'warning';
   }
@@ -216,6 +217,22 @@ function validateTrade(
       severity = 'warning';
     }
   }
+
+  // CHECK 9b: Three consecutive losses pause
+  try {
+    const { data: recent } = await supabase
+      .from('trades')
+      .select('pnl, closed_at')
+      .eq('user_id', userId)
+      .eq('status', 'closed')
+      .order('closed_at', { ascending: false })
+      .limit(3);
+    if (recent && recent.length === 3 && recent.every((t: any) => Number(t.pnl) < 0)) {
+      violations.push('consecutive_losses: 3 losing trades in a row — cooldown active');
+      approved = false;
+      severity = 'warning';
+    }
+  } catch (_) { /* non-fatal */ }
 
   // ==========================================================================
   // CHECK 10: Minimum Trade Value - Prevent dust trades

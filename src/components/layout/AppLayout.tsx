@@ -6,13 +6,13 @@ import { useAutoTakeProfit } from '@/hooks/useAutoTakeProfit';
 import { useSubscription } from '@/hooks/useSubscription';
 import { TrialBanner } from '@/components/subscription/TrialBanner';
 import { TrialExpiredOverlay } from '@/components/subscription/TrialExpiredOverlay';
+import { ScalpingDisclaimer } from '@/components/compliance/ScalpingDisclaimer';
 import { useState } from 'react';
 
 export function AppLayout() {
   useAutoTakeProfit();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Subscription/trial UI disabled during testing
   const showTrialBanner = false;
   const showExpiredOverlay = false;
 
@@ -24,6 +24,7 @@ export function AppLayout() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="lg:pl-64">
         <Header onMenuClick={() => setSidebarOpen(true)} />
+        <ScalpingDisclaimer />
         <main
           className="p-4 lg:p-6 pb-24 lg:pb-6"
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 6rem)' }}
@@ -36,3 +37,4 @@ export function AppLayout() {
     </div>
   );
 }
+

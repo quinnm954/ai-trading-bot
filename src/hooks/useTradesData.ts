@@ -17,6 +17,14 @@ interface Trade {
   isPaper: boolean;
   createdAt: Date;
   closedAt: Date | null;
+  score?: number | null;
+  confidence?: number | null;
+  exitReason?: string | null;
+  durationSeconds?: number | null;
+  riskReward?: number | null;
+  entryReasoning?: string | null;
+  stopLossPrice?: number | null;
+  takeProfitPrice?: number | null;
 }
 
 interface Position {
@@ -81,7 +89,7 @@ export function useTradesData() {
       if (tradesError) {
         console.error('Error fetching trades:', tradesError);
       } else if (tradesData) {
-        setTrades(tradesData.map(t => ({
+        setTrades(tradesData.map((t: any) => ({
           id: t.id,
           symbol: t.symbol,
           side: t.side as 'buy' | 'sell',
@@ -96,6 +104,14 @@ export function useTradesData() {
           isPaper: t.is_paper,
           createdAt: new Date(t.created_at!),
           closedAt: t.closed_at ? new Date(t.closed_at) : null,
+          score: t.score != null ? Number(t.score) : null,
+          confidence: t.confidence != null ? Number(t.confidence) : null,
+          exitReason: t.exit_reason ?? null,
+          durationSeconds: t.duration_seconds ?? null,
+          riskReward: t.risk_reward != null ? Number(t.risk_reward) : null,
+          entryReasoning: t.entry_reasoning ?? null,
+          stopLossPrice: t.stop_loss_price != null ? Number(t.stop_loss_price) : null,
+          takeProfitPrice: t.take_profit_price != null ? Number(t.take_profit_price) : null,
         })));
       }
 
