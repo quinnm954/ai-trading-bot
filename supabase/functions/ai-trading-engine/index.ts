@@ -3266,8 +3266,33 @@ serve(async (req) => {
       decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, bestStrategy);
     }
 
-    // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money
-    const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 6, 2);
+    // SECONDARY FALLBACK — when scalp rules also yielded nothing, let the AI-decides
+    // pool drive a generic momentum buy on the top liquidity-weighted candidate that
+    // has any positive short-window signal. This keeps the bot trading in flat markets.
+    if (decisions.length === 0 && prioritizedTradeable.length > 0) {
+      const pick = prioritizedTradeable.find(c => ((c.change5m ?? 0) > 0) || ((c.change1h ?? 0) > 0.1) || ((c.change24h ?? 0) > 0.5));
+      if (pick) {
+        const c5 = pick.change5m ?? 0;
+        const c1h = pick.change1h ?? 0;
+        const c24 = pick.change24h ?? 0;
+        const conf = Math.min(0.85, 0.55 + Math.max(0, c5) * 0.05 + Math.max(0, c1h) * 0.02);
+        decisions = [{
+          symbol: pick.symbol,
+          action: 'buy',
+          confidence: conf,
+          reason: `🤖 AI-FALLBACK: top liquid mover 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}%`,
+          positionSize: Math.min(dynMaxPositionSize, 6),
+          leverage: optimalLeverage,
+          stopLoss: pick.price * 0.98,
+          takeProfit: pick.price * 1.012,
+          pattern: 'ai_fallback_momentum',
+        } as AITradingDecision];
+        console.log(`🤖 SECONDARY FALLBACK selected ${pick.symbol} to keep bot active`);
+      }
+    }
+
+    // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money (relaxed: 2h cooldown, 3 losses cap)
+    const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 2, 3);
     
     // Double-check: Filter out any decisions for coins in downtrend OR recent losses (safety net)
     decisions = decisions.filter(d => {
