@@ -3090,9 +3090,40 @@ serve(async (req) => {
     // Create a set of stock symbols for later routing
     const stockSymbols = new Set(stockData.map(s => s.symbol));
 
-    // Detect market regime
+    // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
     const regime = detectMarketRegime(marketData);
-    console.log(`📊 Detected market regime: ${regime}`);
+    const regimeReport = classifyRegimeProfile(marketData);
+    const regimePolicy = getRegimePolicy(regimeReport);
+    console.log(`📊 Regime: ${regime} | Profile: ${regimeReport.profile} | avg|5m|=${regimeReport.avg5mAbs.toFixed(2)}% avg|1h|=${regimeReport.avg1hAbs.toFixed(2)}% avg24h=${regimeReport.avg24h.toFixed(2)}% σ24h=${regimeReport.dispersion24h.toFixed(2)}% risers=${(regimeReport.risersShare * 100).toFixed(0)}%`);
+    console.log(`🧭 Policy: ${regimePolicy.rationale}`);
+
+    // 🛑 DEAD MARKET STAND-DOWN — Titan learns when to do nothing.
+    // Movement is too small to overcome fees; opening positions would bleed capital.
+    if (regimePolicy.skipTrading) {
+      await supabase.from('ai_settings').update({
+        current_regime: regime,
+        bot_status: 'idle',
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', user.id);
+
+      await supabase.from('ai_decisions').insert({
+        user_id: user.id,
+        decision_type: 'regime_skip',
+        reasoning: regimePolicy.rationale,
+        market_regime: regime,
+      });
+
+      console.log('💤 STAND-DOWN: Dead market — no new entries this cycle');
+      return new Response(JSON.stringify({
+        status: 'standing_down',
+        reason: regimePolicy.rationale,
+        regime,
+        regimeProfile: regimeReport.profile,
+        regimeReport,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+
 
     // 📈 TREND ANALYSIS - Filter out downtrending coins
     const memeOnly = !!(settings as any).meme_coins_only;
