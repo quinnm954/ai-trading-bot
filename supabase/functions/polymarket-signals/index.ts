@@ -17,6 +17,7 @@ interface PolyMarket {
   slug: string;
   outcomes: string; // JSON array string
   outcomePrices: string; // JSON array string of price strings
+  clobTokenIds?: string; // JSON array string of CLOB token IDs aligned with outcomes
   volume?: string;
   liquidity?: string;
   endDate?: string;
