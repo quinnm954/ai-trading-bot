@@ -69,8 +69,10 @@ function getEntryMomentumStatus(coin: MarketData, cfg: ScalpCfg) {
   const c1h = coin.change1h ?? 0;
   const c24 = coin.change24h ?? 0;
   const strict = c5 !== undefined && c5 >= cfg.entry_min_5m_pct && c1h >= cfg.entry_min_1h_pct && c24 >= cfg.entry_min_24h_pct;
-  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= Math.max(0.05, cfg.entry_min_1h_pct * 0.5) && c24 >= Math.max(0.3, cfg.entry_min_24h_pct);
-  return { ok: strict || steady, mode: strict ? 'strict' : steady ? 'steady' : 'blocked', c5, c1h, c24 };
+  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= 0;
+  // Loose: AI is allowed to enter on any single positive short-window confirmation
+  const loose = (c5 !== undefined && c5 > 0) || c1h > 0.1 || c24 > 0.5;
+  return { ok: strict || steady || loose, mode: strict ? 'strict' : steady ? 'steady' : loose ? 'loose' : 'blocked', c5, c1h, c24 };
 }
 
 function tradeKey(symbol: string, side: TradeSide) {
@@ -1859,21 +1861,21 @@ async function filterByTrend(
     const c24 = coin.change24h ?? 0;
     const vol = coin.volume24h ?? 0;
 
-    if (c5 === undefined) {
-      console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm momentum)`);
+    if (c5 === undefined && c1h === 0 && c24 === 0) {
+      console.log(`⏭️  NO DATA: ${coin.symbol} — skipping (no momentum signal at all)`);
       return false;
     }
-    // Hard chase guard: don't buy a candle that already ripped >2.5% in 5m
-    if (c5 > 2.5) {
+    // Hard chase guard: don't buy a candle that already ripped >4% in 5m
+    if (c5 !== undefined && c5 > 4) {
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    // Liquidity floor — AI needs depth to exit cleanly
-    if (vol > 0 && vol < 500_000) {
+    // Liquidity floor — AI needs depth to exit cleanly (relaxed to widen pool)
+    if (vol > 0 && vol < 100_000) {
       console.log(`💧 LOW LIQUIDITY: ${coin.symbol} 24h vol $${(vol/1000).toFixed(0)}k — skipping`);
       return false;
     }
-    console.log(`🤖 AI-CANDIDATE: ${coin.symbol} 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}% | vol $${(vol/1e6).toFixed(2)}M`);
+    console.log(`🤖 AI-CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}% | vol $${(vol/1e6).toFixed(2)}M`);
     return true;
   });
 
@@ -3264,8 +3266,33 @@ serve(async (req) => {
       decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, bestStrategy);
     }
 
-    // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money
-    const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 6, 2);
+    // SECONDARY FALLBACK — when scalp rules also yielded nothing, let the AI-decides
+    // pool drive a generic momentum buy on the top liquidity-weighted candidate that
+    // has any positive short-window signal. This keeps the bot trading in flat markets.
+    if (decisions.length === 0 && prioritizedTradeable.length > 0) {
+      const pick = prioritizedTradeable.find(c => ((c.change5m ?? 0) > 0) || ((c.change1h ?? 0) > 0.1) || ((c.change24h ?? 0) > 0.5));
+      if (pick) {
+        const c5 = pick.change5m ?? 0;
+        const c1h = pick.change1h ?? 0;
+        const c24 = pick.change24h ?? 0;
+        const conf = Math.min(0.85, 0.55 + Math.max(0, c5) * 0.05 + Math.max(0, c1h) * 0.02);
+        decisions = [{
+          symbol: pick.symbol,
+          action: 'buy',
+          confidence: conf,
+          reason: `🤖 AI-FALLBACK: top liquid mover 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}%`,
+          positionSize: Math.min(dynMaxPositionSize, 6),
+          leverage: optimalLeverage,
+          stopLoss: pick.price * 0.98,
+          takeProfit: pick.price * 1.012,
+          pattern: 'ai_fallback_momentum',
+        } as AITradingDecision];
+        console.log(`🤖 SECONDARY FALLBACK selected ${pick.symbol} to keep bot active`);
+      }
+    }
+
+    // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money (relaxed: 2h cooldown, 3 losses cap)
+    const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 2, 3);
     
     // Double-check: Filter out any decisions for coins in downtrend OR recent losses (safety net)
     decisions = decisions.filter(d => {
@@ -3276,8 +3303,8 @@ serve(async (req) => {
         return false;
       }
       
-      // Check loss cooldown
-      const lossCheck = shouldBlockSymbolDueToLosses(d.symbol, lossCooldownMap, 6, 2);
+      // Check loss cooldown (relaxed window matches getRecentLosingSymbols above)
+      const lossCheck = shouldBlockSymbolDueToLosses(d.symbol, lossCooldownMap, 2, 3);
       if (lossCheck.blocked) {
         console.log(lossCheck.reason);
         return false;
