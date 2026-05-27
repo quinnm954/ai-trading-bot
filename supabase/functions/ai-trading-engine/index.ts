@@ -1830,8 +1830,9 @@ async function filterByTrend(
     if (isStablecoin) return false;
     if (memeOnly && !MEME_COINS.has(sym)) return false;
     if (outOfRange) return false;
-    // Pre-prune obvious losers/parabolics before spending API budget on candles
-    if (change24h < -2 || change24h >= 5) return false;
+    // AI-decides mode: wider 24h band; let AI + Fusion + liquidity pick winners.
+    // Only prune extreme parabolics (already pumped) and deep capitulation candles.
+    if (change24h < -8 || change24h >= 12) return false;
     return true;
   });
 
