@@ -2028,6 +2028,17 @@ ${trendContext}
 LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
+${fusionMap && fusionMap.size > 0 ? `TITAN FUSION SIGNALS (multi-source AI conviction, 0-100, fused from Polymarket prediction odds, news sentiment, liquidation clusters, technicals):
+${marketData.filter(m => fusionMap.has(m.symbol.toUpperCase())).map(m => {
+  const f = fusionMap.get(m.symbol.toUpperCase())!;
+  const driverList = Array.isArray(f.drivers) ? f.drivers.slice(0, 3).join(', ')
+    : (f.drivers && typeof f.drivers === 'object') ? Object.keys(f.drivers).slice(0, 3).join(', ')
+    : '';
+  return `${m.symbol}: conviction=${f.conviction} direction=${f.direction}${driverList ? ` drivers=[${driverList}]` : ''}${f.rationale ? ` — ${String(f.rationale).slice(0, 120)}` : ''}`;
+}).join('\n')}
+
+FUSION GUIDANCE: Strongly prefer symbols with conviction ≥ 65 AND direction in {bullish, long}. Treat fusion as your highest-priority filter when present; combine with short-window momentum to size confidence.` : 'TITAN FUSION SIGNALS: none available this cycle — rely on momentum + trend only.'}
+
 TRADING RULES:
 1. Only buy assets rising right now: prefer configured scalp thresholds, but allow steady micro-momentum when 5m, 15m, and 24h are all positive
 2. Never buy dips, pullbacks, weak bounces, or assets with negative/flat 5m momentum
