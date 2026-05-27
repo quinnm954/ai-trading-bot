@@ -3261,7 +3261,7 @@ serve(async (req) => {
     // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {
       console.log('📊 AI returned no decisions, using strategy-specific rules');
-      decisions = analyzeWithRules(prioritizedTradeable, regime, settings.max_position_size, balance, bestStrategy);
+      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, bestStrategy);
     }
 
     // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money
