@@ -1,88 +1,69 @@
-## Goal
-Let users tune the scalp engine's entry, exit, loss-rotation, and sizing parameters from a new panel on the Risk page, with one-click presets and an advanced expandable section for manual sliders. Currently these are hardcoded constants in `ai-trading-engine/index.ts` and `auto-take-profit/index.ts`.
+## What exists today
+- Regime detection, strategy switching, leverage trading, per-trade liquidation estimates, basic `grid` strategy, basic volatility (24h range).
 
-## What gets added
+## What I'll add
 
-### 1. New table: `scalp_settings` (one row per user)
+### 1. Dynamic Grid Strategy
+Replace the always-enter grid with an ATR-tuned grid that adapts to current range and regime.
 
-Columns (all numeric/float unless noted):
+- New helper `computeDynamicGrid(symbol, priceHistory, regime)` in `ai-trading-engine`:
+  - Compute ATR(14) and recent high/low range
+  - Grid spacing = `ATR × multiplier` (multiplier: 0.5 in low-vol, 1.0 ranging, 1.5 high-vol)
+  - Number of levels = clamp(range / spacing, 3, 12)
+  - Center grid on VWAP / mid-price
+- Only activates when regime is `ranging` or `low_volatility` (best fit for grids)
+- Auto-rebalance: if price breaks ±2× ATR outside grid bounds, the engine recomputes the grid on next cycle
+- Persist active grid layout in a new table `grid_layouts` (symbol, levels jsonb, spacing, regime, updated_at) so the UI can visualize it
 
-- `user_id` (uuid, unique)
-- `preset` (text: 'conservative' | 'balanced' | 'aggressive' | 'custom', default 'balanced')
-- **Entry momentum thresholds**
-  - `entry_min_5m_pct` (default 0.3)
-  - `entry_min_15m_pct` (default 0.2)
-  - `entry_min_1h_pct` (default 0.3)
-  - `entry_min_24h_pct` (default 0.3)
-  - `reentry_breakout_pct` (default 0.25)
-  - `chase_guard_minutes` (int, default 120)
-- **Exit / trailing stop**
-  - `take_profit_pct` (default 1.0) — peak gain that arms trailing stop
-  - `trailing_drop_pct` (default 1.5) — drop from peak that triggers exit
-  - `hard_stop_loss_pct` (default 3.0)
-  - `momentum_rotation_min_pct` (default 0.5) — profit-realization rotation threshold
-- **Loss-rotation**
-  - `loss_rotation_enabled` (bool, default true)
-  - `loss_rotation_max_loss_pct` (default -2.0)
-  - `loss_rotation_momentum_edge_pct` (default 0.5)
-  - `loss_rotation_min_age_sec` (int, default 300)
-  - `loss_rotation_cooldown_sec` (int, default 60)
-- **Sizing & slots**
-  - `max_concurrent_positions` (int, default 12)
-  - `target_position_size_usd` (default 50)
-  - `max_capital_usage_pct` (default 80)
-- `updated_at`
+### 2. Liquidation-Map Analysis (hybrid)
+Aggregate liquidation clusters and bias the AI toward fade zones / away from magnets.
 
-RLS: user can SELECT/INSERT/UPDATE own row; no DELETE. GRANTs to `authenticated` and `service_role`. Auto-seed via trigger on first auth-user setup (extend `handle_new_user_setup`).
+- New table `liquidation_map` (symbol, price_level, side, cluster_size_usd, source, updated_at)
+- New edge function `liquidation-map-scanner` (cron every 5 min):
+  - **Internal**: scan all open `positions` + `futures_positions` + their leverage to compute implied liq prices; bucket into price bins per symbol
+  - **External (toggleable)**: optional Coinglass-style API — gated behind a new `LIQUIDATION_API_KEY` secret. If absent, internal-only mode works fine.
+- AI integration in `ai-trading-engine`:
+  - Pre-trade check: if entry is within 0.5% of a large opposite-side liq cluster (magnet risk), reduce size 50% or skip
+  - Take-profit nudge: if a same-side cluster sits just above entry, set TP just below it (price tends to wick to liquidations)
+- UI: new `LiquidationMapCard` on `CryptoSignals.tsx` showing top clusters per symbol as a horizontal heatmap
 
-### 2. Preset values
+### 3. Dynamic Leverage Scaling
+Make `leverage_settings.max_leverage_cap` an upper bound, with effective leverage scaled by volatility + regime.
 
-| Knob | Conservative | Balanced | Aggressive |
-|---|---|---|---|
-| entry_min_5m_pct | 0.5 | 0.3 | 0.15 |
-| entry_min_1h_pct | 0.5 | 0.3 | 0.15 |
-| take_profit_pct | 1.5 | 1.0 | 0.6 |
-| trailing_drop_pct | 1.0 | 1.5 | 2.0 |
-| hard_stop_loss_pct | 2.0 | 3.0 | 4.0 |
-| loss_rotation_max_loss_pct | -1.0 | -2.0 | -3.0 |
-| max_concurrent_positions | 6 | 12 | 20 |
-| target_position_size_usd | 25 | 50 | 100 |
+- New helper `computeEffectiveLeverage(regime, atrPct, userCap)`:
+  - `high_volatility` or `news_driven` → effective = min(userCap, 2)
+  - `trending` + low ATR% → effective = userCap
+  - `ranging` → effective = min(userCap, userCap × 0.6)
+  - `low_volatility` → effective = userCap (but small position sizes)
+- Wire into `LeverageTrading.tsx` calculator and into any leverage-aware trade sizing in `ai-trading-engine`
+- Show "Effective leverage now: Nx (capped by {reason})" badge on the Leverage page
 
-Selecting a preset overwrites the rows; editing any slider switches `preset` to `'custom'`.
+### 4. Shared volatility signal
+Centralize ATR / volatility classification in a single helper (`computeVolatilityProfile`) used by all three features and by regime detection, so they stay consistent.
 
-### 3. Frontend: `src/components/risk/ScalpSettingsPanel.tsx`
+## Files
 
-- Header card with preset buttons (Conservative / Balanced / Aggressive / Custom badge)
-- Three collapsible sections under an "Advanced" toggle:
-  - Entry thresholds (sliders)
-  - Exit / trailing stop (sliders)
-  - Loss rotation (switch + sliders)
-  - Sizing & slots (sliders)
-- "Reset to preset defaults" button per section
-- Saves via `supabase.from('scalp_settings').upsert(...)`; debounced
-- Mount on `src/pages/RiskManagement.tsx` above the existing `RiskSettingsPanel`
+**New**
+- `supabase/functions/liquidation-map-scanner/index.ts`
+- `src/components/trading/LiquidationMapCard.tsx`
+- `src/hooks/useLiquidationMap.ts`
+- `src/lib/volatility.ts` (shared ATR / vol-profile helper, mirrored in edge function inline)
 
-### 4. Backend wiring
+**Modified**
+- `supabase/functions/ai-trading-engine/index.ts` — dynamic grid, liq-map pre-trade check, effective leverage
+- `supabase/functions/ai-learning-engine/index.ts` — use shared vol profile
+- `src/pages/LeverageTrading.tsx` — effective-leverage display + use in calculator
+- `src/pages/CryptoSignals.tsx` — mount `LiquidationMapCard`
+- `supabase/config.toml` — schedule `liquidation-map-scanner` (cron) if needed
 
-In `supabase/functions/ai-trading-engine/index.ts` and `supabase/functions/auto-take-profit/index.ts`:
+**Migrations**
+- `grid_layouts` table (user_id, symbol, levels jsonb, spacing, center_price, regime, updated_at) + RLS + GRANTs
+- `liquidation_map` table (symbol, price_level, side, cluster_size_usd, source, updated_at) — public-read, service-role write + GRANTs
 
-- At the start of each user's run, fetch `scalp_settings` row (fallback to defaults if missing)
-- Replace hardcoded constants (`ENTRY_CONFIRM_MIN_5M_PCT`, `ENTRY_CONFIRM_MIN_15M_PCT`, `ENTRY_CONFIRM_MIN_24H_PCT`, `REENTRY_BREAKOUT_CONFIRM_PCT`, `CHASE_GUARD_WINDOW_MINUTES`, `MAX_LOSS_ROTATION_PCT`, `LOSS_ROTATION_COOLDOWN_SEC`, `LOSS_ROTATION_MIN_AGE_SEC`, `LOSS_ROTATION_MOMENTUM_EDGE_PCT`, and take-profit/trailing-stop values) with values from the settings row
-- Gate `tryLossRotation` behind `loss_rotation_enabled`
-- Use `max_concurrent_positions`, `target_position_size_usd`, `max_capital_usage_pct` for slot/sizing decisions (keep `ai_settings.max_concurrent_trades` as a hard cap — take the min)
-
-### 5. Memory
-
-Add `mem://ui/scalp-settings-panel` summarizing that the Risk page is the single source of truth for adjustable scalp params, and update `mem://ui/risk-settings-as-single-source-of-truth` reference.
-
-## Verification
-
-- Migration applies cleanly; new row auto-seeds for new signups; manual upsert works for existing users
-- Risk page renders panel, sliders persist, preset buttons overwrite values
-- Edge function logs show `scalp_settings loaded: { ... }` and use the user's values (test by changing a threshold and watching next decision)
-- Default values match current hardcoded behavior so no regression for users who never touch it
+## Secrets
+- Optional `LIQUIDATION_API_KEY` — only requested if/when you want external data live. Internal mode ships working without it.
 
 ## Out of scope
-
-- No changes to live/paper mode toggle, kill switch, or risk-tolerance profile (those stay on existing Risk panel)
-- No per-symbol overrides (single global scalp config per user)
+- No changes to existing live execution loop, risk-manager kill-switch, or paper-trading defaults.
+- No new strategies beyond the dynamic-grid upgrade.
+- No UI redesign of `LeverageTrading.tsx` beyond the effective-leverage badge.

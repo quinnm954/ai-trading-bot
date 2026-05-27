@@ -2154,6 +2154,88 @@ function buildSignalFactors(coin: any, _regime: string, confidence: number, side
   };
 }
 
+// ─── Volatility / regime / leverage / grid / liq-map helpers ────────────────
+// Mirror of src/lib/volatility.ts (edge functions can't import from src/).
+function classifyVol(rangePct: number): 'low' | 'normal' | 'high' | 'extreme' {
+  const v = rangePct / 2; // approx ATR% from 24h range
+  if (v < 1.5) return 'low';
+  if (v < 4) return 'normal';
+  if (v < 8) return 'high';
+  return 'extreme';
+}
+
+function computeEffectiveLeverage(userCap: number, regime: string, rangePct: number): { leverage: number; reason: string } {
+  const cap = Math.max(1, userCap);
+  const cls = classifyVol(rangePct);
+  if (regime === 'news_driven') return { leverage: Math.min(cap, 1), reason: 'news regime' };
+  if (regime === 'high_volatility' || cls === 'extreme') return { leverage: Math.min(cap, 2), reason: 'high vol' };
+  if (cls === 'high') return { leverage: Math.min(cap, Math.max(2, Math.floor(cap * 0.5))), reason: 'elevated vol' };
+  if (regime === 'ranging') return { leverage: Math.min(cap, Math.max(2, Math.floor(cap * 0.7))), reason: 'ranging' };
+  if (regime === 'trending' && cls === 'low') return { leverage: cap, reason: 'clean trend' };
+  return { leverage: Math.min(cap, Math.max(2, Math.floor(cap * 0.8))), reason: 'standard' };
+}
+
+// Dynamic-grid entry decision: returns whether to enter and which grid level we're at.
+function dynamicGridDecision(coin: MarketData, regime: string): { enter: boolean; confidence: number; reason: string; pattern: string } {
+  const range = coin.high24h - coin.low24h;
+  if (range <= 0) return { enter: false, confidence: 0, reason: '', pattern: '' };
+  const rangePct = (range / coin.price) * 100;
+  // Use range/8 as ATR proxy when no historical bars available.
+  const atr = range / 8;
+  const multiplier = regime === 'low_volatility' ? 0.5 : regime === 'high_volatility' ? 1.5 : 1.0;
+  const spacing = Math.max(atr * multiplier, coin.price * 0.003);
+  const center = (coin.high24h + coin.low24h) / 2;
+  const distFromCenter = coin.price - center;
+  const levelsBelow = distFromCenter < 0 ? Math.floor(Math.abs(distFromCenter) / spacing) : 0;
+  const pricePosition = (coin.price - coin.low24h) / range;
+
+  // Only enter on grid buys at discrete levels below center, and only in good grid regimes.
+  if (regime === 'news_driven' || regime === 'high_volatility') {
+    return { enter: false, confidence: 0, reason: '', pattern: '' };
+  }
+  if (levelsBelow >= 1 && pricePosition < 0.55 && rangePct >= 0.8 && rangePct <= 10) {
+    const conf = Math.min(0.9, 0.65 + levelsBelow * 0.08);
+    return {
+      enter: true,
+      confidence: conf,
+      reason: `📊 DYNAMIC GRID: level -${levelsBelow} (ATR×${multiplier.toFixed(1)}, spacing $${spacing.toFixed(4)}, ${rangePct.toFixed(1)}% range)`,
+      pattern: `grid_dyn_${levelsBelow}`,
+    };
+  }
+  return { enter: false, confidence: 0, reason: '', pattern: '' };
+}
+
+// Liquidation-map pre-trade check: returns size multiplier (1.0 = full, 0 = skip).
+async function checkLiqMap(supabase: any, symbol: string, entryPrice: number, side: 'long' | 'short'): Promise<{ sizeMult: number; tpHint?: number; note: string }> {
+  try {
+    const { data } = await supabase
+      .from('liquidation_map')
+      .select('price_level, side, cluster_size_usd')
+      .eq('symbol', symbol.toUpperCase())
+      .order('cluster_size_usd', { ascending: false })
+      .limit(20);
+    const rows = (data || []) as Array<{ price_level: number; side: string; cluster_size_usd: number }>;
+    if (rows.length === 0) return { sizeMult: 1, note: '' };
+
+    // Opposite-side cluster within 0.5% of entry = magnet risk → halve size or skip
+    const oppSide = side === 'long' ? 'short' : 'long';
+    const nearOpp = rows.find(r => r.side === oppSide && Math.abs(r.price_level - entryPrice) / entryPrice < 0.005 && r.cluster_size_usd > 100);
+    if (nearOpp) return { sizeMult: 0.5, note: `liq-map: opposite cluster $${nearOpp.cluster_size_usd.toFixed(0)} within 0.5% — size halved` };
+
+    // Same-side cluster above (for longs) or below (for shorts) = TP magnet
+    const sameAhead = rows.find(r => r.side === side && (side === 'long' ? r.price_level > entryPrice : r.price_level < entryPrice) && Math.abs(r.price_level - entryPrice) / entryPrice < 0.03);
+    if (sameAhead) {
+      const tpHint = side === 'long' ? sameAhead.price_level * 0.998 : sameAhead.price_level * 1.002;
+      return { sizeMult: 1, tpHint, note: `liq-map: same-side magnet at $${sameAhead.price_level} → TP nudge` };
+    }
+    return { sizeMult: 1, note: '' };
+  } catch {
+    return { sizeMult: 1, note: '' };
+  }
+}
+
+
+
 // SPEED SCALPING: Strategy-specific rule-based analysis optimized for fastest profits
 function analyzeWithRules(
   marketData: MarketData[],
@@ -2324,20 +2406,23 @@ function analyzeWithRules(
         }
         break;
         
-      case 'grid':
-        // AGGRESSIVE GRID - Any lower half entry
-        if (pricePosition < 0.35) {
+      case 'grid': {
+        // DYNAMIC GRID — ATR-tuned spacing, regime-aware, entries at discrete levels.
+        const gd = dynamicGridDecision(coin, regime);
+        if (gd.enter) {
           action = 'buy';
-          confidence = 0.85;
-          reason = `📊 GRID SCALP: Low in range (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'grid_deep';
-        } else if (pricePosition < 0.5) {
+          confidence = gd.confidence;
+          reason = gd.reason;
+          pattern = gd.pattern;
+        } else if (pricePosition < 0.35 && (regime === 'ranging' || regime === 'low_volatility')) {
           action = 'buy';
-          confidence = 0.75;
-          reason = `📊 GRID SCALP: Below midpoint (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'grid_mid';
+          confidence = 0.72;
+          reason = `📊 GRID FALLBACK: Low in range (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'grid_low';
         }
         break;
+      }
+
         
       case 'dca':
         // AGGRESSIVE DCA - Accumulate on any dip
@@ -3356,11 +3441,20 @@ serve(async (req) => {
       // 🔒 STRICT MODE — ignore AI-suggested overrides; obey scalp_settings + ai_settings exactly.
       const MIN_TRADE_VALUE = 1.00;
       const userMaxLeverage = Number(settings.max_leverage || 1);
-      // Hard-clamp leverage to user's configured max (AI cannot exceed it)
-      const decisionLeverage = Math.max(1, Math.min(
+      // Hard-clamp AI's request to user's max, then scale down by regime + volatility.
+      const aiRequestedLev = Math.max(1, Math.min(
         Number((decision as any).leverage || optimalLeverage || 1),
         userMaxLeverage
       ));
+      const _coinForLev = (decision as any)._coinData || coinData;
+      const _rangePct = _coinForLev && _coinForLev.high24h && _coinForLev.low24h && _coinForLev.price
+        ? ((_coinForLev.high24h - _coinForLev.low24h) / _coinForLev.price) * 100
+        : 4;
+      const _effLev = computeEffectiveLeverage(aiRequestedLev, regime, _rangePct);
+      const decisionLeverage = _effLev.leverage;
+      if (decisionLeverage < aiRequestedLev) {
+        console.log(`⚖️ Effective leverage scaled: ${aiRequestedLev}x → ${decisionLeverage}x (${_effLev.reason})`);
+      }
       const maxCapitalUsage = Number(settings.max_capital_usage || 80);
       const maxPositionSize = Number(settings.max_position_size || 10);
       const availableCapital = balance * (maxCapitalUsage / 100);
@@ -3375,6 +3469,21 @@ serve(async (req) => {
       let tradeValue = (decision as any)._topup
         ? Math.max((decision as any)._topupSpend || MIN_TRADE_VALUE, MIN_TRADE_VALUE)
         : Math.max(Math.min(baseValue, availableCapital), MIN_TRADE_VALUE);
+
+      // 🔥 LIQUIDATION-MAP pre-trade check (best-effort, never blocks on error)
+      try {
+        const _entrySide: 'long' | 'short' = (decision.action === 'sell') ? 'short' : 'long';
+        const _liq = await checkLiqMap(supabase, decision.symbol, coinData.price, _entrySide);
+        if (_liq.sizeMult < 1) {
+          console.log(`🔥 ${_liq.note}`);
+          tradeValue = Math.max(tradeValue * _liq.sizeMult, MIN_TRADE_VALUE);
+        }
+        if (_liq.tpHint) {
+          (decision as any)._tpHint = _liq.tpHint;
+          console.log(`🔥 ${_liq.note}`);
+        }
+      } catch { /* non-fatal */ }
+
 
 
 

@@ -34,6 +34,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { useFollowedTraders } from '@/hooks/useFollowedTraders';
 import { useCopyTradeSignals } from '@/hooks/useCopyTradeSignals';
+import { LiquidationMapCard } from '@/components/trading/LiquidationMapCard';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -359,6 +360,9 @@ export default function CryptoSignals() {
               </TabsTrigger>
               <TabsTrigger value="defi" className="gap-2">
                 <TrendingUp className="w-4 h-4" /> DeFi Yields
+              </TabsTrigger>
+              <TabsTrigger value="liqmap" className="gap-2">
+                <TrendingUp className="w-4 h-4" /> Liquidation Map
               </TabsTrigger>
             </TabsList>
 
@@ -948,6 +952,10 @@ export default function CryptoSignals() {
                   </ScrollArea>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="liqmap">
+              <LiquidationMapCard limit={20} />
             </TabsContent>
           </Tabs>
         </div>

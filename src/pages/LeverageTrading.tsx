@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
+import { useAISettings } from '@/hooks/useAISettings';
+import { computeEffectiveLeverage, type Regime } from '@/lib/volatility';
 
 // ============= Types =============
 interface LeverageSettings {
@@ -113,6 +115,7 @@ function calculatePosition(opts: {
 export default function LeverageTrading() {
   const { user } = useAuth();
   const { isAdmin } = useIsAdmin();
+  const { settings: aiSettings } = useAISettings();
   const [settings, setSettings] = useState<LeverageSettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -162,6 +165,21 @@ export default function LeverageTrading() {
     }
   };
 
+  // Dynamic leverage scaling: respect user cap, but auto-throttle by regime + volatility.
+  const regime: Regime = (aiSettings?.currentRegime as Regime) || 'ranging';
+  const atrPctApprox = useMemo(() => {
+    const range = Math.abs(calc.entry - calc.stop);
+    return calc.entry > 0 ? (range / calc.entry) * 100 : 3;
+  }, [calc.entry, calc.stop]);
+  const effective = useMemo(
+    () => computeEffectiveLeverage(
+      Math.min(calc.leverage, settings.max_leverage_cap),
+      regime,
+      atrPctApprox,
+    ),
+    [calc.leverage, settings.max_leverage_cap, regime, atrPctApprox],
+  );
+
   const result = useMemo(
     () =>
       calculatePosition({
@@ -169,11 +187,12 @@ export default function LeverageTrading() {
         riskPct: Math.min(calc.riskPct, settings.max_risk_per_trade_pct),
         entry: calc.entry,
         stop: calc.stop,
-        leverage: Math.min(calc.leverage, settings.max_leverage_cap),
+        leverage: effective.leverage,
         side: calc.side,
       }),
-    [calc, settings.max_risk_per_trade_pct, settings.max_leverage_cap],
+    [calc, settings.max_risk_per_trade_pct, effective.leverage],
   );
+
 
   const rr = useMemo(() => {
     const risk = Math.abs(calc.entry - calc.stop);
@@ -427,6 +446,16 @@ export default function LeverageTrading() {
                   <Calculator className="w-5 h-5" /> Position Size Calculator
                 </CardTitle>
                 <CardDescription>Size by risk and stop loss first — never by leverage alone.</CardDescription>
+                <div className="flex items-center gap-2 pt-2">
+                  <Badge variant="outline" className="text-xs">
+                    Effective leverage: {effective.leverage}x
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {effective.leverage < calc.leverage
+                      ? `auto-scaled from ${calc.leverage}x · ${effective.reason} (regime: ${regime})`
+                      : `${effective.reason} (regime: ${regime})`}
+                  </span>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
