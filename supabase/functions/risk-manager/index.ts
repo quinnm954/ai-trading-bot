@@ -220,21 +220,24 @@ async function validateTrade(
     }
   }
 
-  // CHECK 9b: Three consecutive losses pause
-  try {
-    const { data: recent } = await supabase
-      .from('trades')
-      .select('pnl, closed_at')
-      .eq('user_id', userId)
-      .eq('status', 'closed')
-      .order('closed_at', { ascending: false })
-      .limit(3);
-    if (recent && recent.length === 3 && recent.every((t: any) => Number(t.pnl) < 0)) {
-      violations.push('consecutive_losses: 3 losing trades in a row — cooldown active');
-      approved = false;
-      severity = 'warning';
-    }
-  } catch (_) { /* non-fatal */ }
+  // CHECK 9b: Three consecutive losses pause (LIVE ONLY — paper keeps trading for learning)
+  if (settings.tradingMode === 'live') {
+    try {
+      const { data: recent } = await supabase
+        .from('trades')
+        .select('pnl, closed_at')
+        .eq('user_id', userId)
+        .eq('status', 'closed')
+        .eq('is_paper', false)
+        .order('closed_at', { ascending: false })
+        .limit(3);
+      if (recent && recent.length === 3 && recent.every((t: any) => Number(t.pnl) < 0)) {
+        violations.push('consecutive_losses: 3 losing live trades in a row — cooldown active');
+        approved = false;
+        severity = 'warning';
+      }
+    } catch (_) { /* non-fatal */ }
+  }
 
   // ==========================================================================
   // CHECK 10: Minimum Trade Value - Prevent dust trades
