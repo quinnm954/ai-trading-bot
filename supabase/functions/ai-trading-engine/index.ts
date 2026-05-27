@@ -3303,8 +3303,8 @@ serve(async (req) => {
         return false;
       }
       
-      // Check loss cooldown
-      const lossCheck = shouldBlockSymbolDueToLosses(d.symbol, lossCooldownMap, 6, 2);
+      // Check loss cooldown (relaxed window matches getRecentLosingSymbols above)
+      const lossCheck = shouldBlockSymbolDueToLosses(d.symbol, lossCooldownMap, 2, 3);
       if (lossCheck.blocked) {
         console.log(lossCheck.reason);
         return false;
