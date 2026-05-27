@@ -310,34 +310,67 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
 // Fetch 24h price changes to find most profitable conversion targets
 async function fetchPriceChanges(symbols: string[]): Promise<Record<string, { price: number; change24h: number }>> {
   const result: Record<string, { price: number; change24h: number }> = {};
-  
+
+  // 1) Try CoinGecko in bulk for symbols we have an ID for
   const ids = symbols
     .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
     .filter(Boolean);
-  
-  if (ids.length === 0) return result;
-  
-  try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd&include_24hr_change=true`
-    );
-    
-    if (response.ok) {
-      const data = await response.json();
-      for (const symbol of symbols) {
-        const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
-        if (geckoId && data[geckoId]) {
-          result[symbol.toUpperCase()] = {
-            price: data[geckoId].usd || 0,
-            change24h: data[geckoId].usd_24h_change || 0,
-          };
+
+  if (ids.length > 0) {
+    try {
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd&include_24hr_change=true`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        for (const symbol of symbols) {
+          const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
+          if (geckoId && data[geckoId]) {
+            result[symbol.toUpperCase()] = {
+              price: data[geckoId].usd || 0,
+              change24h: data[geckoId].usd_24h_change || 0,
+            };
+          }
         }
       }
+    } catch (error) {
+      console.error('Error fetching price changes from CoinGecko:', error);
     }
-  } catch (error) {
-    console.error('Error fetching price changes:', error);
   }
-  
+
+  // 2) Fallback: for any symbol still missing, hit Coinbase's public exchange
+  //    ticker + stats. This guarantees positions in long-tail / newly-listed
+  //    tokens (VIRTUAL, EDGE, PUMP, BILL, ...) still get monitored so
+  //    stop-loss / take-profit actually fire on them.
+  const missing = symbols.filter(s => !result[s.toUpperCase()]);
+  if (missing.length > 0) {
+    await Promise.all(missing.map(async (symbol) => {
+      const sym = symbol.toUpperCase();
+      try {
+        const [tickerRes, statsRes] = await Promise.all([
+          fetch(`https://api.exchange.coinbase.com/products/${sym}-USD/ticker`),
+          fetch(`https://api.exchange.coinbase.com/products/${sym}-USD/stats`),
+        ]);
+        if (!tickerRes.ok) return;
+        const ticker = await tickerRes.json();
+        const price = Number(ticker?.price) || 0;
+        let change24h = 0;
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          const open = Number(stats?.open) || 0;
+          const last = Number(stats?.last) || price;
+          if (open > 0) change24h = ((last - open) / open) * 100;
+        }
+        if (price > 0) {
+          result[sym] = { price, change24h };
+        }
+      } catch (error) {
+        console.error(`[fallback] Coinbase ticker failed for ${sym}:`, error);
+      }
+    }));
+  }
+
   return result;
 }
 
