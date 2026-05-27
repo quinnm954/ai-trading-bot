@@ -1762,6 +1762,18 @@ const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD
 const MAX_PRICE_USD = 1_000_000;
 const MIN_PRICE_USD = 1.0;
 
+// Meme-coin allowlist used when ai_settings.meme_coins_only is true.
+// Price band is relaxed because most memes trade well below $1.
+const MEME_COINS = new Set([
+  'DOGE','SHIB','PEPE','FLOKI','BONK','WIF','MEME','BOME','MEW','POPCAT',
+  'BRETT','NEIRO','TURBO','MOG','SPX','PNUT','GOAT','FARTCOIN','MOODENG','ACT',
+  'CHILLGUY','SLERF','MYRO','BABYDOGE','MUMU','SNEK','AIDOGE','TRUMP','GIGA','PONKE',
+  'MICHI','RETARDIO','DEGEN','TOSHI','KEYCAT','ANDY','MANEKI','SMOG','WEN','LADYS',
+  'APU','HIGHER','MOTHER','DADDY','BAN','DOG','HOPPY','BABYBONK','VOLT','CAT'
+]);
+const MEME_MIN_PRICE_USD = 1e-9;
+const MEME_MAX_PRICE_USD = 100;
+
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
 // =============================================================================
@@ -1797,22 +1809,33 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
 
 // SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
 // Async because we fetch short-window candles for the survivors of the pre-filter.
-async function filterByTrend(marketData: MarketData[], cfg: ScalpCfg = SCALP_CFG_DEFAULTS): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
-  // Pre-filter: stablecoins out, keep only coins priced $1–$100, and 24h not deep red / not parabolic
+async function filterByTrend(
+  marketData: MarketData[],
+  cfg: ScalpCfg = SCALP_CFG_DEFAULTS,
+  opts: { memeOnly?: boolean } = {}
+): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
+  const memeOnly = !!opts.memeOnly;
+  const minPrice = memeOnly ? MEME_MIN_PRICE_USD : MIN_PRICE_USD;
+  const maxPrice = memeOnly ? MEME_MAX_PRICE_USD : MAX_PRICE_USD;
+
+  // Pre-filter: stablecoins out, keep only coins within price band, 24h not deep red / not parabolic.
+  // When memeOnly is true, restrict to the meme allowlist.
   const eligibleCoins = marketData.filter(coin => {
-    const isStablecoin = STABLECOINS.includes(coin.symbol.toUpperCase());
+    const sym = coin.symbol.toUpperCase();
+    const isStablecoin = STABLECOINS.includes(sym);
     const price = coin.price ?? 0;
-    const outOfRange = price < MIN_PRICE_USD || price > MAX_PRICE_USD;
+    const outOfRange = price < minPrice || price > maxPrice;
     const change24h = coin.change24h ?? 0;
 
     if (isStablecoin) return false;
+    if (memeOnly && !MEME_COINS.has(sym)) return false;
     if (outOfRange) return false;
     // Pre-prune obvious losers/parabolics before spending API budget on candles
     if (change24h < -2 || change24h >= 5) return false;
     return true;
   });
 
-  console.log(`✅ Eligible coins ($${MIN_PRICE_USD}–$${MAX_PRICE_USD}, non-stable, 24h ∈ [-2%, +5%)): ${eligibleCoins.length}/${marketData.length}`);
+  console.log(`✅ Eligible coins (${memeOnly ? 'MEME-ONLY, ' : ''}$${minPrice}–$${maxPrice}, non-stable, 24h ∈ [-2%, +5%)): ${eligibleCoins.length}/${marketData.length}`);
 
   // Fetch 5m candles for eligible coins (Coinbase) — in parallel, capped to 30 to keep latency sane
   const candleTargets = eligibleCoins.slice(0, 30);
@@ -2932,7 +2955,9 @@ serve(async (req) => {
     console.log(`📊 Detected market regime: ${regime}`);
 
     // 📈 TREND ANALYSIS - Filter out downtrending coins
-    const { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg);
+    const memeOnly = !!(settings as any).meme_coins_only;
+    if (memeOnly) console.log('🐸 MEME-ONLY MODE ENABLED — restricting universe to meme-coin allowlist');
+    const { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly });
     console.log(`📈 Trend Analysis:`);
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
     console.log(`✅ Tradeable coins: ${tradeable.map(c => c.symbol).join(', ') || 'NONE - All in downtrend'}`);

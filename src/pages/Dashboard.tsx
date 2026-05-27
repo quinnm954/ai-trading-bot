@@ -21,6 +21,7 @@ import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
 import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
+import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
 import { TrialDaysIndicator } from '@/components/dashboard/TrialDaysIndicator';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
@@ -335,6 +336,9 @@ export default function Dashboard() {
           </span>
         </div>
       )}
+
+      {/* Meme-coins-only toggle */}
+      <MemeCoinsOnlyToggle />
 
       {/* Market Ticker */}
       <MarketTicker tradingMode={stats.tradingMode} positions={positions} isLoading={isLoading} />
