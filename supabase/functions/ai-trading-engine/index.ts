@@ -3401,21 +3401,25 @@ serve(async (req) => {
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
     let decisions = await analyzeWithAI(prioritizedTradeable, balance, dynMaxPositionSize, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
 
-    // Fallback cascade: AI → policy strategy → scalp (momentum) → ema_crossover.
-    // Don't stand down just because grid can't find a range entry — if any coin shows
-    // confirmed short-window upside, take it. Safety filters downstream still apply.
-    if (decisions.length === 0) {
-      const policyStrategy = regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy;
-      console.log(`📊 AI returned no decisions, trying rule-based ${policyStrategy} (regime=${regimeReport.profile})`);
-      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy);
+    // 🛡️ LOSS-PROTECTION STAND-DOWN
+    // If today is already red AND the regime isn't actively bullish, stop opening new positions.
+    // The old cascade (grid → scalp → ema) was forcing trades in choppy/down markets and
+    // compounding losses. Existing positions remain managed by auto-take-profit.
+    const dayLossPct = balance > 0 ? (todaysNetPnL / balance) * 100 : 0;
+    const bullishRegime = regimeReport.profile === 'trending_up';
+    const standDownOnLoss = todaysNetPnL < 0 && !bullishRegime && dayLossPct <= -1.0;
 
-      if (decisions.length === 0 && policyStrategy !== 'scalp') {
-        console.log(`📊 ${policyStrategy} found nothing, cascading to scalp momentum fallback`);
-        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, 'scalp');
-      }
-      if (decisions.length === 0) {
-        console.log(`📊 scalp found nothing, cascading to ema_crossover momentum fallback`);
-        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, 'ema_crossover');
+    if (standDownOnLoss) {
+      console.log(`🛡️ STAND-DOWN: dayPnL=$${todaysNetPnL.toFixed(2)} (${dayLossPct.toFixed(2)}%), regime=${regimeReport.profile}. No new entries until day turns green or regime flips bullish.`);
+      decisions = [];
+    } else if (decisions.length === 0) {
+      // Single, regime-appropriate fallback. No more "always find something" cascade.
+      const policyStrategy = regimePolicy.strategy === 'none' ? null : (regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy);
+      if (policyStrategy) {
+        console.log(`📊 AI returned no decisions, trying rule-based ${policyStrategy} (regime=${regimeReport.profile})`);
+        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy);
+      } else {
+        console.log(`📊 Regime policy is stand-down (${regimeReport.profile}). Skipping rule fallback.`);
       }
     }
 
