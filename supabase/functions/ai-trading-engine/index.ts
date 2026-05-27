@@ -69,8 +69,10 @@ function getEntryMomentumStatus(coin: MarketData, cfg: ScalpCfg) {
   const c1h = coin.change1h ?? 0;
   const c24 = coin.change24h ?? 0;
   const strict = c5 !== undefined && c5 >= cfg.entry_min_5m_pct && c1h >= cfg.entry_min_1h_pct && c24 >= cfg.entry_min_24h_pct;
-  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= Math.max(0.05, cfg.entry_min_1h_pct * 0.5) && c24 >= Math.max(0.3, cfg.entry_min_24h_pct);
-  return { ok: strict || steady, mode: strict ? 'strict' : steady ? 'steady' : 'blocked', c5, c1h, c24 };
+  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= 0;
+  // Loose: AI is allowed to enter on any single positive short-window confirmation
+  const loose = (c5 !== undefined && c5 > 0) || c1h > 0.1 || c24 > 0.5;
+  return { ok: strict || steady || loose, mode: strict ? 'strict' : steady ? 'steady' : loose ? 'loose' : 'blocked', c5, c1h, c24 };
 }
 
 function tradeKey(symbol: string, side: TradeSide) {
