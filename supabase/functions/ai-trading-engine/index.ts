@@ -1986,7 +1986,8 @@ async function analyzeWithAI(
   bestStrategy: string, 
   regime: string,
   leverage: number = 1,
-  riskTolerance: string = 'moderate'
+  riskTolerance: string = 'moderate',
+  fusionMap?: Map<string, { conviction: number; direction: string; drivers: any; rationale: string | null }>
 ): Promise<AITradingDecision[]> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   
@@ -2026,6 +2027,17 @@ ${trendContext}
 
 LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
+
+${fusionMap && fusionMap.size > 0 ? `TITAN FUSION SIGNALS (multi-source AI conviction, 0-100, fused from Polymarket prediction odds, news sentiment, liquidation clusters, technicals):
+${marketData.filter(m => fusionMap.has(m.symbol.toUpperCase())).map(m => {
+  const f = fusionMap.get(m.symbol.toUpperCase())!;
+  const driverList = Array.isArray(f.drivers) ? f.drivers.slice(0, 3).join(', ')
+    : (f.drivers && typeof f.drivers === 'object') ? Object.keys(f.drivers).slice(0, 3).join(', ')
+    : '';
+  return `${m.symbol}: conviction=${f.conviction} direction=${f.direction}${driverList ? ` drivers=[${driverList}]` : ''}${f.rationale ? ` — ${String(f.rationale).slice(0, 120)}` : ''}`;
+}).join('\n')}
+
+FUSION GUIDANCE: Strongly prefer symbols with conviction ≥ 65 AND direction in {bullish, long}. Treat fusion as your highest-priority filter when present; combine with short-window momentum to size confidence.` : 'TITAN FUSION SIGNALS: none available this cycle — rely on momentum + trend only.'}
 
 TRADING RULES:
 1. Only buy assets rising right now: prefer configured scalp thresholds, but allow steady micro-momentum when 5m, 15m, and 24h are all positive
@@ -2996,7 +3008,73 @@ serve(async (req) => {
       }
     }
 
-    // 👥 COPY TRADING PRIORITY - Boost assets from followed traders' best performing assets
+    // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Polymarket + news + liquidations + technicals)
+    // Re-rank and softly gate tradeable list by latest fusion conviction.
+    const fusionMap = new Map<string, { conviction: number; direction: string; drivers: any; rationale: string | null }>();
+    try {
+      const fusionCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: fusionRows } = await supabase
+        .from('titan_fusion_signals')
+        .select('symbol, conviction, direction, drivers, rationale, generated_at')
+        .gte('generated_at', fusionCutoff)
+        .order('generated_at', { ascending: false });
+
+      if (fusionRows && fusionRows.length > 0) {
+        // Keep latest per symbol
+        for (const row of fusionRows as any[]) {
+          const sym = String(row.symbol).toUpperCase();
+          if (!fusionMap.has(sym)) {
+            fusionMap.set(sym, {
+              conviction: Number(row.conviction) || 0,
+              direction: String(row.direction || 'neutral').toLowerCase(),
+              drivers: row.drivers,
+              rationale: row.rationale ?? null,
+            });
+          }
+        }
+        console.log(`🧠 Titan Fusion: ${fusionMap.size} fresh signals loaded (≤30m old)`);
+
+        // Soft gate: drop tradeable coins explicitly tagged bearish or conviction < 40 by fusion.
+        // Symbols not covered by fusion (e.g. memes) are left untouched.
+        const beforeCount = prioritizedTradeable.length;
+        prioritizedTradeable = prioritizedTradeable.filter((c) => {
+          const f = fusionMap.get(c.symbol.toUpperCase());
+          if (!f) return true; // no fusion data → don't block
+          if (f.direction === 'bearish' || f.direction === 'short') {
+            console.log(`🧠 FUSION VETO: ${c.symbol} — direction=${f.direction}, conviction=${f.conviction}`);
+            return false;
+          }
+          if (f.conviction < 40) {
+            console.log(`🧠 FUSION WEAK: ${c.symbol} — conviction ${f.conviction} < 40, skipping`);
+            return false;
+          }
+          return true;
+        });
+        console.log(`🧠 Fusion gate: ${prioritizedTradeable.length}/${beforeCount} survived`);
+
+        // Re-rank: fusion-scored symbols first by conviction desc; unscored keep prior order at the tail.
+        prioritizedTradeable = [...prioritizedTradeable].sort((a, b) => {
+          const fa = fusionMap.get(a.symbol.toUpperCase());
+          const fb = fusionMap.get(b.symbol.toUpperCase());
+          const ca = fa?.conviction ?? -1;
+          const cb = fb?.conviction ?? -1;
+          if (ca !== cb) return cb - ca;
+          return 0;
+        });
+
+        const topPreview = prioritizedTradeable.slice(0, 8).map((c) => {
+          const f = fusionMap.get(c.symbol.toUpperCase());
+          return f ? `${c.symbol}(🧠${f.conviction}/${f.direction})` : c.symbol;
+        }).join(', ');
+        console.log(`🧠 Fusion-ranked top: ${topPreview}`);
+      } else {
+        console.log('🧠 Titan Fusion: no recent signals available — falling back to base ranking');
+      }
+    } catch (err) {
+      console.warn('🧠 Fusion lookup failed (non-fatal):', err instanceof Error ? err.message : err);
+    }
+
+    // 👥 COPY TRADING PRIORITY — boost assets from followed traders
     const { data: followedTraders } = await supabase
       .from('followed_traders')
       .select('trader_id, is_active')
@@ -3122,7 +3200,7 @@ serve(async (req) => {
     const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
     
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
-    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance);
+    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
     
     // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {
