@@ -3018,11 +3018,15 @@ serve(async (req) => {
       return true;
     });
 
-    // CRITICAL: Limit decisions to remaining trade slots (respecting max_concurrent_trades)
-    // Scalp mode is also hard-capped at SCALP_MAX_CONCURRENT regardless of user setting
-    const effectiveMaxTrades = Math.min(settings.max_concurrent_trades, SCALP_MAX_CONCURRENT);
+    // 🔒 STRICT MODE: enforce min of ai_settings.max_concurrent_trades, scalp_settings.max_concurrent_positions, hard cap
+    const effectiveMaxTrades = Math.min(
+      settings.max_concurrent_trades || SCALP_MAX_CONCURRENT,
+      scalpCfg.max_concurrent_positions || SCALP_MAX_CONCURRENT,
+      SCALP_MAX_CONCURRENT
+    );
     let remainingSlots = Math.max(0, effectiveMaxTrades - openPositionsCount);
-    console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (scalp cap ${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
+    console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (strict: ai=${settings.max_concurrent_trades}, scalp=${scalpCfg.max_concurrent_positions}, hard=${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
+
 
     if (remainingSlots === 0 && tradeable.length > 0) {
       const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0], scalpCfg);
