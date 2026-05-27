@@ -3061,6 +3061,8 @@ serve(async (req) => {
     } catch (err) {
       console.warn('🧠 Fusion lookup failed (non-fatal):', err instanceof Error ? err.message : err);
     }
+
+    // 👥 COPY TRADING PRIORITY — boost assets from followed traders
     const { data: followedTraders } = await supabase
       .from('followed_traders')
       .select('trader_id, is_active')
