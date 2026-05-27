@@ -3217,18 +3217,51 @@ serve(async (req) => {
     const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
     console.log(`🎯 Selected strategy for ${regime}: ${bestStrategy}`);
 
-    // 🧠 AI TRADING MODE - Risk tolerance drives behavior
-    const leverage = settings.max_leverage || 3;
-    const riskTolerance = settings.risk_tolerance || 'moderate';
+    // 🤖 FULL AUTONOMY — AI self-tunes risk params per cycle based on regime, fusion, and today's P&L.
+    // User can opt out by setting ai_settings.ai_autonomous_mode = false (defaults to true).
+    const autonomous = (settings as any).ai_autonomous_mode !== false;
+    let riskTolerance = settings.risk_tolerance || 'moderate';
+    let leverage = settings.max_leverage || 3;
+    let dynMaxPositionSize = settings.max_position_size || 10;
+    let dynMaxConcurrent = settings.max_concurrent_trades || 5;
+
+    if (autonomous) {
+      // Highest fusion conviction in pool (if any)
+      const topConviction = Math.max(0, ...prioritizedTradeable.map(c => fusionMap.get(c.symbol.toUpperCase())?.conviction ?? 0));
+      const profitProgress = todaysNetPnL / Math.max(1, DAILY_PROFIT_TARGET); // 0..1
+
+      // Risk tolerance: bullish regime + high conviction → aggressive; downtrend/volatile → conservative
+      if (regime === 'trending' && topConviction >= 65) riskTolerance = 'aggressive';
+      else if (regime === 'high_volatility') riskTolerance = 'conservative';
+      else if (regime === 'ranging') riskTolerance = 'moderate';
+
+      // De-risk once we're close to the daily target (lock gains rather than chase)
+      if (profitProgress >= 0.6) {
+        riskTolerance = 'conservative';
+        dynMaxPositionSize = Math.min(dynMaxPositionSize, 5);
+      }
+      // If today is red, throttle hard
+      if (todaysNetPnL < 0) {
+        riskTolerance = 'conservative';
+        dynMaxPositionSize = Math.min(dynMaxPositionSize, 4);
+        dynMaxConcurrent = Math.max(2, Math.min(dynMaxConcurrent, 3));
+      }
+
+      // Concurrency scales with balance: more capital → more slots (capped by user max)
+      const balanceSlots = balance < 200 ? 2 : balance < 1000 ? 4 : balance < 5000 ? 6 : 8;
+      dynMaxConcurrent = Math.min(dynMaxConcurrent, balanceSlots);
+
+      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}`);
+    }
+
     const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
-    
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
-    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
+    let decisions = await analyzeWithAI(prioritizedTradeable, balance, dynMaxPositionSize, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
     
     // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {
       console.log('📊 AI returned no decisions, using strategy-specific rules');
-      decisions = analyzeWithRules(prioritizedTradeable, regime, settings.max_position_size, balance, bestStrategy);
+      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, bestStrategy);
     }
 
     // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money
