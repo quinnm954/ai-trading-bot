@@ -307,7 +307,7 @@ export function useDashboardData() {
           weeklyPnlPercent,
           totalPnl: accountPnl,
           totalPnlPercent,
-          openPositions: positionsCount || 0,
+          openPositions: formattedPositions.length,
           todayTrades: todayTradesCount,
           tradingMode,
         });
