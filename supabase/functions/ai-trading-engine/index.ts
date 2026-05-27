@@ -3426,10 +3426,10 @@ serve(async (req) => {
 
 
 
-    // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money (relaxed: 2h cooldown, 3 losses cap)
-    const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 2, 3);
-    
-    // Double-check: Filter out any decisions for coins in downtrend OR recent losses (safety net)
+    // 🛡️ LOSS PREVENTION FILTER REMOVED — per user request, no cooldown after losing trades.
+    // The bot will retry symbols regardless of recent loss history.
+
+    // Double-check: Filter out any decisions for coins in downtrend (safety net)
     decisions = decisions.filter(d => {
       // Check trend
       const trend = trendAnalysis.find(t => t.symbol === d.symbol);
@@ -3437,13 +3437,8 @@ serve(async (req) => {
         console.log(`🛡️ Safety filter: Blocking ${d.action} on ${d.symbol} - in ${trend.trend}`);
         return false;
       }
-      
-      // Check loss cooldown (relaxed window matches getRecentLosingSymbols above)
-      const lossCheck = shouldBlockSymbolDueToLosses(d.symbol, lossCooldownMap, 2, 3);
-      if (lossCheck.blocked) {
-        console.log(lossCheck.reason);
-        return false;
-      }
+
+
 
       // Final entry safety net: AI and rules are only allowed to buy confirmed risers.
       if (d.action === 'buy') {
