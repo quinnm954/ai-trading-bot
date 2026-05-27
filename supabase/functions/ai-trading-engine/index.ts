@@ -1986,7 +1986,8 @@ async function analyzeWithAI(
   bestStrategy: string, 
   regime: string,
   leverage: number = 1,
-  riskTolerance: string = 'moderate'
+  riskTolerance: string = 'moderate',
+  fusionMap?: Map<string, { conviction: number; direction: string; drivers: any; rationale: string | null }>
 ): Promise<AITradingDecision[]> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   
