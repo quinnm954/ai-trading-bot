@@ -446,6 +446,16 @@ export default function LeverageTrading() {
                   <Calculator className="w-5 h-5" /> Position Size Calculator
                 </CardTitle>
                 <CardDescription>Size by risk and stop loss first — never by leverage alone.</CardDescription>
+                <div className="flex items-center gap-2 pt-2">
+                  <Badge variant="outline" className="text-xs">
+                    Effective leverage: {effective.leverage}x
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {effective.leverage < calc.leverage
+                      ? `auto-scaled from ${calc.leverage}x · ${effective.reason} (regime: ${regime})`
+                      : `${effective.reason} (regime: ${regime})`}
+                  </span>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
