@@ -3441,11 +3441,20 @@ serve(async (req) => {
       // 🔒 STRICT MODE — ignore AI-suggested overrides; obey scalp_settings + ai_settings exactly.
       const MIN_TRADE_VALUE = 1.00;
       const userMaxLeverage = Number(settings.max_leverage || 1);
-      // Hard-clamp leverage to user's configured max (AI cannot exceed it)
-      const decisionLeverage = Math.max(1, Math.min(
+      // Hard-clamp AI's request to user's max, then scale down by regime + volatility.
+      const aiRequestedLev = Math.max(1, Math.min(
         Number((decision as any).leverage || optimalLeverage || 1),
         userMaxLeverage
       ));
+      const _coinForLev = (decision as any)._coinData || coinData;
+      const _rangePct = _coinForLev && _coinForLev.high24h && _coinForLev.low24h && _coinForLev.price
+        ? ((_coinForLev.high24h - _coinForLev.low24h) / _coinForLev.price) * 100
+        : 4;
+      const _effLev = computeEffectiveLeverage(aiRequestedLev, regime, _rangePct);
+      const decisionLeverage = _effLev.leverage;
+      if (decisionLeverage < aiRequestedLev) {
+        console.log(`⚖️ Effective leverage scaled: ${aiRequestedLev}x → ${decisionLeverage}x (${_effLev.reason})`);
+      }
       const maxCapitalUsage = Number(settings.max_capital_usage || 80);
       const maxPositionSize = Number(settings.max_position_size || 10);
       const availableCapital = balance * (maxCapitalUsage / 100);
@@ -3460,6 +3469,21 @@ serve(async (req) => {
       let tradeValue = (decision as any)._topup
         ? Math.max((decision as any)._topupSpend || MIN_TRADE_VALUE, MIN_TRADE_VALUE)
         : Math.max(Math.min(baseValue, availableCapital), MIN_TRADE_VALUE);
+
+      // 🔥 LIQUIDATION-MAP pre-trade check (best-effort, never blocks on error)
+      try {
+        const _entrySide: 'long' | 'short' = (decision.action === 'sell') ? 'short' : 'long';
+        const _liq = await checkLiqMap(supabase, decision.symbol, coinData.price, _entrySide);
+        if (_liq.sizeMult < 1) {
+          console.log(`🔥 ${_liq.note}`);
+          tradeValue = Math.max(tradeValue * _liq.sizeMult, MIN_TRADE_VALUE);
+        }
+        if (_liq.tpHint) {
+          (decision as any)._tpHint = _liq.tpHint;
+          console.log(`🔥 ${_liq.note}`);
+        }
+      } catch { /* non-fatal */ }
+
 
 
 
