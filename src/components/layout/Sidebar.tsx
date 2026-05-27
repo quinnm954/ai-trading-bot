@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronRight,
+  Brain,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
