@@ -672,6 +672,51 @@ export type Database = {
         }
         Relationships: []
       }
+      grid_layouts: {
+        Row: {
+          atr: number | null
+          center_price: number
+          created_at: string
+          id: string
+          levels: Json
+          lower_bound: number | null
+          regime: string | null
+          spacing: number
+          symbol: string
+          updated_at: string
+          upper_bound: number | null
+          user_id: string
+        }
+        Insert: {
+          atr?: number | null
+          center_price: number
+          created_at?: string
+          id?: string
+          levels?: Json
+          lower_bound?: number | null
+          regime?: string | null
+          spacing: number
+          symbol: string
+          updated_at?: string
+          upper_bound?: number | null
+          user_id: string
+        }
+        Update: {
+          atr?: number | null
+          center_price?: number
+          created_at?: string
+          id?: string
+          levels?: Json
+          lower_bound?: number | null
+          regime?: string | null
+          spacing?: number
+          symbol?: string
+          updated_at?: string
+          upper_bound?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       invite_codes: {
         Row: {
           code: string
@@ -819,6 +864,39 @@ export type Database = {
           stop_loss?: number
           symbol?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      liquidation_map: {
+        Row: {
+          cluster_size_usd: number
+          id: string
+          position_count: number
+          price_level: number
+          side: string
+          source: string
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          cluster_size_usd?: number
+          id?: string
+          position_count?: number
+          price_level: number
+          side: string
+          source?: string
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          cluster_size_usd?: number
+          id?: string
+          position_count?: number
+          price_level?: number
+          side?: string
+          source?: string
+          symbol?: string
+          updated_at?: string
         }
         Relationships: []
       }
