@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ExternalLink, Loader2, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ExternalLink, Loader2, TrendingUp, AlertTriangle, CandlestickChart } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { usePolymarketSignals } from '@/hooks/usePolymarketSignals';
+import { usePolymarketSignals, type PolymarketSignal } from '@/hooks/usePolymarketSignals';
+import { PolymarketCandleChart } from './PolymarketCandleChart';
 
 const fmtUsd = (n: number) => {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
