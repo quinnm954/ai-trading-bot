@@ -35,6 +35,7 @@ import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { useFollowedTraders } from '@/hooks/useFollowedTraders';
 import { useCopyTradeSignals } from '@/hooks/useCopyTradeSignals';
 import { LiquidationMapCard } from '@/components/trading/LiquidationMapCard';
+import { PolymarketSignalsCard } from '@/components/trading/PolymarketSignalsCard';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -363,6 +364,9 @@ export default function CryptoSignals() {
               </TabsTrigger>
               <TabsTrigger value="liqmap" className="gap-2">
                 <TrendingUp className="w-4 h-4" /> Liquidation Map
+              </TabsTrigger>
+              <TabsTrigger value="polymarket" className="gap-2">
+                <TrendingUp className="w-4 h-4" /> Polymarket
               </TabsTrigger>
             </TabsList>
 
@@ -956,6 +960,10 @@ export default function CryptoSignals() {
 
             <TabsContent value="liqmap">
               <LiquidationMapCard limit={20} />
+            </TabsContent>
+
+            <TabsContent value="polymarket">
+              <PolymarketSignalsCard />
             </TabsContent>
           </Tabs>
         </div>
