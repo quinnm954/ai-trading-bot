@@ -174,7 +174,10 @@ export function useDashboardData() {
       let positionsValue = 0;
       let unrealizedPnl = 0;
       const formattedPositions: DashboardPosition[] = [];
-      
+      // Dust positions (< $1 notional) clutter the dashboard with $0 entry
+      // prices left over from broker syncs — filter them out everywhere.
+      const DUST_THRESHOLD_USD = 1;
+
       if (positionsData && positionsData.length > 0) {
         const symbols = [...new Set(positionsData.map(p => p.symbol))];
         const livePrices = await fetchLivePricesForDashboard(symbols);
@@ -184,7 +187,10 @@ export function useDashboardData() {
           const quantity = Number(pos.quantity);
           const entryPrice = Number(pos.avg_entry_price);
           const value = quantity * Number(livePrice);
-          
+
+          // Skip dust — keeps positionsValue, count, and table consistent.
+          if (value < DUST_THRESHOLD_USD) return;
+
           positionsValue += value;
           
           // Calculate unrealized P&L
@@ -301,7 +307,7 @@ export function useDashboardData() {
           weeklyPnlPercent,
           totalPnl: accountPnl,
           totalPnlPercent,
-          openPositions: positionsCount || 0,
+          openPositions: formattedPositions.length,
           todayTrades: todayTradesCount,
           tradingMode,
         });
