@@ -642,28 +642,63 @@ async function executeCoinbaseBuy(symbol: string, usdAmount: number, fallbackPri
       const avgPrice = parseFloat(result.order?.average_filled_price || currentPrice.toString());
       const orderStatus = result.order?.status;
       const acceptedOrderId = result.success_response?.order_id || result.order_id;
-      const expectedQty = currentPrice > 0 ? usdAmount / currentPrice : 0;
-      
-      if (acceptedOrderId && expectedQty > 0 && !result.order) {
-        console.log(`⏳ LIMIT ORDER ACCEPTED: ${expectedQty.toFixed(6)} ${baseSymbol} @ $${currentPrice.toFixed(4)} - order ${acceptedOrderId}`);
-        return { success: true, quantity: expectedQty, price: currentPrice };
-      }
-      
-      // For limit orders, check if pending (GTC orders don't fill immediately)
-      if (orderStatus === 'PENDING' || orderStatus === 'OPEN') {
-        // Order placed but not filled yet - this is expected for post_only limit orders
-        // Calculate expected quantity from order
-        console.log(`⏳ LIMIT ORDER PLACED: ${expectedQty.toFixed(6)} ${symbol} @ $${currentPrice.toFixed(4)} - waiting for fill`);
-        return { success: true, quantity: expectedQty, price: currentPrice };
-      }
-      
-      if (filledSize > 0 && avgPrice > 0) {
-        console.log(`✅ REAL BUY SUCCESS: Got ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
+
+      // If we already see a real fill in the immediate response, use it
+      if (filledSize > 0 && avgPrice > 0 && (orderStatus === 'FILLED' || orderStatus === 'DONE')) {
+        console.log(`✅ REAL BUY SUCCESS (immediate): ${filledSize} ${symbol} @ $${avgPrice.toFixed(4)}`);
         return { success: true, quantity: filledSize, price: avgPrice };
-      } else {
-        console.error(`⚠️ Order accepted but not filled for ${symbol}. Status: ${orderStatus}`);
-        return { success: false, error: `Order not filled. Status: ${orderStatus}` };
       }
+
+      // 🛡️ PHANTOM-FILL GUARD
+      // post_only LIMIT orders frequently sit unfilled. Previously we recorded the position
+      // immediately at the limit price → phantom holdings (engine thinks it owns coins it doesn't).
+      // Instead, poll Coinbase for up to ~5s. If filled, record the REAL fill. If not, cancel and skip.
+      if (acceptedOrderId) {
+        console.log(`⏳ Polling fill status for ${acceptedOrderId} (${baseSymbol})...`);
+        let polledFilled = 0;
+        let polledAvg = 0;
+        let polledStatus = orderStatus || 'OPEN';
+        for (let i = 0; i < 5; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            const getUri = `GET api.coinbase.com/api/v3/brokerage/orders/historical/${acceptedOrderId}`;
+            const getJwt = await generateCdpJwt(apiKey, apiSecret, getUri);
+            const ordResp = await fetch(`https://api.coinbase.com/api/v3/brokerage/orders/historical/${acceptedOrderId}`, {
+              headers: { 'Authorization': `Bearer ${getJwt}` },
+            });
+            const ordJson = await ordResp.json();
+            const o = ordJson.order || {};
+            polledStatus = o.status || polledStatus;
+            polledFilled = parseFloat(o.filled_size || '0');
+            polledAvg = parseFloat(o.average_filled_price || '0');
+            if (polledStatus === 'FILLED' || polledStatus === 'DONE' || polledFilled > 0) break;
+            if (polledStatus === 'CANCELLED' || polledStatus === 'EXPIRED' || polledStatus === 'FAILED') break;
+          } catch (_) { /* keep polling */ }
+        }
+
+        if (polledFilled > 0 && polledAvg > 0) {
+          console.log(`✅ REAL BUY FILLED after poll: ${polledFilled} ${baseSymbol} @ $${polledAvg.toFixed(4)}`);
+          return { success: true, quantity: polledFilled, price: polledAvg };
+        }
+
+        // Not filled — cancel to avoid stray resting order, then refuse the trade (no phantom).
+        try {
+          const cancelUri = `POST api.coinbase.com/api/v3/brokerage/orders/batch_cancel`;
+          const cancelJwt = await generateCdpJwt(apiKey, apiSecret, cancelUri);
+          await fetch('https://api.coinbase.com/api/v3/brokerage/orders/batch_cancel', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${cancelJwt}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_ids: [acceptedOrderId] }),
+          });
+          console.log(`🚫 Cancelled unfilled post_only BUY ${acceptedOrderId} (${baseSymbol}) — refusing phantom position`);
+        } catch (e) {
+          console.log(`⚠️ Could not cancel ${acceptedOrderId}:`, e instanceof Error ? e.message : 'unknown');
+        }
+        return { success: false, error: `post_only LIMIT did not fill (status=${polledStatus}) — cancelled to prevent phantom position` };
+      }
+
+      console.error(`⚠️ Order accepted but no order_id returned for ${symbol}.`);
+      return { success: false, error: `No order_id returned. Status: ${orderStatus}` };
     } else {
       const errorMsg = result.error_response?.message || result.error_response?.preview_failure_reason || result.error || JSON.stringify(result);
       console.error(`❌ Coinbase buy failed for ${symbol}:`, errorMsg);
