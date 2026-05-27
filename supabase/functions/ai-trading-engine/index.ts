@@ -3414,14 +3414,11 @@ serve(async (req) => {
         0
       );
       
-      // Live buys must include a protective stop for risk validation.
-      // Use the small-account scalp stop (-2%) while keeping the validation
-      // risk within the 1% equity risk budget enforced by RiskManager.
-      const maxRiskPerTradePct = 1;
-      const maxStopDistancePct = Math.max(
-        0.0025,
-        Math.min(0.02, (balance * (maxRiskPerTradePct / 100)) / prePositionValue)
-      );
+      // 🔒 STRICT STOP-LOSS: use scalp_settings.hard_stop_loss_pct exactly (not the 1%-risk-budget calc).
+      // AI cannot widen the stop. Fallback to 2% only if config missing.
+      const strictHardStopPct = Number(scalpCfg.hard_stop_loss_pct || 2);
+      const maxStopDistancePct = Math.max(0.0025, strictHardStopPct / 100);
+
       const defaultStopLoss = decision.action === 'buy'
         ? actualEntryPrice * (1 - maxStopDistancePct)
         : undefined;
