@@ -2127,15 +2127,118 @@ Rules:
 // Detect market regime based on price action
 function detectMarketRegime(marketData: MarketData[]): string {
   if (marketData.length === 0) return 'ranging';
-  
+
   const avgChange = marketData.reduce((sum, m) => sum + m.change24h, 0) / marketData.length;
   const volatility = Math.sqrt(marketData.reduce((sum, m) => sum + Math.pow(m.change24h - avgChange, 2), 0) / marketData.length);
-  
+
   if (volatility > 8) return 'high_volatility';
   if (volatility < 2) return 'low_volatility';
   if (avgChange > 3) return 'trending';
   if (avgChange < -3) return 'trending';
   return 'ranging';
+}
+
+/**
+ * Richer regime profile used to drive policy (size, slots, strategy, stand-down).
+ * Independent of the DB enum so we can express "dead" and "volatile" without schema changes.
+ *
+ *  - trending_up      → aggressive scalping, full slots
+ *  - trending_down    → reduced size, allow shorts only / tight stops
+ *  - ranging          → grid / mean-reversion preferred, normal size
+ *  - volatile         → reduced size + slots, raise confidence floor
+ *  - dead             → no trading this cycle (insufficient movement to overcome fees)
+ */
+type RegimeProfile = 'trending_up' | 'trending_down' | 'ranging' | 'volatile' | 'dead';
+
+interface RegimeReport {
+  enumRegime: string;          // existing market_regime enum value (for DB)
+  profile: RegimeProfile;      // policy-facing classification
+  avg5mAbs: number;            // mean |5m| change across pool
+  avg1hAbs: number;            // mean |1h| change across pool
+  avg24h: number;              // signed mean 24h change
+  dispersion24h: number;       // stdev of 24h change
+  risersShare: number;         // share of coins with 5m>0
+}
+
+function classifyRegimeProfile(marketData: MarketData[]): RegimeReport {
+  const enumRegime = detectMarketRegime(marketData);
+  if (marketData.length === 0) {
+    return { enumRegime, profile: 'dead', avg5mAbs: 0, avg1hAbs: 0, avg24h: 0, dispersion24h: 0, risersShare: 0 };
+  }
+
+  const c5s = marketData.map(m => Math.abs(m.change5m ?? 0));
+  const c1s = marketData.map(m => Math.abs(m.change1h ?? 0));
+  const c24s = marketData.map(m => m.change24h ?? 0);
+  const avg5mAbs = c5s.reduce((a, b) => a + b, 0) / c5s.length;
+  const avg1hAbs = c1s.reduce((a, b) => a + b, 0) / c1s.length;
+  const avg24h = c24s.reduce((a, b) => a + b, 0) / c24s.length;
+  const dispersion24h = Math.sqrt(c24s.reduce((s, x) => s + Math.pow(x - avg24h, 2), 0) / c24s.length);
+  const risersShare = marketData.filter(m => (m.change5m ?? 0) > 0).length / marketData.length;
+
+  // Dead: nothing is moving fast enough to scalp profitably after fees (~0.2% round-trip).
+  // Require either visible short-window movement or a meaningful 1h drift.
+  if (avg5mAbs < 0.15 && avg1hAbs < 0.4 && dispersion24h < 1.5) {
+    return { enumRegime, profile: 'dead', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+
+  // Dangerous volatility: wide dispersion or huge short-window swings → expect whipsaw
+  if (dispersion24h > 7 || avg5mAbs > 1.2) {
+    return { enumRegime, profile: 'volatile', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+
+  // Trending: directional bias confirmed across multiple horizons
+  if (avg24h > 1.5 && risersShare >= 0.55) {
+    return { enumRegime, profile: 'trending_up', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+  if (avg24h < -1.5 && risersShare <= 0.4) {
+    return { enumRegime, profile: 'trending_down', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+
+  return { enumRegime, profile: 'ranging', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+}
+
+/**
+ * Regime-driven policy: strategy preference, position sizing, slot count, confidence floor.
+ * This is the long-term "learn the market state, adapt behavior" layer.
+ */
+interface RegimePolicy {
+  strategy: 'scalp' | 'grid' | 'none';
+  sizeMultiplier: number;       // applied to dynMaxPositionSize
+  slotMultiplier: number;       // applied to dynMaxConcurrent
+  minConfidenceBoost: number;   // added to the AI/rule confidence floor
+  skipTrading: boolean;         // dead market → stand down
+  rationale: string;
+}
+
+function getRegimePolicy(report: RegimeReport): RegimePolicy {
+  switch (report.profile) {
+    case 'dead':
+      return {
+        strategy: 'none', sizeMultiplier: 0, slotMultiplier: 0, minConfidenceBoost: 0, skipTrading: true,
+        rationale: `Dead market — avg|5m| ${report.avg5mAbs.toFixed(2)}%, avg|1h| ${report.avg1hAbs.toFixed(2)}%. Movement too small to clear fees; standing down.`,
+      };
+    case 'volatile':
+      return {
+        strategy: 'scalp', sizeMultiplier: 0.5, slotMultiplier: 0.5, minConfidenceBoost: 0.15, skipTrading: false,
+        rationale: `Volatile regime — dispersion ${report.dispersion24h.toFixed(1)}%. Reduced size and slots, raised confidence floor.`,
+      };
+    case 'trending_up':
+      return {
+        strategy: 'scalp', sizeMultiplier: 1.2, slotMultiplier: 1.0, minConfidenceBoost: -0.05, skipTrading: false,
+        rationale: `Trend-up — avg24h ${report.avg24h.toFixed(2)}%, ${(report.risersShare * 100).toFixed(0)}% rising. Aggressive scalping.`,
+      };
+    case 'trending_down':
+      return {
+        strategy: 'scalp', sizeMultiplier: 0.4, slotMultiplier: 0.4, minConfidenceBoost: 0.2, skipTrading: false,
+        rationale: `Trend-down — avg24h ${report.avg24h.toFixed(2)}%. Only highest-conviction longs, small size.`,
+      };
+    case 'ranging':
+    default:
+      return {
+        strategy: 'grid', sizeMultiplier: 0.8, slotMultiplier: 1.0, minConfidenceBoost: 0.05, skipTrading: false,
+        rationale: `Ranging — avg24h ${report.avg24h.toFixed(2)}%, dispersion ${report.dispersion24h.toFixed(1)}%. Grid/mean-reversion preferred.`,
+      };
+  }
 }
 
 // SCALPING ONLY: Traditional strategies (RSI/EMA/MACD/grid/DCA/breakout) are disabled.
