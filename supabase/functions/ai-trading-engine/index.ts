@@ -1852,38 +1852,38 @@ async function filterByTrend(
     }
   }));
 
-  // SHORT-WINDOW MOMENTUM GATE — only buy when price is currently rising
+  // LIQUIDITY-AWARE AI-DECIDES GATE — let the AI pick; only block hard chase / no-data.
   const scalpCandidates = candleTargets.filter(coin => {
     const c5 = coin.change5m;
     const c1h = coin.change1h ?? 0;
     const c24 = coin.change24h ?? 0;
+    const vol = coin.volume24h ?? 0;
 
-    // Hard requirement: last 5m must be UP (when we have data). This is the falling-knife guard.
     if (c5 === undefined) {
-      console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm current momentum)`);
+      console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm momentum)`);
       return false;
     }
-    const momentumStatus = getEntryMomentumStatus(coin, cfg);
-    if (!momentumStatus.ok) {
-      console.log(`🚫 SHORT-WINDOW DOWN: ${coin.symbol} 5m ${c5.toFixed(2)}% / 1h ${c1h.toFixed(2)}% / 24h ${c24.toFixed(2)}% — falling knife, skipping (need rising short-window confirmation)`);
-      return false;
-    }
-    if (c5 > 1.5) {
+    // Hard chase guard: don't buy a candle that already ripped >2.5% in 5m
+    if (c5 > 2.5) {
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    console.log(`✅ RISING (${momentumStatus.mode}): ${coin.symbol} 5m +${c5.toFixed(2)}% | 1h +${c1h.toFixed(2)}% | 24h +${c24.toFixed(2)}%`);
+    // Liquidity floor — AI needs depth to exit cleanly
+    if (vol > 0 && vol < 500_000) {
+      console.log(`💧 LOW LIQUIDITY: ${coin.symbol} 24h vol $${(vol/1000).toFixed(0)}k — skipping`);
+      return false;
+    }
+    console.log(`🤖 AI-CANDIDATE: ${coin.symbol} 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}% | vol $${(vol/1e6).toFixed(2)}M`);
     return true;
   });
 
-  // Rank by current strength (5m desc, then 1h desc) so the strongest live mover wins the slot
+  // Rank by liquidity-weighted momentum: rising movers with depth first, then any liquid mover.
   scalpCandidates.sort((a, b) => {
-    const d5 = (b.change5m ?? 0) - (a.change5m ?? 0);
-    if (Math.abs(d5) > 0.05) return d5;
-    return (b.change1h ?? 0) - (a.change1h ?? 0);
+    const score = (c: MarketData) => (c.change5m ?? 0) * 2 + (c.change1h ?? 0) + Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
+    return score(b) - score(a);
   });
 
-  console.log(`🎯 SCALP MOMENTUM FILTER: ${scalpCandidates.length} rising candidates`);
+  console.log(`🎯 AI-DECIDES POOL: ${scalpCandidates.length} liquid candidates handed to AI`);
 
   const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
