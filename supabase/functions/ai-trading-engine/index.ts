@@ -3401,12 +3401,22 @@ serve(async (req) => {
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
     let decisions = await analyzeWithAI(prioritizedTradeable, balance, dynMaxPositionSize, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
 
-    // Fallback to strategy-specific rule-based if AI returns nothing.
-    // In ranging markets the policy prefers grid; in trending/volatile we stay with scalp.
+    // Fallback cascade: AI → policy strategy → scalp (momentum) → ema_crossover.
+    // Don't stand down just because grid can't find a range entry — if any coin shows
+    // confirmed short-window upside, take it. Safety filters downstream still apply.
     if (decisions.length === 0) {
-      const ruleStrategy = regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy;
-      console.log(`📊 AI returned no decisions, using rule-based ${ruleStrategy} (regime=${regimeReport.profile})`);
-      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, ruleStrategy);
+      const policyStrategy = regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy;
+      console.log(`📊 AI returned no decisions, trying rule-based ${policyStrategy} (regime=${regimeReport.profile})`);
+      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy);
+
+      if (decisions.length === 0 && policyStrategy !== 'scalp') {
+        console.log(`📊 ${policyStrategy} found nothing, cascading to scalp momentum fallback`);
+        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, 'scalp');
+      }
+      if (decisions.length === 0) {
+        console.log(`📊 scalp found nothing, cascading to ema_crossover momentum fallback`);
+        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, 'ema_crossover');
+      }
     }
 
     // Apply regime-driven confidence floor — in volatile/down-trending regimes we only act on high-conviction setups.
