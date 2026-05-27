@@ -28,6 +28,8 @@ import { Button } from '@/components/ui/button';
 
 const primaryNav = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/fusion', icon: Brain, label: 'Titan Fusion' },
+  { path: '/crypto-signals', icon: TrendingUp, label: 'Signals' },
   { path: '/ai-trader', icon: Bot, label: 'Scalper' },
   { path: '/leverage', icon: Zap, label: 'Leverage' },
   { path: '/risk-management', icon: Shield, label: 'Risk' },
