@@ -74,13 +74,17 @@ Deno.serve(async (req) => {
         .map((m) => {
           let outcomes: string[] = [];
           let prices: number[] = [];
+          let tokenIds: string[] = [];
           try {
             outcomes = JSON.parse(m.outcomes ?? '[]');
             prices = JSON.parse(m.outcomePrices ?? '[]').map((p: string) => Number(p));
+            tokenIds = JSON.parse(m.clobTokenIds ?? '[]');
           } catch (_) { /* ignore parse errors */ }
 
           const yesIdx = outcomes.findIndex((o) => o?.toLowerCase() === 'yes');
-          const yesProb = yesIdx >= 0 ? prices[yesIdx] : prices[0] ?? null;
+          const effectiveIdx = yesIdx >= 0 ? yesIdx : 0;
+          const yesProb = prices[effectiveIdx] ?? null;
+          const yesTokenId = tokenIds[effectiveIdx] ?? null;
 
           return {
             event_id: e.id,
@@ -90,6 +94,8 @@ Deno.serve(async (req) => {
             slug: m.slug ?? e.slug,
             outcomes,
             prices,
+            clob_token_ids: tokenIds,
+            yes_token_id: yesTokenId,
             yes_probability: yesProb,
             volume: Number(m.volume ?? e.volume ?? 0),
             liquidity: Number(m.liquidity ?? e.liquidity ?? 0),
