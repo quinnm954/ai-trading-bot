@@ -1861,21 +1861,21 @@ async function filterByTrend(
     const c24 = coin.change24h ?? 0;
     const vol = coin.volume24h ?? 0;
 
-    if (c5 === undefined) {
-      console.log(`⏭️  NO 5m DATA: ${coin.symbol} — skipping (cannot confirm momentum)`);
+    if (c5 === undefined && c1h === 0 && c24 === 0) {
+      console.log(`⏭️  NO DATA: ${coin.symbol} — skipping (no momentum signal at all)`);
       return false;
     }
-    // Hard chase guard: don't buy a candle that already ripped >2.5% in 5m
-    if (c5 > 2.5) {
+    // Hard chase guard: don't buy a candle that already ripped >4% in 5m
+    if (c5 !== undefined && c5 > 4) {
       console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
       return false;
     }
-    // Liquidity floor — AI needs depth to exit cleanly
-    if (vol > 0 && vol < 500_000) {
+    // Liquidity floor — AI needs depth to exit cleanly (relaxed to widen pool)
+    if (vol > 0 && vol < 100_000) {
       console.log(`💧 LOW LIQUIDITY: ${coin.symbol} 24h vol $${(vol/1000).toFixed(0)}k — skipping`);
       return false;
     }
-    console.log(`🤖 AI-CANDIDATE: ${coin.symbol} 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}% | vol $${(vol/1e6).toFixed(2)}M`);
+    console.log(`🤖 AI-CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}% | vol $${(vol/1e6).toFixed(2)}M`);
     return true;
   });
 
