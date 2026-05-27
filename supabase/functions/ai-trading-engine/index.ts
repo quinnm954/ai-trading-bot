@@ -2127,15 +2127,118 @@ Rules:
 // Detect market regime based on price action
 function detectMarketRegime(marketData: MarketData[]): string {
   if (marketData.length === 0) return 'ranging';
-  
+
   const avgChange = marketData.reduce((sum, m) => sum + m.change24h, 0) / marketData.length;
   const volatility = Math.sqrt(marketData.reduce((sum, m) => sum + Math.pow(m.change24h - avgChange, 2), 0) / marketData.length);
-  
+
   if (volatility > 8) return 'high_volatility';
   if (volatility < 2) return 'low_volatility';
   if (avgChange > 3) return 'trending';
   if (avgChange < -3) return 'trending';
   return 'ranging';
+}
+
+/**
+ * Richer regime profile used to drive policy (size, slots, strategy, stand-down).
+ * Independent of the DB enum so we can express "dead" and "volatile" without schema changes.
+ *
+ *  - trending_up      → aggressive scalping, full slots
+ *  - trending_down    → reduced size, allow shorts only / tight stops
+ *  - ranging          → grid / mean-reversion preferred, normal size
+ *  - volatile         → reduced size + slots, raise confidence floor
+ *  - dead             → no trading this cycle (insufficient movement to overcome fees)
+ */
+type RegimeProfile = 'trending_up' | 'trending_down' | 'ranging' | 'volatile' | 'dead';
+
+interface RegimeReport {
+  enumRegime: string;          // existing market_regime enum value (for DB)
+  profile: RegimeProfile;      // policy-facing classification
+  avg5mAbs: number;            // mean |5m| change across pool
+  avg1hAbs: number;            // mean |1h| change across pool
+  avg24h: number;              // signed mean 24h change
+  dispersion24h: number;       // stdev of 24h change
+  risersShare: number;         // share of coins with 5m>0
+}
+
+function classifyRegimeProfile(marketData: MarketData[]): RegimeReport {
+  const enumRegime = detectMarketRegime(marketData);
+  if (marketData.length === 0) {
+    return { enumRegime, profile: 'dead', avg5mAbs: 0, avg1hAbs: 0, avg24h: 0, dispersion24h: 0, risersShare: 0 };
+  }
+
+  const c5s = marketData.map(m => Math.abs(m.change5m ?? 0));
+  const c1s = marketData.map(m => Math.abs(m.change1h ?? 0));
+  const c24s = marketData.map(m => m.change24h ?? 0);
+  const avg5mAbs = c5s.reduce((a, b) => a + b, 0) / c5s.length;
+  const avg1hAbs = c1s.reduce((a, b) => a + b, 0) / c1s.length;
+  const avg24h = c24s.reduce((a, b) => a + b, 0) / c24s.length;
+  const dispersion24h = Math.sqrt(c24s.reduce((s, x) => s + Math.pow(x - avg24h, 2), 0) / c24s.length);
+  const risersShare = marketData.filter(m => (m.change5m ?? 0) > 0).length / marketData.length;
+
+  // Dead: nothing is moving fast enough to scalp profitably after fees (~0.2% round-trip).
+  // Require either visible short-window movement or a meaningful 1h drift.
+  if (avg5mAbs < 0.15 && avg1hAbs < 0.4 && dispersion24h < 1.5) {
+    return { enumRegime, profile: 'dead', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+
+  // Dangerous volatility: wide dispersion or huge short-window swings → expect whipsaw
+  if (dispersion24h > 7 || avg5mAbs > 1.2) {
+    return { enumRegime, profile: 'volatile', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+
+  // Trending: directional bias confirmed across multiple horizons
+  if (avg24h > 1.5 && risersShare >= 0.55) {
+    return { enumRegime, profile: 'trending_up', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+  if (avg24h < -1.5 && risersShare <= 0.4) {
+    return { enumRegime, profile: 'trending_down', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+  }
+
+  return { enumRegime, profile: 'ranging', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
+}
+
+/**
+ * Regime-driven policy: strategy preference, position sizing, slot count, confidence floor.
+ * This is the long-term "learn the market state, adapt behavior" layer.
+ */
+interface RegimePolicy {
+  strategy: 'scalp' | 'grid' | 'none';
+  sizeMultiplier: number;       // applied to dynMaxPositionSize
+  slotMultiplier: number;       // applied to dynMaxConcurrent
+  minConfidenceBoost: number;   // added to the AI/rule confidence floor
+  skipTrading: boolean;         // dead market → stand down
+  rationale: string;
+}
+
+function getRegimePolicy(report: RegimeReport): RegimePolicy {
+  switch (report.profile) {
+    case 'dead':
+      return {
+        strategy: 'none', sizeMultiplier: 0, slotMultiplier: 0, minConfidenceBoost: 0, skipTrading: true,
+        rationale: `Dead market — avg|5m| ${report.avg5mAbs.toFixed(2)}%, avg|1h| ${report.avg1hAbs.toFixed(2)}%. Movement too small to clear fees; standing down.`,
+      };
+    case 'volatile':
+      return {
+        strategy: 'scalp', sizeMultiplier: 0.5, slotMultiplier: 0.5, minConfidenceBoost: 0.15, skipTrading: false,
+        rationale: `Volatile regime — dispersion ${report.dispersion24h.toFixed(1)}%. Reduced size and slots, raised confidence floor.`,
+      };
+    case 'trending_up':
+      return {
+        strategy: 'scalp', sizeMultiplier: 1.2, slotMultiplier: 1.0, minConfidenceBoost: -0.05, skipTrading: false,
+        rationale: `Trend-up — avg24h ${report.avg24h.toFixed(2)}%, ${(report.risersShare * 100).toFixed(0)}% rising. Aggressive scalping.`,
+      };
+    case 'trending_down':
+      return {
+        strategy: 'scalp', sizeMultiplier: 0.4, slotMultiplier: 0.4, minConfidenceBoost: 0.2, skipTrading: false,
+        rationale: `Trend-down — avg24h ${report.avg24h.toFixed(2)}%. Only highest-conviction longs, small size.`,
+      };
+    case 'ranging':
+    default:
+      return {
+        strategy: 'grid', sizeMultiplier: 0.8, slotMultiplier: 1.0, minConfidenceBoost: 0.05, skipTrading: false,
+        rationale: `Ranging — avg24h ${report.avg24h.toFixed(2)}%, dispersion ${report.dispersion24h.toFixed(1)}%. Grid/mean-reversion preferred.`,
+      };
+  }
 }
 
 // SCALPING ONLY: Traditional strategies (RSI/EMA/MACD/grid/DCA/breakout) are disabled.
@@ -2987,9 +3090,40 @@ serve(async (req) => {
     // Create a set of stock symbols for later routing
     const stockSymbols = new Set(stockData.map(s => s.symbol));
 
-    // Detect market regime
+    // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
     const regime = detectMarketRegime(marketData);
-    console.log(`📊 Detected market regime: ${regime}`);
+    const regimeReport = classifyRegimeProfile(marketData);
+    const regimePolicy = getRegimePolicy(regimeReport);
+    console.log(`📊 Regime: ${regime} | Profile: ${regimeReport.profile} | avg|5m|=${regimeReport.avg5mAbs.toFixed(2)}% avg|1h|=${regimeReport.avg1hAbs.toFixed(2)}% avg24h=${regimeReport.avg24h.toFixed(2)}% σ24h=${regimeReport.dispersion24h.toFixed(2)}% risers=${(regimeReport.risersShare * 100).toFixed(0)}%`);
+    console.log(`🧭 Policy: ${regimePolicy.rationale}`);
+
+    // 🛑 DEAD MARKET STAND-DOWN — Titan learns when to do nothing.
+    // Movement is too small to overcome fees; opening positions would bleed capital.
+    if (regimePolicy.skipTrading) {
+      await supabase.from('ai_settings').update({
+        current_regime: regime,
+        bot_status: 'idle',
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', user.id);
+
+      await supabase.from('ai_decisions').insert({
+        user_id: user.id,
+        decision_type: 'regime_skip',
+        reasoning: regimePolicy.rationale,
+        market_regime: regime,
+      });
+
+      console.log('💤 STAND-DOWN: Dead market — no new entries this cycle');
+      return new Response(JSON.stringify({
+        status: 'standing_down',
+        reason: regimePolicy.rationale,
+        regime,
+        regimeProfile: regimeReport.profile,
+        regimeReport,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+
 
     // 📈 TREND ANALYSIS - Filter out downtrending coins
     const memeOnly = !!(settings as any).meme_coins_only;
@@ -3253,43 +3387,44 @@ serve(async (req) => {
       const balanceSlots = balance < 200 ? 2 : balance < 1000 ? 4 : balance < 5000 ? 6 : 8;
       dynMaxConcurrent = Math.min(dynMaxConcurrent, balanceSlots);
 
-      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}`);
+      // 🧭 REGIME-DRIVEN OVERLAY — adapt to detected market profile
+      const sizeBefore = dynMaxPositionSize;
+      const slotsBefore = dynMaxConcurrent;
+      dynMaxPositionSize = Math.max(1, Math.round(dynMaxPositionSize * regimePolicy.sizeMultiplier));
+      dynMaxConcurrent = Math.max(1, Math.round(dynMaxConcurrent * regimePolicy.slotMultiplier));
+      console.log(`🧭 Regime overlay (${regimeReport.profile}): size ${sizeBefore}%→${dynMaxPositionSize}% | slots ${slotsBefore}→${dynMaxConcurrent} | strategy=${regimePolicy.strategy}`);
+
+      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime}/${regimeReport.profile} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}`);
     }
 
     const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
     let decisions = await analyzeWithAI(prioritizedTradeable, balance, dynMaxPositionSize, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
-    
-    // Fallback to strategy-specific rule-based if AI returns nothing
+
+    // Fallback to strategy-specific rule-based if AI returns nothing.
+    // In ranging markets the policy prefers grid; in trending/volatile we stay with scalp.
     if (decisions.length === 0) {
-      console.log('📊 AI returned no decisions, using strategy-specific rules');
-      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, bestStrategy);
+      const ruleStrategy = regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy;
+      console.log(`📊 AI returned no decisions, using rule-based ${ruleStrategy} (regime=${regimeReport.profile})`);
+      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, ruleStrategy);
     }
 
-    // SECONDARY FALLBACK — when scalp rules also yielded nothing, let the AI-decides
-    // pool drive a generic momentum buy on the top liquidity-weighted candidate that
-    // has any positive short-window signal. This keeps the bot trading in flat markets.
-    if (decisions.length === 0 && prioritizedTradeable.length > 0) {
-      const pick = prioritizedTradeable.find(c => ((c.change5m ?? 0) > 0) || ((c.change1h ?? 0) > 0.1) || ((c.change24h ?? 0) > 0.5));
-      if (pick) {
-        const c5 = pick.change5m ?? 0;
-        const c1h = pick.change1h ?? 0;
-        const c24 = pick.change24h ?? 0;
-        const conf = Math.min(0.85, 0.55 + Math.max(0, c5) * 0.05 + Math.max(0, c1h) * 0.02);
-        decisions = [{
-          symbol: pick.symbol,
-          action: 'buy',
-          confidence: conf,
-          reason: `🤖 AI-FALLBACK: top liquid mover 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}%`,
-          positionSize: Math.min(dynMaxPositionSize, 6),
-          leverage: optimalLeverage,
-          stopLoss: pick.price * 0.98,
-          takeProfit: pick.price * 1.012,
-          pattern: 'ai_fallback_momentum',
-        } as AITradingDecision];
-        console.log(`🤖 SECONDARY FALLBACK selected ${pick.symbol} to keep bot active`);
+    // Apply regime-driven confidence floor — in volatile/down-trending regimes we only act on high-conviction setups.
+    // Default rule/AI minimum is ~0.6; the policy can raise this to filter weak signals.
+    const minConfidenceFloor = 0.6 + regimePolicy.minConfidenceBoost;
+    if (regimePolicy.minConfidenceBoost > 0 && decisions.length > 0) {
+      const before = decisions.length;
+      decisions = decisions.filter(d => (d.confidence ?? 0) >= minConfidenceFloor);
+      if (decisions.length < before) {
+        console.log(`🧭 Regime confidence filter (≥${minConfidenceFloor.toFixed(2)}): ${decisions.length}/${before} survived`);
       }
     }
+
+    // NOTE: Previously there was a "force a trade" secondary fallback here.
+    // Removed in favor of regime-aware behavior — Titan now learns when to stand down
+    // (dead markets) rather than manufacturing entries with no edge.
+
+
 
     // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money (relaxed: 2h cooldown, 3 losses cap)
     const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 2, 3);
