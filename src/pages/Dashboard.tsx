@@ -337,6 +337,9 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Meme-coins-only toggle */}
+      <MemeCoinsOnlyToggle />
+
       {/* Market Ticker */}
       <MarketTicker tradingMode={stats.tradingMode} positions={positions} isLoading={isLoading} />
 
