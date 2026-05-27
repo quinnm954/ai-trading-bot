@@ -1,69 +1,77 @@
-## What exists today
-- Regime detection, strategy switching, leverage trading, per-trade liquidation estimates, basic `grid` strategy, basic volatility (24h range).
+# Aligning Titan AI to the Roadmap
 
-## What I'll add
+I audited the codebase against your 3-stage picture. Here's the gap analysis and what I'll build.
 
-### 1. Dynamic Grid Strategy
-Replace the always-enter grid with an ATR-tuned grid that adapts to current range and regime.
+## Audit vs. roadmap
 
-- New helper `computeDynamicGrid(symbol, priceHistory, regime)` in `ai-trading-engine`:
-  - Compute ATR(14) and recent high/low range
-  - Grid spacing = `ATR × multiplier` (multiplier: 0.5 in low-vol, 1.0 ranging, 1.5 high-vol)
-  - Number of levels = clamp(range / spacing, 3, 12)
-  - Center grid on VWAP / mid-price
-- Only activates when regime is `ranging` or `low_volatility` (best fit for grids)
-- Auto-rebalance: if price breaks ±2× ATR outside grid bounds, the engine recomputes the grid on next cycle
-- Persist active grid layout in a new table `grid_layouts` (symbol, levels jsonb, spacing, regime, updated_at) so the UI can visualize it
+**Stage 1 — Coinbase scalper** ✅ Complete
+- trend scalping (ema_crossover, macd, trend_breakout) ✅
+- breakout scalping (volatility_breakout) ✅
+- volatility detection (shared volatility profile) ✅
+- risk engine (risk-manager) ✅
 
-### 2. Liquidation-Map Analysis (hybrid)
-Aggregate liquidation clusters and bias the AI toward fade zones / away from magnets.
+**Stage 2 — Polymarket intelligence** ⚠️ Partial
+- sentiment feed ✅ (just shipped `polymarket-signals`)
+- event scanner ❌ — no countdown / high-impact filter
+- AI confidence scoring ❌
 
-- New table `liquidation_map` (symbol, price_level, side, cluster_size_usd, source, updated_at)
-- New edge function `liquidation-map-scanner` (cron every 5 min):
-  - **Internal**: scan all open `positions` + `futures_positions` + their leverage to compute implied liq prices; bucket into price bins per symbol
-  - **External (toggleable)**: optional Coinglass-style API — gated behind a new `LIQUIDATION_API_KEY` secret. If absent, internal-only mode works fine.
-- AI integration in `ai-trading-engine`:
-  - Pre-trade check: if entry is within 0.5% of a large opposite-side liq cluster (magnet risk), reduce size 50% or skip
-  - Take-profit nudge: if a same-side cluster sits just above entry, set TP just below it (price tends to wick to liquidations)
-- UI: new `LiquidationMapCard` on `CryptoSignals.tsx` showing top clusters per symbol as a horizontal heatmap
+**Stage 3 — AI fusion** ⚠️ Partial
+- Polymarket sentiment ✅
+- liquidation maps ✅
+- technicals ✅ (in trading engine)
+- volume analysis ✅ (moonshot + learning)
+- X/Twitter trends ❌ (only CoinGecko-derived sentiment, not social)
+- news feeds ❌
+- **Fusion layer** ❌ (no single AI call combining all signals into one conviction)
 
-### 3. Dynamic Leverage Scaling
-Make `leverage_settings.max_leverage_cap` an upper bound, with effective leverage scaled by volatility + regime.
+## What I'll build
 
-- New helper `computeEffectiveLeverage(regime, atrPct, userCap)`:
-  - `high_volatility` or `news_driven` → effective = min(userCap, 2)
-  - `trending` + low ATR% → effective = userCap
-  - `ranging` → effective = min(userCap, userCap × 0.6)
-  - `low_volatility` → effective = userCap (but small position sizes)
-- Wire into `LeverageTrading.tsx` calculator and into any leverage-aware trade sizing in `ai-trading-engine`
-- Show "Effective leverage now: Nx (capped by {reason})" badge on the Leverage page
+### 1. Polymarket event scanner + AI confidence (Stage 2)
+- Extend `polymarket-signals` to flag **high-impact crypto events** within next 30 days (ETF rulings, halvings, SEC decisions) using volume + keyword filters
+- New edge function `polymarket-ai-score` calls Lovable AI (gemini-3-flash-preview) on each event → returns `{ conviction: 0-100, direction: bullish/bearish/neutral, rationale }` for BTC/ETH/SOL
+- Cache scores in new `polymarket_event_scores` table (1h TTL)
+- UI: new "Event Scanner" sub-tab inside the Polymarket card showing event + countdown + AI conviction badge
 
-### 4. Shared volatility signal
-Centralize ATR / volatility classification in a single helper (`computeVolatilityProfile`) used by all three features and by regime detection, so they stay consistent.
+### 2. News feed ingestion (Stage 3)
+- New edge function `crypto-news-scanner` pulls CryptoPanic-style free RSS (CoinDesk + Cointelegraph + Decrypt public feeds — no key needed)
+- Stores latest 50 items in new `news_feed` table with `symbols[]`, `sentiment` (lightweight keyword), `published_at`
+- Cron every 15 min
+- UI: new "News" tab on Crypto Signals page
+
+### 3. X/Twitter trends (Stage 3)
+- Twitter's public API now requires a paid key. Options:
+  - **(a) Skip for now** — keep CoinGecko-derived sentiment as proxy and label it "Social Proxy" honestly
+  - **(b) Add later** — wire a `TWITTER_BEARER_TOKEN` secret when you're ready
+- I'll go with **(a)** by default and leave a clean stub; tell me if you want me to set up (b) now.
+
+### 4. Titan AI Fusion engine (Stage 3 — the headline piece)
+- New edge function `titan-fusion-engine` runs every 5 min, per top-20 crypto:
+  1. Pulls Polymarket conviction (from #1)
+  2. Pulls news sentiment (from #2)
+  3. Pulls liquidation map proximity
+  4. Pulls technicals from trading engine (RSI, EMA, volatility)
+  5. Pulls volume analysis
+  6. Calls Lovable AI with all features → single JSON: `{ symbol, conviction: 0-100, direction, top_drivers: [...], horizon }`
+- Stores in new `titan_fusion_signals` table
+- AI trading engine reads these as an additional gate (high conviction can boost size within risk caps; low conviction blocks)
+
+### 5. Titan AI Fusion dashboard
+- New page `/fusion` (or new tab on Dashboard) showing the top 10 fusion signals ranked by conviction
+- Each row: symbol, conviction bar, direction arrow, top 3 drivers (chips), AI rationale tooltip
+- Auto-refresh every 60s
 
 ## Files
 
-**New**
-- `supabase/functions/liquidation-map-scanner/index.ts`
-- `src/components/trading/LiquidationMapCard.tsx`
-- `src/hooks/useLiquidationMap.ts`
-- `src/lib/volatility.ts` (shared ATR / vol-profile helper, mirrored in edge function inline)
-
-**Modified**
-- `supabase/functions/ai-trading-engine/index.ts` — dynamic grid, liq-map pre-trade check, effective leverage
-- `supabase/functions/ai-learning-engine/index.ts` — use shared vol profile
-- `src/pages/LeverageTrading.tsx` — effective-leverage display + use in calculator
-- `src/pages/CryptoSignals.tsx` — mount `LiquidationMapCard`
-- `supabase/config.toml` — schedule `liquidation-map-scanner` (cron) if needed
-
-**Migrations**
-- `grid_layouts` table (user_id, symbol, levels jsonb, spacing, center_price, regime, updated_at) + RLS + GRANTs
-- `liquidation_map` table (symbol, price_level, side, cluster_size_usd, source, updated_at) — public-read, service-role write + GRANTs
-
-## Secrets
-- Optional `LIQUIDATION_API_KEY` — only requested if/when you want external data live. Internal mode ships working without it.
+**New edge functions**: `polymarket-ai-score`, `crypto-news-scanner`, `titan-fusion-engine`
+**New tables**: `polymarket_event_scores`, `news_feed`, `titan_fusion_signals`
+**New UI**: `src/pages/Fusion.tsx`, `src/components/trading/FusionSignalCard.tsx`, `src/components/trading/NewsFeedCard.tsx`, `src/hooks/useTitanFusion.ts`, `src/hooks/useCryptoNews.ts`
+**Edits**: `polymarket-signals` (event scanner mode), `ai-trading-engine` (fusion gate), `CryptoSignals.tsx` (News tab), `App.tsx` (route), nav sidebar
 
 ## Out of scope
-- No changes to existing live execution loop, risk-manager kill-switch, or paper-trading defaults.
-- No new strategies beyond the dynamic-grid upgrade.
-- No UI redesign of `LeverageTrading.tsx` beyond the effective-leverage badge.
+- Paid X/Twitter API (skipping until you confirm — option 4(b) above)
+- Changes to scalping strategies, risk caps, live execution, paper defaults
+
+## Estimated impact
+~3 new tables, 3 new edge functions, ~6 new frontend files, 1 new page. Existing scalper + risk engine untouched.
+
+Approve to build, or tell me which sub-pieces to skip.

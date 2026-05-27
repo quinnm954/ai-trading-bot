@@ -1068,6 +1068,42 @@ export type Database = {
         }
         Relationships: []
       }
+      news_feed: {
+        Row: {
+          fetched_at: string
+          id: string
+          published_at: string
+          sentiment: number
+          source: string
+          summary: string | null
+          symbols: string[]
+          title: string
+          url: string
+        }
+        Insert: {
+          fetched_at?: string
+          id?: string
+          published_at: string
+          sentiment?: number
+          source: string
+          summary?: string | null
+          symbols?: string[]
+          title: string
+          url: string
+        }
+        Update: {
+          fetched_at?: string
+          id?: string
+          published_at?: string
+          sentiment?: number
+          source?: string
+          summary?: string | null
+          symbols?: string[]
+          title?: string
+          url?: string
+        }
+        Relationships: []
+      }
       paper_account: {
         Row: {
           balance: number
@@ -1194,6 +1230,51 @@ export type Database = {
           strategy?: string | null
           symbol?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      polymarket_event_scores: {
+        Row: {
+          conviction: number
+          direction: string
+          end_date: string | null
+          event_id: string
+          market_id: string
+          question: string
+          rationale: string | null
+          scored_at: string
+          symbols: string[]
+          url: string | null
+          volume: number | null
+          yes_probability: number | null
+        }
+        Insert: {
+          conviction: number
+          direction: string
+          end_date?: string | null
+          event_id: string
+          market_id: string
+          question: string
+          rationale?: string | null
+          scored_at?: string
+          symbols?: string[]
+          url?: string | null
+          volume?: number | null
+          yes_probability?: number | null
+        }
+        Update: {
+          conviction?: number
+          direction?: string
+          end_date?: string | null
+          event_id?: string
+          market_id?: string
+          question?: string
+          rationale?: string | null
+          scored_at?: string
+          symbols?: string[]
+          url?: string | null
+          volume?: number | null
+          yes_probability?: number | null
         }
         Relationships: []
       }
@@ -1587,6 +1668,42 @@ export type Database = {
           tier?: string
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      titan_fusion_signals: {
+        Row: {
+          conviction: number
+          direction: string
+          drivers: Json
+          features: Json
+          generated_at: string
+          horizon: string
+          id: string
+          rationale: string | null
+          symbol: string
+        }
+        Insert: {
+          conviction: number
+          direction: string
+          drivers?: Json
+          features?: Json
+          generated_at?: string
+          horizon?: string
+          id?: string
+          rationale?: string | null
+          symbol: string
+        }
+        Update: {
+          conviction?: number
+          direction?: string
+          drivers?: Json
+          features?: Json
+          generated_at?: string
+          horizon?: string
+          id?: string
+          rationale?: string | null
+          symbol?: string
         }
         Relationships: []
       }
