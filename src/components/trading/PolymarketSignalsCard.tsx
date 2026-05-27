@@ -101,6 +101,17 @@ export function PolymarketSignalsCard() {
                           Resolves {formatDistanceToNow(new Date(s.end_date), { addSuffix: true })}
                         </span>
                       )}
+                      {s.yes_token_id && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto h-7 px-2 gap-1"
+                          onClick={() => setChartSignal(s)}
+                        >
+                          <CandlestickChart className="w-3.5 h-3.5" />
+                          Candles
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
@@ -110,5 +121,21 @@ export function PolymarketSignalsCard() {
         )}
       </CardContent>
     </Card>
+
+    <Dialog open={!!chartSignal} onOpenChange={(o) => !o && setChartSignal(null)}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="text-base leading-snug">{chartSignal?.question}</DialogTitle>
+          <DialogDescription className="truncate">{chartSignal?.event_title}</DialogDescription>
+        </DialogHeader>
+        {chartSignal?.yes_token_id && (
+          <PolymarketCandleChart
+            tokenId={chartSignal.yes_token_id}
+            outcome={chartSignal.outcomes?.find((o) => o?.toLowerCase() === 'yes') ?? chartSignal.outcomes?.[0]}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
