@@ -1762,6 +1762,18 @@ const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD
 const MAX_PRICE_USD = 1_000_000;
 const MIN_PRICE_USD = 1.0;
 
+// Meme-coin allowlist used when ai_settings.meme_coins_only is true.
+// Price band is relaxed because most memes trade well below $1.
+const MEME_COINS = new Set([
+  'DOGE','SHIB','PEPE','FLOKI','BONK','WIF','MEME','BOME','MEW','POPCAT',
+  'BRETT','NEIRO','TURBO','MOG','SPX','PNUT','GOAT','FARTCOIN','MOODENG','ACT',
+  'CHILLGUY','SLERF','MYRO','BABYDOGE','MUMU','SNEK','AIDOGE','TRUMP','GIGA','PONKE',
+  'MICHI','RETARDIO','DEGEN','TOSHI','KEYCAT','ANDY','MANEKI','SMOG','WEN','LADYS',
+  'APU','HIGHER','MOTHER','DADDY','BAN','DOG','HOPPY','BABYBONK','VOLT','CAT'
+]);
+const MEME_MIN_PRICE_USD = 1e-9;
+const MEME_MAX_PRICE_USD = 100;
+
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
 // =============================================================================
