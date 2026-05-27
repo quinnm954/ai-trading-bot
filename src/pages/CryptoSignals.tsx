@@ -369,6 +369,9 @@ export default function CryptoSignals() {
               <TabsTrigger value="polymarket" className="gap-2">
                 <TrendingUp className="w-4 h-4" /> Polymarket
               </TabsTrigger>
+              <TabsTrigger value="news" className="gap-2">
+                <MessageSquare className="w-4 h-4" /> News
+              </TabsTrigger>
             </TabsList>
 
             {/* Whale Tracking Tab */}
