@@ -2996,7 +2996,71 @@ serve(async (req) => {
       }
     }
 
-    // 👥 COPY TRADING PRIORITY - Boost assets from followed traders' best performing assets
+    // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Polymarket + news + liquidations + technicals)
+    // Re-rank and softly gate tradeable list by latest fusion conviction.
+    const fusionMap = new Map<string, { conviction: number; direction: string; drivers: any; rationale: string | null }>();
+    try {
+      const fusionCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: fusionRows } = await supabase
+        .from('titan_fusion_signals')
+        .select('symbol, conviction, direction, drivers, rationale, generated_at')
+        .gte('generated_at', fusionCutoff)
+        .order('generated_at', { ascending: false });
+
+      if (fusionRows && fusionRows.length > 0) {
+        // Keep latest per symbol
+        for (const row of fusionRows as any[]) {
+          const sym = String(row.symbol).toUpperCase();
+          if (!fusionMap.has(sym)) {
+            fusionMap.set(sym, {
+              conviction: Number(row.conviction) || 0,
+              direction: String(row.direction || 'neutral').toLowerCase(),
+              drivers: row.drivers,
+              rationale: row.rationale ?? null,
+            });
+          }
+        }
+        console.log(`🧠 Titan Fusion: ${fusionMap.size} fresh signals loaded (≤30m old)`);
+
+        // Soft gate: drop tradeable coins explicitly tagged bearish or conviction < 40 by fusion.
+        // Symbols not covered by fusion (e.g. memes) are left untouched.
+        const beforeCount = prioritizedTradeable.length;
+        prioritizedTradeable = prioritizedTradeable.filter((c) => {
+          const f = fusionMap.get(c.symbol.toUpperCase());
+          if (!f) return true; // no fusion data → don't block
+          if (f.direction === 'bearish' || f.direction === 'short') {
+            console.log(`🧠 FUSION VETO: ${c.symbol} — direction=${f.direction}, conviction=${f.conviction}`);
+            return false;
+          }
+          if (f.conviction < 40) {
+            console.log(`🧠 FUSION WEAK: ${c.symbol} — conviction ${f.conviction} < 40, skipping`);
+            return false;
+          }
+          return true;
+        });
+        console.log(`🧠 Fusion gate: ${prioritizedTradeable.length}/${beforeCount} survived`);
+
+        // Re-rank: fusion-scored symbols first by conviction desc; unscored keep prior order at the tail.
+        prioritizedTradeable = [...prioritizedTradeable].sort((a, b) => {
+          const fa = fusionMap.get(a.symbol.toUpperCase());
+          const fb = fusionMap.get(b.symbol.toUpperCase());
+          const ca = fa?.conviction ?? -1;
+          const cb = fb?.conviction ?? -1;
+          if (ca !== cb) return cb - ca;
+          return 0;
+        });
+
+        const topPreview = prioritizedTradeable.slice(0, 8).map((c) => {
+          const f = fusionMap.get(c.symbol.toUpperCase());
+          return f ? `${c.symbol}(🧠${f.conviction}/${f.direction})` : c.symbol;
+        }).join(', ');
+        console.log(`🧠 Fusion-ranked top: ${topPreview}`);
+      } else {
+        console.log('🧠 Titan Fusion: no recent signals available — falling back to base ranking');
+      }
+    } catch (err) {
+      console.warn('🧠 Fusion lookup failed (non-fatal):', err instanceof Error ? err.message : err);
+    }
     const { data: followedTraders } = await supabase
       .from('followed_traders')
       .select('trader_id, is_active')
