@@ -19,6 +19,7 @@ import LeverageTrading from "./pages/LeverageTrading";
 import Backtesting from "./pages/Backtesting";
 import StrategyControlCenter from "./pages/StrategyControlCenter";
 import CryptoSignals from "./pages/CryptoSignals";
+import Fusion from "./pages/Fusion";
 import Trades from "./pages/Trades";
 import ApiKeys from "./pages/ApiKeys";
 import Settings from "./pages/Settings";
