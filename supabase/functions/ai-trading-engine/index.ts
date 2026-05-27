@@ -1758,9 +1758,9 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
 // Stablecoins to exclude from trading
 const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
 
-// Price filter — trade cryptos priced $1–$100
-const MAX_PRICE_USD = 2.0;
-const MIN_PRICE_USD = 0.0001;
+// Price filter — minimum $1, no upper cap (effectively unlimited)
+const MAX_PRICE_USD = 1_000_000;
+const MIN_PRICE_USD = 1.0;
 
 // =============================================================================
 // PARABOLIC MOVE FILTER - Prevents buying assets that have already pumped
@@ -3365,13 +3365,10 @@ serve(async (req) => {
       const maxPositionSize = Number(settings.max_position_size || 10);
       const availableCapital = balance * (maxCapitalUsage / 100);
 
-      // STRICT sizing: always use scalp target_position_size_usd when configured.
-      // AI confidence/size_percent NEVER inflate the trade beyond configured target.
-      const configuredTargetValue = Number(scalpCfg.target_position_size_usd || 0);
+      // Dynamic sizing: use AI-suggested size within maxPositionSize cap.
+      // target_position_size_usd is intentionally ignored — no fixed dollar target.
       const aiSuggestedValue = availableCapital * (Math.min(maxPositionSize, Number((decision as any).size_percent || maxPositionSize)) / 100);
-      const baseValue = configuredTargetValue > 0
-        ? Math.min(configuredTargetValue, availableCapital)
-        : Math.min(aiSuggestedValue, availableCapital);
+      const baseValue = Math.min(aiSuggestedValue, availableCapital);
       const leveragedNotional = baseValue * decisionLeverage;
 
       // Actual capital used — strict: NEVER exceeds baseValue (no confidence multiplier upward).
