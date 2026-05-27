@@ -2917,6 +2917,28 @@ serve(async (req) => {
 
     console.log(`📊 Daily P&L: $${todaysLoss.toFixed(2)} (limit: -$${maxDailyLossAmount.toFixed(2)} on equity $${equityBase.toFixed(2)})`);
 
+    // 🎯 DAILY PROFIT TARGET — $500/day swept to USDC.
+    // Stop opening new positions once realized profit ≥ target; existing positions
+    // continue to be managed by auto-take-profit (sells back to USDC on hit).
+    const DAILY_PROFIT_TARGET = Number((settings as any).daily_profit_target ?? 500);
+    const todaysRealizedProfit = (todaysTrades || []).reduce((sum: number, t: any) => {
+      const pnl = Number(t.pnl) || 0;
+      return pnl > 0 ? sum + pnl : sum;
+    }, 0);
+    const todaysNetPnL = (todaysTrades || []).reduce((sum: number, t: any) => sum + (Number(t.pnl) || 0), 0);
+
+    if (todaysNetPnL >= DAILY_PROFIT_TARGET) {
+      console.log(`🎯 DAILY PROFIT TARGET HIT: net +$${todaysNetPnL.toFixed(2)} ≥ $${DAILY_PROFIT_TARGET}. Pausing new entries; profits stay in USDC.`);
+      return new Response(JSON.stringify({
+        message: `Daily profit target $${DAILY_PROFIT_TARGET} reached`,
+        todaysNetPnL,
+        todaysRealizedProfit,
+        target: DAILY_PROFIT_TARGET,
+        status: 'profit_target_hit',
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    console.log(`🎯 Daily profit progress: net $${todaysNetPnL.toFixed(2)} / target $${DAILY_PROFIT_TARGET} (${((todaysNetPnL / DAILY_PROFIT_TARGET) * 100).toFixed(1)}%)`);
+
     // ==========================================================================
     // MULTI-ASSET MARKET DATA FETCHING
     // PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
