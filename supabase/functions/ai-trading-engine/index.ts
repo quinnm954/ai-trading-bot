@@ -2406,20 +2406,23 @@ function analyzeWithRules(
         }
         break;
         
-      case 'grid':
-        // AGGRESSIVE GRID - Any lower half entry
-        if (pricePosition < 0.35) {
+      case 'grid': {
+        // DYNAMIC GRID — ATR-tuned spacing, regime-aware, entries at discrete levels.
+        const gd = dynamicGridDecision(coin, regime);
+        if (gd.enter) {
           action = 'buy';
-          confidence = 0.85;
-          reason = `📊 GRID SCALP: Low in range (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'grid_deep';
-        } else if (pricePosition < 0.5) {
+          confidence = gd.confidence;
+          reason = gd.reason;
+          pattern = gd.pattern;
+        } else if (pricePosition < 0.35 && (regime === 'ranging' || regime === 'low_volatility')) {
           action = 'buy';
-          confidence = 0.75;
-          reason = `📊 GRID SCALP: Below midpoint (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'grid_mid';
+          confidence = 0.72;
+          reason = `📊 GRID FALLBACK: Low in range (${(pricePosition * 100).toFixed(0)}%)`;
+          pattern = 'grid_low';
         }
         break;
+      }
+
         
       case 'dca':
         // AGGRESSIVE DCA - Accumulate on any dip
