@@ -85,6 +85,7 @@ export type Database = {
           max_drawdown: number | null
           max_leverage: number | null
           max_position_size: number | null
+          meme_coins_only: boolean
           peak_equity: number | null
           prioritize_moonshots: boolean | null
           risk_tolerance: string | null
@@ -117,6 +118,7 @@ export type Database = {
           max_drawdown?: number | null
           max_leverage?: number | null
           max_position_size?: number | null
+          meme_coins_only?: boolean
           peak_equity?: number | null
           prioritize_moonshots?: boolean | null
           risk_tolerance?: string | null
@@ -149,6 +151,7 @@ export type Database = {
           max_drawdown?: number | null
           max_leverage?: number | null
           max_position_size?: number | null
+          meme_coins_only?: boolean
           peak_equity?: number | null
           prioritize_moonshots?: boolean | null
           risk_tolerance?: string | null
