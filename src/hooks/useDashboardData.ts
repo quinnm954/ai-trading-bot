@@ -183,7 +183,12 @@ export function useDashboardData() {
         const livePrices = await fetchLivePricesForDashboard(symbols);
         
         positionsData.forEach(pos => {
-          const livePrice = livePrices[pos.symbol.toUpperCase()] || pos.current_price || pos.avg_entry_price;
+          // If neither CoinGecko nor the broker reports a price, the token
+          // is likely delisted / unsupported — treat as $0 so it gets dust-
+          // filtered instead of inheriting its (now meaningless) entry price.
+          const livePriceRaw = livePrices[pos.symbol.toUpperCase()];
+          const brokerPrice = Number(pos.current_price);
+          const livePrice = livePriceRaw ?? (brokerPrice > 0 ? brokerPrice : 0);
           const quantity = Number(pos.quantity);
           const entryPrice = Number(pos.avg_entry_price);
           const value = quantity * Number(livePrice);
