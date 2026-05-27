@@ -3200,7 +3200,7 @@ serve(async (req) => {
     const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
     
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
-    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance);
+    let decisions = await analyzeWithAI(prioritizedTradeable, balance, settings.max_position_size, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
     
     // Fallback to strategy-specific rule-based if AI returns nothing
     if (decisions.length === 0) {
