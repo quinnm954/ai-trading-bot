@@ -3318,27 +3318,33 @@ serve(async (req) => {
         coinData.change1h = momentumStatus.c1h;
       }
 
-      // 🚀 AUTONOMOUS LEVERAGED TRADING - Uses YOUR configured parameters
+      // 🔒 STRICT MODE — ignore AI-suggested overrides; obey scalp_settings + ai_settings exactly.
       const MIN_TRADE_VALUE = 1.00;
-      const decisionLeverage = (decision as any).leverage || optimalLeverage || 1;
-      const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
-      
-      // Use YOUR max_capital_usage setting (not hardcoded 80%)
-      const maxCapitalUsage = settings.max_capital_usage || 80;
-      const maxPositionSize = settings.max_position_size || 10;
+      const userMaxLeverage = Number(settings.max_leverage || 1);
+      // Hard-clamp leverage to user's configured max (AI cannot exceed it)
+      const decisionLeverage = Math.max(1, Math.min(
+        Number((decision as any).leverage || optimalLeverage || 1),
+        userMaxLeverage
+      ));
+      const maxCapitalUsage = Number(settings.max_capital_usage || 80);
+      const maxPositionSize = Number(settings.max_position_size || 10);
       const availableCapital = balance * (maxCapitalUsage / 100);
-      
-      // Calculate position value respecting scalp sizing first, then broader risk settings.
+
+      // STRICT sizing: always use scalp target_position_size_usd when configured.
+      // AI confidence/size_percent NEVER inflate the trade beyond configured target.
       const configuredTargetValue = Number(scalpCfg.target_position_size_usd || 0);
-      const baseValue = (configuredTargetValue > 0 && !(decision as any)._topup)
+      const aiSuggestedValue = availableCapital * (Math.min(maxPositionSize, Number((decision as any).size_percent || maxPositionSize)) / 100);
+      const baseValue = configuredTargetValue > 0
         ? Math.min(configuredTargetValue, availableCapital)
-        : availableCapital * (decisionSizePercent / 100);
+        : Math.min(aiSuggestedValue, availableCapital);
       const leveragedNotional = baseValue * decisionLeverage;
-      
-      // Actual capital used = base value, capped by YOUR max_capital_usage
+
+      // Actual capital used — strict: NEVER exceeds baseValue (no confidence multiplier upward).
       let tradeValue = (decision as any)._topup
         ? Math.max((decision as any)._topupSpend || MIN_TRADE_VALUE, MIN_TRADE_VALUE)
-        : Math.max(Math.min(baseValue * decision.confidence, availableCapital), MIN_TRADE_VALUE);
+        : Math.max(Math.min(baseValue, availableCapital), MIN_TRADE_VALUE);
+
+
 
       // 🛡️ HARD SCALP CAP: each new scalp ≤ SCALP_MAX_POSITION_PCT of equity
       // (skip for top-ups, which intentionally add to existing positions)
