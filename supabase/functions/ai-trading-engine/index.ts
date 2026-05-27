@@ -3260,6 +3260,27 @@ serve(async (req) => {
         continue;
       }
 
+      // 🛡️ PRICE-FEED CONFIRMATION GUARD
+      // Refuse to open BUY on symbols whose live price feed can't be confirmed.
+      // Requires a Coinbase productId (proves the symbol is tradable AND will be
+      // monitored by auto-take-profit / hard-stop). Blind positions = unmonitored = catastrophic loss.
+      if (side === 'buy' && !(decision as any)._topup) {
+        if (!coinData.productId || !(Number(coinData.price) > 0)) {
+          console.log(`🛡️ SKIP ${symbolUpper}: no confirmed Coinbase price feed (productId=${coinData.productId ?? 'none'}, price=${coinData.price}). Refusing blind entry.`);
+          try {
+            await supabaseClient.from('risk_events').insert({
+              user_id: userId,
+              event_type: 'price_feed_guard',
+              severity: 'warning',
+              message: `Blocked BUY ${symbolUpper}: no confirmed Coinbase price feed`,
+              details: { symbol: symbolUpper, productId: coinData.productId ?? null, price: coinData.price ?? null },
+            });
+          } catch (_) { /* non-fatal */ }
+          continue;
+        }
+      }
+
+
       // 🧯 CHASE GUARD: skip if we just exited this symbol at a similar price
       if (side === 'buy' && !(decision as any)._topup) {
         const lastExit = recentExits.get(symbolUpper);
