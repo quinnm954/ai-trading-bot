@@ -56,6 +56,7 @@ const App = () => (
               <Route path="/backtesting" element={<Backtesting />} />
               <Route path="/strategy-control" element={<StrategyControlCenter />} />
               <Route path="/crypto-signals" element={<CryptoSignals />} />
+              <Route path="/fusion" element={<Fusion />} />
               <Route path="/trades" element={<Trades />} />
               <Route path="/api-keys" element={<ApiKeys />} />
               <Route path="/settings" element={<Settings />} />
