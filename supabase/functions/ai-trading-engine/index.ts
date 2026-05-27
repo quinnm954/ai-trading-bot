@@ -3365,13 +3365,10 @@ serve(async (req) => {
       const maxPositionSize = Number(settings.max_position_size || 10);
       const availableCapital = balance * (maxCapitalUsage / 100);
 
-      // STRICT sizing: always use scalp target_position_size_usd when configured.
-      // AI confidence/size_percent NEVER inflate the trade beyond configured target.
-      const configuredTargetValue = Number(scalpCfg.target_position_size_usd || 0);
+      // Dynamic sizing: use AI-suggested size within maxPositionSize cap.
+      // target_position_size_usd is intentionally ignored — no fixed dollar target.
       const aiSuggestedValue = availableCapital * (Math.min(maxPositionSize, Number((decision as any).size_percent || maxPositionSize)) / 100);
-      const baseValue = configuredTargetValue > 0
-        ? Math.min(configuredTargetValue, availableCapital)
-        : Math.min(aiSuggestedValue, availableCapital);
+      const baseValue = Math.min(aiSuggestedValue, availableCapital);
       const leveragedNotional = baseValue * decisionLeverage;
 
       // Actual capital used — strict: NEVER exceeds baseValue (no confidence multiplier upward).
