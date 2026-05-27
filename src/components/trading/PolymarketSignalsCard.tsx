@@ -18,8 +18,10 @@ const fmtUsd = (n: number) => {
 
 export function PolymarketSignalsCard() {
   const { data: signals, isLoading, error, refetch, isFetching } = usePolymarketSignals();
+  const [chartSignal, setChartSignal] = useState<PolymarketSignal | null>(null);
 
   return (
+    <>
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div>
