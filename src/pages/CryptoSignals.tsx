@@ -969,6 +969,10 @@ export default function CryptoSignals() {
             <TabsContent value="polymarket">
               <PolymarketSignalsCard />
             </TabsContent>
+
+            <TabsContent value="news">
+              <NewsFeedCard />
+            </TabsContent>
           </Tabs>
         </div>
     </FeatureGate>
