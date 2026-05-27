@@ -9,6 +9,8 @@ export interface PolymarketSignal {
   slug: string;
   outcomes: string[];
   prices: number[];
+  clob_token_ids: string[];
+  yes_token_id: string | null;
   yes_probability: number | null;
   volume: number;
   liquidity: number;
