@@ -3041,12 +3041,12 @@ serve(async (req) => {
         prioritizedTradeable = prioritizedTradeable.filter((c) => {
           const f = fusionMap.get(c.symbol.toUpperCase());
           if (!f) return true; // no fusion data → don't block
-          if (f.direction === 'bearish' || f.direction === 'short') {
-            console.log(`🧠 FUSION VETO: ${c.symbol} — direction=${f.direction}, conviction=${f.conviction}`);
+          if ((f.direction === 'bearish' || f.direction === 'short') && f.conviction >= 70) {
+            console.log(`🧠 FUSION VETO (strong bearish): ${c.symbol} — conviction=${f.conviction}`);
             return false;
           }
-          if (f.conviction < 40) {
-            console.log(`🧠 FUSION WEAK: ${c.symbol} — conviction ${f.conviction} < 40, skipping`);
+          if (f.conviction < 25) {
+            console.log(`🧠 FUSION VERY WEAK: ${c.symbol} — conviction ${f.conviction} < 25, skipping`);
             return false;
           }
           return true;
