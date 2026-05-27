@@ -3387,43 +3387,44 @@ serve(async (req) => {
       const balanceSlots = balance < 200 ? 2 : balance < 1000 ? 4 : balance < 5000 ? 6 : 8;
       dynMaxConcurrent = Math.min(dynMaxConcurrent, balanceSlots);
 
-      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}`);
+      // 🧭 REGIME-DRIVEN OVERLAY — adapt to detected market profile
+      const sizeBefore = dynMaxPositionSize;
+      const slotsBefore = dynMaxConcurrent;
+      dynMaxPositionSize = Math.max(1, Math.round(dynMaxPositionSize * regimePolicy.sizeMultiplier));
+      dynMaxConcurrent = Math.max(1, Math.round(dynMaxConcurrent * regimePolicy.slotMultiplier));
+      console.log(`🧭 Regime overlay (${regimeReport.profile}): size ${sizeBefore}%→${dynMaxPositionSize}% | slots ${slotsBefore}→${dynMaxConcurrent} | strategy=${regimePolicy.strategy}`);
+
+      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime}/${regimeReport.profile} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}`);
     }
 
     const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
     console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
     let decisions = await analyzeWithAI(prioritizedTradeable, balance, dynMaxPositionSize, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
-    
-    // Fallback to strategy-specific rule-based if AI returns nothing
+
+    // Fallback to strategy-specific rule-based if AI returns nothing.
+    // In ranging markets the policy prefers grid; in trending/volatile we stay with scalp.
     if (decisions.length === 0) {
-      console.log('📊 AI returned no decisions, using strategy-specific rules');
-      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, bestStrategy);
+      const ruleStrategy = regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy;
+      console.log(`📊 AI returned no decisions, using rule-based ${ruleStrategy} (regime=${regimeReport.profile})`);
+      decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, ruleStrategy);
     }
 
-    // SECONDARY FALLBACK — when scalp rules also yielded nothing, let the AI-decides
-    // pool drive a generic momentum buy on the top liquidity-weighted candidate that
-    // has any positive short-window signal. This keeps the bot trading in flat markets.
-    if (decisions.length === 0 && prioritizedTradeable.length > 0) {
-      const pick = prioritizedTradeable.find(c => ((c.change5m ?? 0) > 0) || ((c.change1h ?? 0) > 0.1) || ((c.change24h ?? 0) > 0.5));
-      if (pick) {
-        const c5 = pick.change5m ?? 0;
-        const c1h = pick.change1h ?? 0;
-        const c24 = pick.change24h ?? 0;
-        const conf = Math.min(0.85, 0.55 + Math.max(0, c5) * 0.05 + Math.max(0, c1h) * 0.02);
-        decisions = [{
-          symbol: pick.symbol,
-          action: 'buy',
-          confidence: conf,
-          reason: `🤖 AI-FALLBACK: top liquid mover 5m ${c5.toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}%`,
-          positionSize: Math.min(dynMaxPositionSize, 6),
-          leverage: optimalLeverage,
-          stopLoss: pick.price * 0.98,
-          takeProfit: pick.price * 1.012,
-          pattern: 'ai_fallback_momentum',
-        } as AITradingDecision];
-        console.log(`🤖 SECONDARY FALLBACK selected ${pick.symbol} to keep bot active`);
+    // Apply regime-driven confidence floor — in volatile/down-trending regimes we only act on high-conviction setups.
+    // Default rule/AI minimum is ~0.6; the policy can raise this to filter weak signals.
+    const minConfidenceFloor = 0.6 + regimePolicy.minConfidenceBoost;
+    if (regimePolicy.minConfidenceBoost > 0 && decisions.length > 0) {
+      const before = decisions.length;
+      decisions = decisions.filter(d => (d.confidence ?? 0) >= minConfidenceFloor);
+      if (decisions.length < before) {
+        console.log(`🧭 Regime confidence filter (≥${minConfidenceFloor.toFixed(2)}): ${decisions.length}/${before} survived`);
       }
     }
+
+    // NOTE: Previously there was a "force a trade" secondary fallback here.
+    // Removed in favor of regime-aware behavior — Titan now learns when to stand down
+    // (dead markets) rather than manufacturing entries with no edge.
+
+
 
     // 🛡️ LOSS PREVENTION FILTER - Block symbols that recently lost money (relaxed: 2h cooldown, 3 losses cap)
     const lossCooldownMap = await getRecentLosingSymbols(supabase, user.id, isPaperMode, 2, 3);
