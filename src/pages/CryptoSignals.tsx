@@ -961,6 +961,10 @@ export default function CryptoSignals() {
             <TabsContent value="liqmap">
               <LiquidationMapCard limit={20} />
             </TabsContent>
+
+            <TabsContent value="polymarket">
+              <PolymarketSignalsCard />
+            </TabsContent>
           </Tabs>
         </div>
     </FeatureGate>
