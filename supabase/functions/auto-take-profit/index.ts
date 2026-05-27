@@ -961,10 +961,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     .select('take_profit_pct, trailing_drop_pct, hard_stop_loss_pct')
     .eq('user_id', userId)
     .maybeSingle();
-  const cfgTakeProfitPct = Number(scalpRow?.take_profit_pct) > 0 ? Number(scalpRow.take_profit_pct) : HARD_TAKE_PROFIT_PCT;
+  const rawTakeProfitPct = Number(scalpRow?.take_profit_pct) > 0 ? Number(scalpRow.take_profit_pct) : HARD_TAKE_PROFIT_PCT;
+  // 💸 LIVE FEE BUFFER: live trades pay ~0.4% maker buy + ~0.4% maker sell (worse on taker fills)
+  // plus slippage. Add a ~1.0% buffer to TP in live so a "win" actually clears fees.
+  // Paper has no fees → use raw config so paper matches user expectations.
+  const LIVE_FEE_BUFFER_PCT = 1.0;
+  const cfgTakeProfitPct = isPaperMode ? rawTakeProfitPct : (rawTakeProfitPct + LIVE_FEE_BUFFER_PCT);
   const cfgTrailingDropPct = Number(scalpRow?.trailing_drop_pct) > 0 ? Number(scalpRow.trailing_drop_pct) : TRAILING_STOP_DROP;
   const cfgHardStopLossPct = Number(scalpRow?.hard_stop_loss_pct) > 0 ? -Math.abs(Number(scalpRow.hard_stop_loss_pct)) : BASE_STOP_LOSS_PERCENT;
-  console.log(`⚙️ Exit cfg for ${userId}: TP=${cfgTakeProfitPct}% TrailDrop=${cfgTrailingDropPct}% HardStop=${cfgHardStopLossPct}%`);
+  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct}%${isPaperMode ? '' : ` (raw ${rawTakeProfitPct}% + ${LIVE_FEE_BUFFER_PCT}% fee buffer)`} TrailDrop=${cfgTrailingDropPct}% HardStop=${cfgHardStopLossPct}%`);
 
   // Fetch ALL open positions for this user (both crypto AND stocks)
   const { data: positions, error: posError } = await supabase
