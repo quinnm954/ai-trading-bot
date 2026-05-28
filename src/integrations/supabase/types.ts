@@ -1761,6 +1761,60 @@ export type Database = {
         }
         Relationships: []
       }
+      trade_audit_reports: {
+        Row: {
+          applied_adjustments: Json
+          created_at: string
+          failure_themes: Json
+          id: string
+          losses: number
+          period_end: string
+          period_start: string
+          recommendations: Json
+          summary: string | null
+          total_pnl: number
+          total_trades: number
+          user_id: string
+          win_rate: number
+          wins: number
+          worst_loss: number
+        }
+        Insert: {
+          applied_adjustments?: Json
+          created_at?: string
+          failure_themes?: Json
+          id?: string
+          losses?: number
+          period_end: string
+          period_start: string
+          recommendations?: Json
+          summary?: string | null
+          total_pnl?: number
+          total_trades?: number
+          user_id: string
+          win_rate?: number
+          wins?: number
+          worst_loss?: number
+        }
+        Update: {
+          applied_adjustments?: Json
+          created_at?: string
+          failure_themes?: Json
+          id?: string
+          losses?: number
+          period_end?: string
+          period_start?: string
+          recommendations?: Json
+          summary?: string | null
+          total_pnl?: number
+          total_trades?: number
+          user_id?: string
+          win_rate?: number
+          wins?: number
+          worst_loss?: number
+        }
+        Relationships: []
+      }
       trade_journal_notes: {
         Row: {
           created_at: string

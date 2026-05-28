@@ -19,6 +19,7 @@ import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
+import { DailyAuditCard } from '@/components/dashboard/DailyAuditCard';
 import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
 import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
@@ -429,6 +430,7 @@ export default function Dashboard() {
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
           <AIDecisionsBreakdownCard />
+          <DailyAuditCard />
         </div>
         <div className="space-y-6">
           <AIStatusCard />
