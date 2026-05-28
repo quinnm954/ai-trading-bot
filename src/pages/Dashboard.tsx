@@ -20,6 +20,7 @@ import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
 import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
+import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
 import { TrialDaysIndicator } from '@/components/dashboard/TrialDaysIndicator';
