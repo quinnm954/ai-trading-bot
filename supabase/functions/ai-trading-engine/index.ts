@@ -2028,15 +2028,31 @@ async function filterByTrend(
       console.log(`🌪️  EXTREME VOL: ${coin.symbol} ATR ${(coin.atrPct ?? 0).toFixed(2)}% — slippage/wick risk`);
       return false;
     }
-    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | tech ${tScore}`);
+    // SUPPORT-LEVEL GATE — don't chase price that has run far above the nearest swing-low.
+    // Below-support (breakdown) is also rejected unless 5m is already reclaiming.
+    if (coin.supportContext === 'far_above_support') {
+      console.log(`📏 FAR FROM SUPPORT: ${coin.symbol} ${(coin.distanceToSupportPct ?? 0).toFixed(2)}% above support — poor R:R`);
+      return false;
+    }
+    if (coin.supportContext === 'below_support' && (coin.change5m ?? 0) <= 0) {
+      console.log(`⛔ BROKEN SUPPORT: ${coin.symbol} below ${(coin.supportPrice ?? 0).toFixed(6)} with no reclaim`);
+      return false;
+    }
+    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | support ${coin.supportContext ?? 'n/a'} (${(coin.distanceToSupportPct ?? 0).toFixed(2)}%) | tech ${tScore}`);
     return true;
   });
 
-  // Rank by tech + volatility-fit + momentum + liquidity. Volatility-fit is now a first-class factor.
+  // Rank by tech + volatility-fit + support-proximity + momentum + liquidity.
+  // Support proximity: full credit at_support, partial near, zero far/below.
   scalpCandidates.sort((a, b) => {
+    const supportBonus = (c: MarketData) =>
+      c.supportContext === 'at_support' ? 20 :
+      c.supportContext === 'near_support' ? 10 :
+      c.supportContext === 'mid_range' ? 0 : -10;
     const score = (c: MarketData) =>
-      (c.techScore ?? 50) * 0.4 +
-      (c.volScore ?? 50) * 0.35 +
+      (c.techScore ?? 50) * 0.35 +
+      (c.volScore ?? 50) * 0.25 +
+      supportBonus(c) +
       (c.change5m ?? 0) * 2 +
       (c.change1h ?? 0) +
       Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
