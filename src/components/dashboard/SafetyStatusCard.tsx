@@ -30,7 +30,7 @@ export function SafetyStatusCard() {
   const { settings, isLoading: settingsLoading } = useAISettings();
   const { connections, loading: connLoading } = useApiConnections();
   const [dailyLossUsed, setDailyLossUsed] = useState(0);
-  const [consecutiveLosses, setConsecutiveLosses] = useState(0);
+  // Consecutive-losses governor removed per user request.
 
   const hasBroker = connections.some((c) => c.is_connected);
 
