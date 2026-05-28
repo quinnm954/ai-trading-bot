@@ -35,7 +35,6 @@ import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { useFollowedTraders } from '@/hooks/useFollowedTraders';
 import { useCopyTradeSignals } from '@/hooks/useCopyTradeSignals';
 import { LiquidationMapCard } from '@/components/trading/LiquidationMapCard';
-import { PolymarketSignalsCard } from '@/components/trading/PolymarketSignalsCard';
 import { NewsFeedCard } from '@/components/trading/NewsFeedCard';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
