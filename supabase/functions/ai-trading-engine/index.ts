@@ -2194,60 +2194,74 @@ function getRegimePolicy(report: RegimeReport): RegimePolicy {
  * (trend_breakout) variants of the same "trending" enum value.
  */
 async function getBestStrategyForRegime(
-  _supabase: any,
-  _userId: string,
+  supabase: any,
+  userId: string,
   regime: string,
   report?: RegimeReport,
 ): Promise<string> {
   const profile = report?.profile;
   const enumRegime = regime;
 
-  // 1) Dead market — caller will skip; return 'none' so downstream logs are honest.
+  // 1) Dead market — always stand down.
   if (profile === 'dead') {
     console.log(`💤 Dead market — no strategy selected (stand-down)`);
     return 'none';
   }
 
-  // 2) Volatile / high-volatility — expansion plays, not scalps that get whipsawed.
+  // 2) Regime-appropriate candidate pool. The audit can lower a candidate's score
+  //    below the floor and effectively retire it for the user.
+  let candidates: string[];
   if (profile === 'volatile' || enumRegime === 'high_volatility') {
-    console.log(`🎯 ${profile ?? enumRegime} regime → volatility_breakout`);
-    return 'volatility_breakout';
+    candidates = ['volatility_breakout', 'scalp', 'trend_breakout'];
+  } else if (profile === 'trending_up') {
+    candidates = ['trend_breakout', 'scalp', 'ema_crossover', 'macd'];
+  } else if (profile === 'trending_down') {
+    // Down markets: longs only via scalp w/ tight stops, OR stand down.
+    candidates = ['scalp'];
+  } else if (profile === 'ranging' || enumRegime === 'ranging') {
+    candidates = ['grid', 'rsi', 'dca'];
+  } else if (enumRegime === 'low_volatility') {
+    candidates = ['grid', 'dca', 'rsi'];
+  } else {
+    candidates = ['ema_crossover', 'scalp', 'trend_breakout'];
   }
 
-  // 3) Trending up — fast intra-cycle momentum gets scalp; slower steady drift gets trend_breakout.
-  if (profile === 'trending_up') {
-    const fast = (report?.avg5mAbs ?? 0) >= 0.45; // >0.45% avg |5m| = real intra-bar momentum
-    const strategy = fast ? 'scalp' : 'trend_breakout';
-    console.log(`🎯 trending_up (avg|5m|=${(report?.avg5mAbs ?? 0).toFixed(2)}%) → ${strategy}`);
-    return strategy;
-  }
+  // 3) Consult learned scores. Prefer rows matching the current regime, then any.
+  const STAND_DOWN_FLOOR = 30;
+  try {
+    const { data: perf } = await supabase
+      .from('strategy_performance')
+      .select('strategy, market_regime, score')
+      .eq('user_id', userId)
+      .in('strategy', candidates);
 
-  // 4) Trending down — policy will already gate hard; use scalp (the only entry path
-  //    with tight trailing/hard stops). DCA/grid would compound losses here.
-  if (profile === 'trending_down') {
-    console.log(`🎯 trending_down → scalp (highest-conviction longs only, tight stops)`);
-    return 'scalp';
-  }
+    if (perf && perf.length > 0) {
+      const scoreFor = (s: string) => {
+        const matchRegime = perf.find((r: any) => r.strategy === s && r.market_regime === enumRegime);
+        if (matchRegime) return Number(matchRegime.score);
+        const any = perf.filter((r: any) => r.strategy === s).map((r: any) => Number(r.score));
+        return any.length ? Math.max(...any) : 0;
+      };
+      const ranked = candidates
+        .map(s => ({ s, score: scoreFor(s) }))
+        .sort((a, b) => b.score - a.score);
 
-  // 5) Ranging — grid in calm ranges, RSI mean-reversion otherwise.
-  if (profile === 'ranging' || enumRegime === 'ranging') {
-    if (enumRegime === 'low_volatility') {
-      console.log(`🎯 ranging + low_volatility → grid`);
-      return 'grid';
+      const top = ranked[0];
+      if (!top || top.score < STAND_DOWN_FLOOR) {
+        console.log(`🧠 Learned scores too low (top=${top?.s}@${top?.score}) for regime=${enumRegime}/${profile} → STAND DOWN`);
+        return 'none';
+      }
+      console.log(`🧠 Learned pick for ${profile ?? enumRegime}: ${top.s} (score ${top.score}) | ranked=${ranked.map(r => `${r.s}:${r.score}`).join(', ')}`);
+      return top.s;
     }
-    console.log(`🎯 ranging → rsi (mean-reversion)`);
-    return 'rsi';
+  } catch (e: any) {
+    console.log(`⚠️ Strategy score lookup failed: ${e?.message || e}`);
   }
 
-  // 6) Low-vol enum without a profile reading — grid still safest.
-  if (enumRegime === 'low_volatility') {
-    console.log(`🎯 low_volatility → grid`);
-    return 'grid';
-  }
-
-  // 7) Fallback — generic trending → ema_crossover.
-  console.log(`🎯 fallback for regime=${enumRegime} → ema_crossover`);
-  return 'ema_crossover';
+  // 4) No learned data → use first candidate as a safe regime default.
+  const fallback = candidates[0];
+  console.log(`🎯 No learned scores — default for ${profile ?? enumRegime} → ${fallback}`);
+  return fallback;
 }
 
 
@@ -3393,10 +3407,27 @@ serve(async (req) => {
       })
       .eq('user_id', user.id);
 
-    // 🎯 Regime-aware strategy selection — picks scalp / grid / rsi / trend_breakout / volatility_breakout
-    // based on the detected market profile instead of forcing scalp every cycle.
+    // 🎯 Regime + learning aware strategy selection. Reads strategy_performance scores
+    // (updated by daily-trade-audit) so the bot adapts as scalp/grid/etc. perform.
     const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime, regimeReport);
     console.log(`🎯 Selected strategy for regime=${regime}/${regimeReport.profile}: ${bestStrategy}`);
+
+    // 🧠 Learned stand-down — if every candidate strategy has been beaten down by the audit,
+    // skip this cycle entirely instead of falling back to a forced scalp.
+    if (bestStrategy === 'none') {
+      console.log(`🧠 Learning-driven stand-down: no healthy strategy for regime=${regimeReport.profile}. Skipping cycle.`);
+      await supabase.from('ai_settings').update({
+        current_regime: regime,
+        bot_status: 'idle',
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', user.id);
+      return new Response(JSON.stringify({
+        status: 'standing_down',
+        reason: 'learned_strategy_scores_too_low',
+        regime,
+        regimeProfile: regimeReport.profile,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
 
     // 🤖 FULL AUTONOMY — AI self-tunes risk params per cycle based on regime, fusion, and today's P&L.
