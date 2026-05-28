@@ -1923,6 +1923,9 @@ async function filterByTrend(
       coin.percentB = t.percentB;
       coin.techSetup = t.techSetup;
       coin.techScore = t.techScore;
+      coin.atrPct = t.atrPct;
+      coin.volClass = t.volClass;
+      coin.volScore = t.volScore;
     }
   }));
 
