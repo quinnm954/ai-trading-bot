@@ -805,9 +805,6 @@ serve(async (req) => {
     let accountInfo;
     
     switch (detectedExchange) {
-      case "alpaca":
-        accountInfo = await testAlpaca(apiKey, secretKey, authType || "paper");
-        break;
       case "ibkr":
         accountInfo = await testIBKR(apiKey, secretKey);
         break;
