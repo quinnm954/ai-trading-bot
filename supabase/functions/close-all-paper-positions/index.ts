@@ -155,6 +155,24 @@ serve(async (req) => {
       reasoning: `Manually closed ${closed.length} paper positions at market. Proceeds: $${totalProceeds.toFixed(2)}, realized P&L: $${totalPnl.toFixed(2)}. New balance: $${newBalance.toFixed(2)}.`,
     });
 
+    // 🔁 AUTO-RESTART: after a full close-out, bring the bot back online and
+    // clear any kill-switch so the next ai-trading-engine tick resumes scanning.
+    await supabase.from('ai_settings').update({
+      enabled: true,
+      kill_switch_active: false,
+      kill_switch_triggered_at: null,
+      bot_status: 'idle',
+      updated_at: new Date().toISOString(),
+    }).eq('user_id', userId);
+
+    await supabase.from('risk_events').insert({
+      user_id: userId,
+      event_type: 'bot_auto_restart',
+      severity: 'info',
+      message: 'Bot auto-restarted after manual close-all',
+      details: { trigger: 'manual_close_all_paper', closed: closed.length },
+    });
+
     return new Response(JSON.stringify({
       success: true,
       closed: closed.length,
