@@ -16,7 +16,7 @@ type TradeSide = 'buy' | 'sell';
 const DUPLICATE_TRADE_COOLDOWN_MINUTES = 20; // forces rotation across the candidate pool (was 5 → too sticky on HYPE/AVAX/PAXG)
 const DIVERSITY_LOOKBACK_MINUTES = 90;       // window used to penalise recently-traded symbols during ranking
 const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window triggers the rotation penalty
-const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
+const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
 
 // Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
