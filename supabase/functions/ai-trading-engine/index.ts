@@ -1884,6 +1884,32 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       else if (volClass === 'extreme') { score -= 20; labels.push(`vol extreme ATR ${atrPct.toFixed(2)}%`); }
     }
 
+    // Support-level awareness — entries near a recent swing-low are higher-probability bounces.
+    const supportPrice = findSupportLevel(lows, last, 3);
+    let distanceToSupportPct: number | undefined;
+    let supportContext: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support' | undefined;
+    if (supportPrice !== undefined && last > 0) {
+      distanceToSupportPct = ((last - supportPrice) / last) * 100;
+      // Use ATR% as the "what's close?" yardstick when available, else fall back to fixed bands.
+      const nearBand = Math.max(0.4, (atrPct ?? 0.5) * 0.6);   // "at support"
+      const midBand  = Math.max(1.5, (atrPct ?? 0.5) * 2.0);   // "near support"
+      if (distanceToSupportPct < 0) {
+        supportContext = 'below_support';
+        score -= 18; labels.push(`below support ${supportPrice.toFixed(6)}`);
+      } else if (distanceToSupportPct <= nearBand) {
+        supportContext = 'at_support';
+        score += 14; labels.push(`at support ${supportPrice.toFixed(6)} (${distanceToSupportPct.toFixed(2)}% away)`);
+      } else if (distanceToSupportPct <= midBand) {
+        supportContext = 'near_support';
+        score += 6; labels.push(`near support (${distanceToSupportPct.toFixed(2)}% away)`);
+      } else if (distanceToSupportPct <= midBand * 2) {
+        supportContext = 'mid_range';
+      } else {
+        supportContext = 'far_above_support';
+        score -= 10; labels.push(`far above support (${distanceToSupportPct.toFixed(2)}% — poor R:R)`);
+      }
+    }
+
     score = Math.max(0, Math.min(100, score));
     const techSetup = labels.length ? labels.join(' | ') : 'neutral';
 
@@ -1894,6 +1920,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       percentB,
       techSetup, techScore: score,
       atrPct, volClass, volScore,
+      supportPrice, distanceToSupportPct, supportContext,
     };
   } catch (_e) {
     return null;
