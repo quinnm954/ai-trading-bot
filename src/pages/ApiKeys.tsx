@@ -32,22 +32,12 @@ interface ExchangeConfig {
  * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
  * 
  * Supported brokers and exchanges for multi-asset trading:
- * - Alpaca: US stocks + crypto (commission-free stock trading)
  * - Interactive Brokers: Global stocks, options, futures, forex
  * - Tradier: US stocks & options (commission-free options)
  * - Crypto exchanges: Coinbase, Binance, Kraken, etc.
  */
 const exchanges: ExchangeConfig[] = [
-  // STOCK BROKERS - US & Global Equities
-  {
-    provider: 'alpaca',
-    name: 'Alpaca',
-    logo: '🦙',
-    description: 'US Stocks & Crypto (Commission-free)',
-    docsUrl: 'https://docs.alpaca.markets/',
-    requiresPassphrase: false,
-    keyHint: 'PK... or AK... format API key',
-  },
+  // STOCK BROKERS
   {
     provider: 'ibkr',
     name: 'Interactive Brokers',
@@ -180,23 +170,17 @@ export default function ApiKeys() {
    * Auto-detect exchange/broker from API key format
    * 
    * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
-   * Supports detection of stock brokers (Alpaca, IBKR, Tradier) and crypto exchanges
+   * Supports detection of stock brokers (IBKR, Tradier) and crypto exchanges
    */
   const detectExchangeFromKey = (apiKey: string, secretKey: string): string | null => {
     if (!apiKey && !secretKey) return null;
     
     // STOCK BROKER DETECTION
-    // Alpaca keys start with PK (paper) or AK (live)
-    if (apiKey.startsWith('PK') || apiKey.startsWith('AK')) {
-      return 'Alpaca (Stocks & Crypto)';
-    }
-    
     // Tradier access tokens are typically long alphanumeric strings
-    // They often start with specific patterns or have OAuth-style format
     if (/^[A-Za-z0-9]{20,}$/.test(apiKey) && apiKey.length >= 20 && apiKey.length <= 40) {
-      // Could be Tradier - will be confirmed server-side
       return 'Tradier (possible)';
     }
+    
     
     // CRYPTO EXCHANGE DETECTION
     if (apiKey.startsWith('organizations/') || secretKey.includes('-----BEGIN')) {
@@ -384,10 +368,10 @@ export default function ApiKeys() {
             <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary">
               <CheckCircle className="w-4 h-4" />
               <span className="text-sm font-medium">Detected: {detectedExchange}</span>
-              {(detectedExchange.includes('Alpaca') || detectedExchange.includes('Tradier') || detectedExchange.includes('IBKR')) && (
+              {(detectedExchange.includes('Tradier') || detectedExchange.includes('IBKR')) && (
                 <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full ml-2">Stock Broker</span>
               )}
-              {!detectedExchange.includes('Alpaca') && !detectedExchange.includes('Tradier') && !detectedExchange.includes('IBKR') && (
+              {!detectedExchange.includes('Tradier') && !detectedExchange.includes('IBKR') && (
                 <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded-full ml-2">Crypto Exchange</span>
               )}
             </div>

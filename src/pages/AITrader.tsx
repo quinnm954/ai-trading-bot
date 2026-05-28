@@ -148,7 +148,7 @@ export default function AITrader() {
           <StockMarketIndicator />
           {/* Show PDT warning for stock accounts under $25k */}
           {liveAccounts
-            .filter(acc => acc.provider === 'alpaca' || acc.provider === 'ibkr' || acc.provider === 'tradier')
+            .filter(acc => acc.provider === 'ibkr' || acc.provider === 'tradier')
             .filter(acc => acc.equity < 25000)
             .map(acc => (
               <PDTWarning 
@@ -565,8 +565,8 @@ export default function AITrader() {
                 <div>
                   <p className="font-medium text-foreground">Stocks</p>
                   <p className="text-xs text-muted-foreground">
-                    US equities via Alpaca
-                    {connectedBrokers.includes('alpaca') && (
+                    US equities via IBKR/Tradier
+                    {(connectedBrokers.includes('ibkr') || connectedBrokers.includes('tradier')) && (
                       <span className="ml-2 text-success">• Connected</span>
                     )}
                   </p>

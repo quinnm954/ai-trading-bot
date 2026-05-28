@@ -199,14 +199,14 @@ export interface SafetyGovernor {
  * 
  * MULTI-BROKER SUPPORT:
  * The system is designed to support multiple broker providers:
- * - alpaca: Stock and crypto trading (US-focused)
  * - coinbase: Cryptocurrency trading (global)
+ * - ibkr / tradier: Stock trading
  * - Future: Additional exchanges and brokers
  */
 export interface ApiKey {
   id: string;
   /** Broker/exchange provider identifier */
-  provider: 'alpaca' | 'coinbase' | 'ibkr' | 'tradier';
+  provider: 'coinbase' | 'ibkr' | 'tradier';
   name: string;
   isConnected: boolean;
   lastTested?: Date;

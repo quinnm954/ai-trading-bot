@@ -397,65 +397,7 @@ async function fetchCoinbaseBalanceAndHoldings(): Promise<{
   };
 }
 
-/**
- * Fetch Alpaca account balance and positions
- * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
- */
-async function fetchAlpacaBalanceAndHoldings(apiKey: string, secretKey: string): Promise<{
-  balance: number;
-  buying_power: number;
-  equity: number;
-  holdings: Array<{ symbol: string; quantity: number; value: number; entryPrice: number }>;
-}> {
-  // Determine if paper or live based on key prefix
-  const isPaper = apiKey.startsWith("PK");
-  const baseUrl = isPaper ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
-  
-  console.log(`📈 Fetching Alpaca ${isPaper ? 'paper' : 'live'} account...`);
-  
-  // Fetch account info
-  const accountResponse = await fetch(`${baseUrl}/v2/account`, {
-    headers: {
-      "APCA-API-KEY-ID": apiKey,
-      "APCA-API-SECRET-KEY": secretKey,
-    },
-  });
-  
-  if (!accountResponse.ok) {
-    throw new Error(`Alpaca account error: ${accountResponse.status}`);
-  }
-  
-  const account = await accountResponse.json();
-  
-  // Fetch positions
-  const positionsResponse = await fetch(`${baseUrl}/v2/positions`, {
-    headers: {
-      "APCA-API-KEY-ID": apiKey,
-      "APCA-API-SECRET-KEY": secretKey,
-    },
-  });
-  
-  const holdings: Array<{ symbol: string; quantity: number; value: number; entryPrice: number }> = [];
-  
-  if (positionsResponse.ok) {
-    const positions = await positionsResponse.json();
-    for (const pos of positions) {
-      holdings.push({
-        symbol: pos.symbol,
-        quantity: parseFloat(pos.qty),
-        value: parseFloat(pos.market_value),
-        entryPrice: parseFloat(pos.avg_entry_price),
-      });
-    }
-  }
-  
-  return {
-    balance: parseFloat(account.cash || 0),
-    buying_power: parseFloat(account.buying_power || 0),
-    equity: parseFloat(account.equity || 0),
-    holdings,
-  };
-}
+// Alpaca integration removed.
 
 /**
  * Fetch Tradier account balance and positions
@@ -849,59 +791,7 @@ serve(async (req) => {
             };
           }
           
-          // STOCKS: Alpaca sync - reads credentials from broker_credentials table
-          else if (conn.provider === "alpaca") {
-            const creds = await getUserBrokerCredentials(serviceClient, userId, 'alpaca');
-            if (!creds) {
-              console.log(`⚠️ No Alpaca credentials found for user ${userId}`);
-              allResults[userId] = { provider: conn.provider, error: "No credentials stored" };
-              continue;
-            }
-            
-            try {
-              const balanceData = await fetchAlpacaBalanceAndHoldings(creds.apiKey, creds.secretKey);
-              
-              console.log(`✅ Alpaca synced: $${balanceData.balance.toFixed(2)} cash, ${balanceData.holdings.length} holdings`);
-              
-              // Update live_account
-              await serviceClient
-                .from("live_account")
-                .upsert({
-                  user_id: userId,
-                  provider: conn.provider,
-                  balance: balanceData.balance,
-                  buying_power: balanceData.buying_power,
-                  equity: balanceData.equity,
-                  last_synced_at: new Date().toISOString(),
-                }, { onConflict: "user_id,provider" });
-              
-              // Sync positions
-              for (const holding of balanceData.holdings) {
-                await serviceClient
-                  .from("positions")
-                  .upsert({
-                    user_id: userId,
-                    symbol: holding.symbol,
-                    side: "buy",
-                    quantity: holding.quantity,
-                    avg_entry_price: holding.entryPrice,
-                    current_price: holding.value / holding.quantity,
-                    market_type: "stocks",
-                    is_paper: creds.isPaper,
-                    unrealized_pnl: holding.value - (holding.entryPrice * holding.quantity),
-                  }, { onConflict: "user_id,symbol,is_paper" });
-              }
-              
-              allResults[userId] = { 
-                provider: conn.provider, 
-                balance: balanceData.balance,
-                holdings: balanceData.holdings.length,
-              };
-            } catch (err: any) {
-              console.error(`Alpaca sync failed: ${err.message}`);
-              allResults[userId] = { provider: conn.provider, error: err.message };
-            }
-          }
+          // Alpaca sync removed.
           
           // STOCKS: Tradier sync
           else if (conn.provider === "tradier") {

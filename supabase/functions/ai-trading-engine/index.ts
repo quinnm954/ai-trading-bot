@@ -995,7 +995,7 @@ interface StockBrokerBalance {
   cash: number;
   buyingPower: number;
   equity: number;
-  broker: 'alpaca' | 'ibkr' | 'tradier';
+  broker: 'ibkr' | 'tradier';
 }
 
 interface StockTradeResult {
@@ -1008,7 +1008,6 @@ interface StockTradeResult {
 
 /**
  * Check if US stock market is currently open
- * Stock trading is only available during market hours
  */
 function isStockMarketOpen(): boolean {
   const now = new Date();
@@ -1017,11 +1016,8 @@ function isStockMarketOpen(): boolean {
   const hour = nyTime.getHours();
   const minute = nyTime.getMinutes();
   const time = hour * 100 + minute;
-  
-  // Monday-Friday, 9:30 AM - 4:00 PM ET
-  if (day === 0 || day === 6) return false; // Weekend
-  if (time < 930 || time >= 1600) return false; // Outside hours
-  
+  if (day === 0 || day === 6) return false;
+  if (time < 930 || time >= 1600) return false;
   return true;
 }
 
@@ -1029,31 +1025,29 @@ function isStockMarketOpen(): boolean {
  * Get user's connected stock broker credentials from broker_credentials table
  */
 async function getConnectedStockBroker(supabase: any, userId: string): Promise<{ 
-  broker: 'alpaca' | 'ibkr' | 'tradier'; 
+  broker: 'ibkr' | 'tradier'; 
   apiKey: string; 
   secretKey: string;
   accessToken?: string;
   isPaper: boolean;
 } | null> {
   try {
-    // Query broker_credentials table for connected stock brokers
     const { data: credentials, error } = await supabase
       .from('broker_credentials')
       .select('provider, api_key_encrypted, secret_key_encrypted, access_token_encrypted, is_paper')
       .eq('user_id', userId)
-      .in('provider', ['alpaca', 'ibkr', 'tradier']);
+      .in('provider', ['ibkr', 'tradier']);
     
     if (error || !credentials || credentials.length === 0) {
       console.log('No stock broker credentials found in database');
       return null;
     }
     
-    // Return first available broker with valid credentials
     for (const cred of credentials) {
       if (cred.api_key_encrypted) {
         console.log(`🏦 Found ${cred.provider} credentials for user`);
         return {
-          broker: cred.provider as 'alpaca' | 'ibkr' | 'tradier',
+          broker: cred.provider as 'ibkr' | 'tradier',
           apiKey: cred.api_key_encrypted,
           secretKey: cred.secret_key_encrypted || '',
           accessToken: cred.access_token_encrypted,
@@ -1069,63 +1063,6 @@ async function getConnectedStockBroker(supabase: any, userId: string): Promise<{
   }
 }
 
-/**
- * Execute stock trade via Alpaca
- * Supports both paper and live trading
- */
-async function executeAlpacaTrade(
-  apiKey: string,
-  secretKey: string,
-  symbol: string,
-  side: 'buy' | 'sell',
-  quantity: number,
-  isPaper: boolean = true
-): Promise<StockTradeResult> {
-  try {
-    const baseUrl = isPaper 
-      ? 'https://paper-api.alpaca.markets'
-      : 'https://api.alpaca.markets';
-    
-    console.log(`📈 Alpaca ${isPaper ? 'PAPER' : 'LIVE'} ${side.toUpperCase()}: ${quantity} ${symbol}`);
-    
-    const orderBody = {
-      symbol: symbol,
-      qty: quantity.toString(),
-      side: side,
-      type: 'market',
-      time_in_force: 'day',
-    };
-    
-    const response = await fetch(`${baseUrl}/v2/orders`, {
-      method: 'POST',
-      headers: {
-        'APCA-API-KEY-ID': apiKey,
-        'APCA-API-SECRET-KEY': secretKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(orderBody),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Alpaca order failed: ${errorText}`);
-      return { success: false, error: errorText };
-    }
-    
-    const order = await response.json();
-    console.log(`✅ Alpaca order placed: ${order.id}`);
-    
-    return {
-      success: true,
-      orderId: order.id,
-      quantity: parseFloat(order.qty),
-      price: parseFloat(order.filled_avg_price || order.limit_price || '0'),
-    };
-  } catch (error) {
-    console.error('Alpaca trade error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-}
 
 /**
  * Execute stock trade via Interactive Brokers
@@ -1312,8 +1249,6 @@ async function executeStockTrade(
   console.log(`🏦 Routing stock trade to: ${broker.broker} (${broker.isPaper ? 'PAPER' : 'LIVE'} mode)`);
   
   switch (broker.broker) {
-    case 'alpaca':
-      return executeAlpacaTrade(broker.apiKey, broker.secretKey, symbol, side, quantity, broker.isPaper || isPaper);
     case 'ibkr':
       return executeIBKRTrade(broker.accessToken || broker.apiKey, symbol, side, quantity);
     case 'tradier':
@@ -1325,7 +1260,7 @@ async function executeStockTrade(
 
 /**
  * Fetch stock market data for trading analysis
- * Uses Alpaca as primary, Yahoo Finance as fallback
+ * Uses Yahoo Finance for stock quotes
  */
 async function fetchStockMarketData(): Promise<MarketData[]> {
   // Check if market is open
@@ -1783,62 +1718,11 @@ const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
 // =============================================================================
-// 📡 ALPACA-POWERED RESEARCH LAYER
-// Alpaca is preferred for signals (crypto bars + quotes). Coinbase remains the
-// execution venue for actual live trades.
+// 📡 SHORT-WINDOW MOMENTUM RESEARCH (Coinbase candles)
 // =============================================================================
-let __alpacaCreds: { apiKey: string; secretKey: string } | null = null;
-function setAlpacaResearchCreds(creds: { apiKey: string; secretKey: string } | null) {
-  __alpacaCreds = creds && creds.apiKey && creds.secretKey ? creds : null;
-  if (__alpacaCreds) console.log('🔭 Alpaca research layer ACTIVE — signals will prefer Alpaca data');
-}
-function productIdToAlpacaSymbol(productId: string): string | null {
-  // "BTC-USD" -> "BTC/USD". Skip non-USD quote pairs.
-  if (!productId || !productId.includes('-')) return null;
-  const [base, quote] = productId.split('-');
-  if (!base || !quote) return null;
-  if (quote.toUpperCase() !== 'USD' && quote.toUpperCase() !== 'USDC' && quote.toUpperCase() !== 'USDT') return null;
-  return `${base.toUpperCase()}/USD`;
-}
-async function fetchAlpacaShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
-  if (!__alpacaCreds) return null;
-  const sym = productIdToAlpacaSymbol(productId);
-  if (!sym) return null;
-  try {
-    const url = `https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(sym)}&timeframe=5Min&limit=5`;
-    const resp = await fetch(url, {
-      headers: {
-        'APCA-API-KEY-ID': __alpacaCreds.apiKey,
-        'APCA-API-SECRET-KEY': __alpacaCreds.secretKey,
-      },
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const bars = data?.bars?.[sym];
-    if (!Array.isArray(bars) || bars.length < 2) return null;
-    const closes = bars.map((b: any) => Number(b.c));
-    const last = closes[closes.length - 1];
-    const prev5 = closes[closes.length - 2];
-    const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
-    const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
-    const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
-    return { change5m, change15m };
-  } catch (_e) {
-    return null;
-  }
-}
-
-// Fetch short-window (5m, 15m) momentum. Prefers Alpaca crypto bars when
-// Alpaca creds are loaded for this cycle; falls back to Coinbase candles.
 async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
-  // 1) Alpaca research (preferred signal source)
-  const fromAlpaca = await fetchAlpacaShortWindowMomentum(productId);
-  if (fromAlpaca) return fromAlpaca;
-
-  // 2) Coinbase candles (fallback signal source — and also our exec venue)
   try {
     const now = Math.floor(Date.now() / 1000);
-    // Last ~20 min of 5-min candles (4 candles) — Coinbase returns [time, low, high, open, close, volume]
     const start = now - 60 * 25;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
     const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
@@ -1846,7 +1730,6 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
     const data = await resp.json();
     const candles = Array.isArray(data?.candles) ? data.candles : [];
     if (candles.length < 2) return null;
-    // Coinbase returns newest-first
     const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
     const closes = sorted.map((c: any) => Number(c.close));
     const last = closes[closes.length - 1];
@@ -1855,35 +1738,6 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
     const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
     const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
     return { change5m, change15m };
-  } catch (_e) {
-    return null;
-  }
-}
-
-// Fetch Alpaca crypto snapshot (latest bid/ask/last) — used as a research
-// signal (spread quality, freshness) without ever placing an order on Alpaca.
-async function fetchAlpacaCryptoSnapshot(productId: string): Promise<{ bid: number; ask: number; last: number; spreadBps: number } | null> {
-  if (!__alpacaCreds) return null;
-  const sym = productIdToAlpacaSymbol(productId);
-  if (!sym) return null;
-  try {
-    const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(sym)}`;
-    const resp = await fetch(url, {
-      headers: {
-        'APCA-API-KEY-ID': __alpacaCreds.apiKey,
-        'APCA-API-SECRET-KEY': __alpacaCreds.secretKey,
-      },
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const snap = data?.snapshots?.[sym];
-    const bid = Number(snap?.latestQuote?.bp ?? 0);
-    const ask = Number(snap?.latestQuote?.ap ?? 0);
-    const last = Number(snap?.latestTrade?.p ?? snap?.minuteBar?.c ?? 0);
-    if (!bid || !ask) return null;
-    const mid = (bid + ask) / 2;
-    const spreadBps = mid > 0 ? ((ask - bid) / mid) * 10000 : 0;
-    return { bid, ask, last: last || mid, spreadBps };
   } catch (_e) {
     return null;
   }
@@ -2949,28 +2803,7 @@ serve(async (req) => {
 
     console.log(`🤖 Processing user: ${user.id}`);
 
-    // 🔭 Load Alpaca credentials for this cycle's RESEARCH layer (signals only).
-    // Live trade execution always remains on Coinbase — Alpaca is never sent orders here.
-    try {
-      const { data: alpacaCred } = await supabase
-        .from('broker_credentials')
-        .select('api_key_encrypted, secret_key_encrypted')
-        .eq('user_id', userId)
-        .eq('provider', 'alpaca')
-        .maybeSingle();
-      if (alpacaCred?.api_key_encrypted && alpacaCred?.secret_key_encrypted) {
-        setAlpacaResearchCreds({
-          apiKey: alpacaCred.api_key_encrypted,
-          secretKey: alpacaCred.secret_key_encrypted,
-        });
-      } else {
-        setAlpacaResearchCreds(null);
-        console.log('🔭 No Alpaca creds — research falls back to Coinbase candles');
-      }
-    } catch (e) {
-      setAlpacaResearchCreds(null);
-      console.log('🔭 Alpaca creds lookup failed, using Coinbase research:', (e as Error).message);
-    }
+    // Research and execution both use Coinbase for crypto.
 
     // Fetch user's AI settings
     const { data: settings, error: settingsError } = await supabase
@@ -4094,7 +3927,7 @@ serve(async (req) => {
       
       if (!isPaperMode && decision.action === 'buy') {
         if (isStock) {
-          // 📈 EXECUTE STOCK TRADE via connected broker (Alpaca/IBKR/Tradier)
+          // 📈 EXECUTE STOCK TRADE via connected broker (IBKR/Tradier)
           console.log(`📈 EXECUTING STOCK ${decision.action.toUpperCase()}: ${quantity} ${decision.symbol}`);
           const stockResult = await executeStockTrade(
             supabase,

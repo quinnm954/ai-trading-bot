@@ -155,9 +155,9 @@ export default function Landing() {
             
             {/* Supported Platforms */}
             <div className="mt-12 text-center">
-              <p className="text-sm text-muted-foreground mb-4">Supports stocks and crypto across 11+ brokers & exchanges</p>
+              <p className="text-sm text-muted-foreground mb-4">Supports stocks and crypto across 10+ brokers & exchanges</p>
               <div className="flex flex-wrap justify-center gap-3">
-                {['Alpaca', 'Tradier', 'IBKR', 'Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit'].map((name) => (
+                {['Tradier', 'IBKR', 'Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit'].map((name) => (
                   <span
                     key={name}
                     className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground"

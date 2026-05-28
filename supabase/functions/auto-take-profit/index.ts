@@ -806,56 +806,9 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
   return prices;
 }
 
-// Execute stock sell on Alpaca
-async function executeAlpacaSell(symbol: string, quantity: number, userId: string, supabase: any): Promise<{ success: boolean; usdValue?: number; error?: string }> {
-  try {
-    // Get user's Alpaca credentials from broker_credentials
-    const { data: creds } = await supabase
-      .from('broker_credentials')
-      .select('api_key_encrypted, secret_key_encrypted, is_paper')
-      .eq('user_id', userId)
-      .eq('provider', 'alpaca')
-      .single();
-    
-    if (!creds) {
-      return { success: false, error: 'Alpaca credentials not found' };
-    }
-    
-    const baseUrl = creds.is_paper 
-      ? 'https://paper-api.alpaca.markets' 
-      : 'https://api.alpaca.markets';
-    
-    // Submit market sell order
-    const response = await fetch(`${baseUrl}/v2/orders`, {
-      method: 'POST',
-      headers: {
-        'APCA-API-KEY-ID': creds.api_key_encrypted,
-        'APCA-API-SECRET-KEY': creds.secret_key_encrypted,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        symbol: symbol,
-        qty: quantity.toString(),
-        side: 'sell',
-        type: 'market',
-        time_in_force: 'day',
-      }),
-    });
-    
-    if (!response.ok) {
-      const errText = await response.text();
-      return { success: false, error: `Alpaca error: ${errText}` };
-    }
-    
-    const order = await response.json();
-    console.log(`✅ Alpaca sell order submitted: ${symbol} x${quantity}`);
-    
-    // Estimate USD value (will be updated when order fills)
-    const estimatedValue = quantity * (order.filled_avg_price || order.limit_price || 0);
-    return { success: true, usdValue: estimatedValue };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+// Stock sell stub (removed Alpaca integration)
+async function executeAlpacaSell(_symbol: string, _quantity: number, _userId: string, _supabase: any): Promise<{ success: boolean; usdValue?: number; error?: string }> {
+  return { success: false, error: 'Alpaca integration removed' };
 }
 
 // Execute stock sell on Tradier
