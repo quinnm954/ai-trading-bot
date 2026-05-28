@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-3-flash-preview',
+          model: 'google/gemini-3.5-flash',
           messages: [
             { role: 'system', content: 'You are a crypto market analyst. Given a Polymarket prediction market, output a conviction score and likely directional bias for spot crypto prices if this market resolves YES.' },
             { role: 'user', content: `Market: "${market.question}"\nEvent: "${event.title}"\nYES probability: ${yesProb != null ? (yesProb * 100).toFixed(1) + '%' : 'unknown'}\nResolves: ${market.endDate ?? event.endDate ?? 'unknown'}\nRelated symbols: ${symbols.join(', ') || 'none detected'}\n\nReturn JSON only with keys: conviction (0-100 integer, how strongly this should influence a trade), direction (bullish|bearish|neutral for the related crypto), rationale (one sentence). No prose outside JSON.` },

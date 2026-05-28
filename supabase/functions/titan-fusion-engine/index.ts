@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-3-flash-preview',
+          model: 'google/gemini-3.5-flash',
           messages: [
             { role: 'system', content: 'You are Titan AI, a crypto market intelligence fusion engine. Combine all input signals into a single conviction call. Be conservative — capital preservation is the priority. Only output JSON.' },
             { role: 'user', content: `Symbol: ${symbol}\n\nSignals:\n${JSON.stringify(features, null, 2)}\n\nReturn JSON with: conviction (0-100), direction (bullish|bearish|neutral), horizon (short|medium|long), drivers (array of 2-4 short phrases), rationale (one sentence). No other text.` },
