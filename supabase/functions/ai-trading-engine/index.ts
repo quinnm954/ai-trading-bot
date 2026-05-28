@@ -3151,9 +3151,30 @@ serve(async (req) => {
     // 📈 TREND ANALYSIS - Filter out downtrending coins
     const memeOnly = !!(settings as any).meme_coins_only;
     if (memeOnly) console.log('🐸 MEME-ONLY MODE ENABLED — restricting universe to meme-coin allowlist');
-    const { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly });
+    let { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly });
     console.log(`📈 Trend Analysis:`);
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
+
+    // 🧊 AUDIT COOLDOWNS - Honor symbol cooldowns inserted by daily-trade-audit
+    try {
+      const { data: coolRows } = await supabase
+        .from('symbol_cooldowns')
+        .select('symbol, reason, expires_at')
+        .eq('user_id', user.id)
+        .gt('expires_at', new Date().toISOString());
+      if (coolRows && coolRows.length > 0) {
+        const cooldownSet = new Set(coolRows.map((r: any) => String(r.symbol).toUpperCase()));
+        const before = tradeable.length;
+        tradeable = tradeable.filter(c => !cooldownSet.has(String(c.symbol).toUpperCase()));
+        const dropped = before - tradeable.length;
+        if (dropped > 0) {
+          console.log(`🧊 Audit cooldown: dropped ${dropped} symbol(s) → ${[...cooldownSet].join(', ')}`);
+        }
+      }
+    } catch (e: any) {
+      console.log('⚠️ Cooldown lookup failed:', e?.message || e);
+    }
+
     console.log(`✅ Tradeable coins: ${tradeable.map(c => c.symbol).join(', ') || 'NONE - All in downtrend'}`);
 
     // 🚀 MOONSHOT PRIORITY - Boost coins with high pump probability

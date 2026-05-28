@@ -1761,6 +1761,36 @@ export type Database = {
         }
         Relationships: []
       }
+      symbol_cooldowns: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          reason: string | null
+          source: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          reason?: string | null
+          source?: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          reason?: string | null
+          source?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       titan_fusion_signals: {
         Row: {
           conviction: number

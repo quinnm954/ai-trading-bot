@@ -294,6 +294,105 @@ async function auditUser(supabase: any, userId: string) {
     }
   }
 
+  // --- Apply LLM recommendations through a safe whitelist ---
+  // Hard caps prevent one bad audit from wrecking config.
+  // Supported actions:
+  //   - lower_score / raise_score  → strategy_performance.score (±10 max, floor 5, cap 100)
+  //   - cooldown_symbol            → symbol_cooldowns row (max 12h)
+  //   - tighten_stop / loosen_stop → scalp_settings.hard_stop_loss_pct (±0.3 max per audit, clamped 1.5–6)
+  const recs = Array.isArray(ai?.recommendations) ? ai!.recommendations : [];
+  let scalpStopDeltaTotal = 0;
+  const MAX_STOP_DELTA_PER_RUN = 0.3;
+
+  for (const rec of recs) {
+    try {
+      const action = String(rec?.action || "").toLowerCase();
+      const target = String(rec?.target || "").trim();
+      const rawDelta = Number(rec?.delta ?? 0);
+      const reason = String(rec?.reason || "audit recommendation").slice(0, 200);
+
+      if (action === "lower_score" || action === "raise_score") {
+        // target format: "strategy" or "strategy:regime"
+        const [strat, regime] = target.split(":").map((s) => s.trim()).filter(Boolean);
+        if (!strat) continue;
+        const sign = action === "lower_score" ? -1 : 1;
+        const magnitude = Math.min(10, Math.max(1, Math.abs(rawDelta) || 5));
+        const delta = sign * magnitude;
+        let q = supabase
+          .from("strategy_performance")
+          .select("id,score,market_regime")
+          .eq("user_id", userId)
+          .eq("strategy", strat);
+        if (regime) q = q.eq("market_regime", regime);
+        const { data: rows2 } = await q;
+        for (const r of rows2 || []) {
+          const next = Math.min(100, Math.max(5, Number(r.score) + delta));
+          if (next === Number(r.score)) continue;
+          await supabase
+            .from("strategy_performance")
+            .update({ score: next, updated_at: new Date().toISOString() })
+            .eq("id", r.id);
+          applied.push({
+            type: "ai_strategy_score_adjust",
+            strategy: strat,
+            market_regime: r.market_regime,
+            delta,
+            new_score: next,
+            reason,
+          });
+        }
+      } else if (action === "cooldown_symbol") {
+        if (!target || target.toLowerCase() === "global") continue;
+        const minutes = Math.min(720, Math.max(15, Math.abs(rawDelta) || 360)); // 15m–12h, default 6h
+        const expiresAt = new Date(Date.now() + minutes * 60_000).toISOString();
+        await supabase.from("symbol_cooldowns").insert({
+          user_id: userId,
+          symbol: target.toUpperCase(),
+          reason,
+          source: "audit",
+          expires_at: expiresAt,
+        });
+        applied.push({
+          type: "symbol_cooldown",
+          strategy: target.toUpperCase(),
+          delta: minutes,
+          new_score: 0,
+          reason: `cooldown ${minutes}m — ${reason}`,
+        });
+      } else if (action === "tighten_stop" || action === "loosen_stop") {
+        const sign = action === "tighten_stop" ? -1 : 1;
+        const magnitude = Math.min(0.3, Math.max(0.05, Math.abs(rawDelta) || 0.1));
+        if (Math.abs(scalpStopDeltaTotal + sign * magnitude) > MAX_STOP_DELTA_PER_RUN) continue;
+        const { data: scalpRow } = await supabase
+          .from("scalp_settings")
+          .select("id,hard_stop_loss_pct")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (!scalpRow) continue;
+        // hard_stop_loss_pct is stored as a POSITIVE magnitude (e.g. 3.0 means -3%)
+        // tighten_stop = smaller magnitude; loosen_stop = larger magnitude
+        const cur = Number(scalpRow.hard_stop_loss_pct);
+        const next = Math.min(6, Math.max(1.5, cur + sign * magnitude * -1));
+        if (next === cur) continue;
+        await supabase
+          .from("scalp_settings")
+          .update({ hard_stop_loss_pct: next, updated_at: new Date().toISOString() })
+          .eq("id", scalpRow.id);
+        scalpStopDeltaTotal += sign * magnitude;
+        applied.push({
+          type: "scalp_stop_adjust",
+          strategy: "scalp",
+          delta: Number((next - cur).toFixed(2)),
+          new_score: next,
+          reason,
+        });
+      }
+    } catch (e) {
+      console.warn("Failed applying recommendation:", rec, e);
+    }
+  }
+
+
   // Persist the report
   const insertPayload = {
     user_id: userId,
