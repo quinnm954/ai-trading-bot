@@ -3930,7 +3930,7 @@ serve(async (req) => {
     //
     // Combines the underlying decision confidence (price action + momentum +
     // volume + regime alignment, already baked into d.confidence) with
-    // Polymarket fusion sentiment as a booster/penalty. Hard rule:
+    // Titan Fusion sentiment as a booster/penalty. Hard rule:
     //   score ≥ 70  → full size
     //   60–69       → half size
     //   < 60        → NO TRADE
