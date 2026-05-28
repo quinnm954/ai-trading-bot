@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { fetchCoinbasePrices } from '@/lib/coinbasePrices';
+
 
 export interface Position {
   id: string;
