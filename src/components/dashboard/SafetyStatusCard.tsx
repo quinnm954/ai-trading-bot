@@ -30,7 +30,7 @@ export function SafetyStatusCard() {
   const { settings, isLoading: settingsLoading } = useAISettings();
   const { connections, loading: connLoading } = useApiConnections();
   const [dailyLossUsed, setDailyLossUsed] = useState(0);
-  const [consecutiveLosses, setConsecutiveLosses] = useState(0);
+  // Consecutive-losses governor removed per user request.
 
   const hasBroker = connections.some((c) => c.is_connected);
 
@@ -50,12 +50,6 @@ export function SafetyStatusCard() {
       if (todayTrades) {
         const loss = todayTrades.reduce((s, t) => s + Math.min(0, Number(t.pnl) || 0), 0);
         setDailyLossUsed(Math.abs(loss));
-        let streak = 0;
-        for (const t of todayTrades) {
-          if ((Number(t.pnl) || 0) < 0) streak++;
-          else break;
-        }
-        setConsecutiveLosses(streak);
       }
     })();
   }, [user]);
@@ -68,7 +62,7 @@ export function SafetyStatusCard() {
   let statusKey: StatusKey = 'safe';
   if (!settings?.enabled) statusKey = 'paused';
   else if (dailyLossPct >= 100) statusKey = 'daily_limit_hit';
-  else if (consecutiveLosses >= 3) statusKey = 'caution';
+  else if (dailyLossPct >= 60) statusKey = 'caution';
   else if (dailyLossPct >= 60) statusKey = 'caution';
   else if (settings.tradingMode === 'live' && !hasBroker) statusKey = 'live_disabled';
   else if (settings.tradingMode === 'paper') statusKey = 'paper_only';
@@ -115,7 +109,6 @@ export function SafetyStatusCard() {
           </div>
         </div>
 
-        <Row label="Consecutive Losses" value={`${consecutiveLosses} / 3`} tone={consecutiveLosses >= 3 ? 'loss' : undefined} />
         <Row label="Max Position Size" value={`${settings?.maxPositionSize || 10}%`} />
         <Row label="Broker" value={hasBroker ? 'Connected' : 'Not Connected'} tone={hasBroker ? undefined : 'muted'} />
         <Row label="Mode" value={(settings?.tradingMode || 'paper').toUpperCase()} />

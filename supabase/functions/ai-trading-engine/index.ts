@@ -250,7 +250,7 @@ async function getRecentLosingSymbols(
       console.log(`⏸️ LOSS COOLDOWN - Recent losing symbols (across all modes):`);
       lossCooldownMap.forEach((loss, symbol) => {
         const hoursSinceLoss = (Date.now() - loss.lastLossAt.getTime()) / (1000 * 60 * 60);
-        const isOnCooldown = hoursSinceLoss < cooldownHours || loss.lossCount >= maxConsecutiveLosses;
+        const isOnCooldown = hoursSinceLoss < cooldownHours;
         console.log(`   ${symbol}: ${loss.lossCount} loss(es), -${loss.totalLossPercent.toFixed(2)}%, ${hoursSinceLoss.toFixed(1)}h ago ${isOnCooldown ? '🚫 BLOCKED' : '✅ OK'}`);
       });
     }
@@ -279,16 +279,10 @@ function shouldBlockSymbolDueToLosses(
   
   const hoursSinceLoss = (Date.now() - lossData.lastLossAt.getTime()) / (1000 * 60 * 60);
   
-  // Block if too many consecutive losses (extended cooldown)
-  if (lossData.lossCount >= maxConsecutiveLosses) {
-    const extendedCooldown = cooldownHours * lossData.lossCount; // Scale cooldown with losses
-    if (hoursSinceLoss < extendedCooldown) {
-      return {
-        blocked: true,
-        reason: `🛑 BLOCKED: ${symbol} has ${lossData.lossCount} consecutive losses (-${lossData.totalLossPercent.toFixed(1)}%). Cooldown: ${(extendedCooldown - hoursSinceLoss).toFixed(1)}h remaining`,
-      };
-    }
-  }
+  // Consecutive-losses governor removed per user request — only standard cooldown applies.
+  void maxConsecutiveLosses;
+
+  
   
   // Block if within standard cooldown period
   if (hoursSinceLoss < cooldownHours) {
