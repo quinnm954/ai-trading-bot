@@ -3407,10 +3407,27 @@ serve(async (req) => {
       })
       .eq('user_id', user.id);
 
-    // 🎯 Regime-aware strategy selection — picks scalp / grid / rsi / trend_breakout / volatility_breakout
-    // based on the detected market profile instead of forcing scalp every cycle.
+    // 🎯 Regime + learning aware strategy selection. Reads strategy_performance scores
+    // (updated by daily-trade-audit) so the bot adapts as scalp/grid/etc. perform.
     const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime, regimeReport);
     console.log(`🎯 Selected strategy for regime=${regime}/${regimeReport.profile}: ${bestStrategy}`);
+
+    // 🧠 Learned stand-down — if every candidate strategy has been beaten down by the audit,
+    // skip this cycle entirely instead of falling back to a forced scalp.
+    if (bestStrategy === 'none') {
+      console.log(`🧠 Learning-driven stand-down: no healthy strategy for regime=${regimeReport.profile}. Skipping cycle.`);
+      await supabase.from('ai_settings').update({
+        current_regime: regime,
+        bot_status: 'idle',
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', user.id);
+      return new Response(JSON.stringify({
+        status: 'standing_down',
+        reason: 'learned_strategy_scores_too_low',
+        regime,
+        regimeProfile: regimeReport.profile,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
 
     // 🤖 FULL AUTONOMY — AI self-tunes risk params per cycle based on regime, fusion, and today's P&L.
