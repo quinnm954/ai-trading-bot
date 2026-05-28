@@ -110,18 +110,8 @@ serve(async (req) => {
       }
     } catch (_) { /* anonymous ok */ }
 
-    // Gate by in-app credits if user identified
-    if (userId) {
-      const balance = await getUserBalance(sb, userId);
-      if (balance < ADVISOR_CREDIT_COST) {
-        return new Response(JSON.stringify({
-          error: 'insufficient_credits',
-          message: `This advisor call costs ${ADVISOR_CREDIT_COST} credits. Top up to continue.`,
-          required: ADVISOR_CREDIT_COST,
-          balance,
-        }), { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-    }
+
+
 
 
     // Fetch crypto market data
