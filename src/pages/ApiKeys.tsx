@@ -182,13 +182,6 @@ export default function ApiKeys() {
     }
     
     
-    // Tradier access tokens are typically long alphanumeric strings
-    // They often start with specific patterns or have OAuth-style format
-    if (/^[A-Za-z0-9]{20,}$/.test(apiKey) && apiKey.length >= 20 && apiKey.length <= 40) {
-      // Could be Tradier - will be confirmed server-side
-      return 'Tradier (possible)';
-    }
-    
     // CRYPTO EXCHANGE DETECTION
     if (apiKey.startsWith('organizations/') || secretKey.includes('-----BEGIN')) {
       return 'Coinbase CDP';
