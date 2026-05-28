@@ -36,7 +36,7 @@ export function DailyAuditCard() {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    setReport(data as AuditReport | null);
+    setReport((data as unknown) as AuditReport | null);
     setIsLoading(false);
   };
 
