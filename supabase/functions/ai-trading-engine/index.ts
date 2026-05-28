@@ -2607,8 +2607,9 @@ function analyzeWithRules(
     }
     if (regime === 'ranging' && bestStrategy === 'rsi') confidence *= 1.15;
     
-    // Lower threshold for more trades
-    if (action !== 'hold' && confidence >= 0.50) {
+    // Precision-first threshold: rule strategies must clear 0.60 confidence before
+    // they're even considered for the unified scoring/sentiment gate downstream.
+    if (action !== 'hold' && confidence >= 0.60) {
       const positionValue = balance * (maxPositionSize / 100) * confidence;
       const quantity = positionValue / coin.price;
       
