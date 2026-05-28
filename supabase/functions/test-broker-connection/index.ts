@@ -29,18 +29,6 @@ const corsHeaders = {
 // Exchange configurations with key detection patterns
 const EXCHANGES = {
   // STOCK BROKERS - US & Global Equities
-  alpaca: {
-    name: "Alpaca",
-    assetClasses: ["stocks", "crypto"],
-    keyPatterns: [
-      { pattern: /^PK[A-Z0-9]+$/, type: "paper" },  // Paper trading keys start with PK
-      { pattern: /^AK[A-Z0-9]+$/, type: "live" },   // Live trading keys start with AK
-    ],
-    endpoints: {
-      account: "https://api.alpaca.markets/v2/account",
-      paperAccount: "https://paper-api.alpaca.markets/v2/account",
-    },
-  },
   ibkr: {
     name: "Interactive Brokers",
     assetClasses: ["stocks", "options", "futures", "forex", "crypto"],
@@ -164,13 +152,8 @@ interface DetectionResult {
 function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
   console.log("Detecting exchange from key format...");
   
-  // STOCK BROKER DETECTION - Alpaca (check first for multi-asset support)
-  // Alpaca keys start with PK (paper) or AK (live)
-  if (apiKey.startsWith("PK") || apiKey.startsWith("AK")) {
-    const type = apiKey.startsWith("PK") ? "paper" : "live";
-    console.log(`Detected: Alpaca (${type} trading)`);
-    return { exchange: "alpaca", authType: type, confidence: 1.0 };
-  }
+  // STOCK BROKER DETECTION
+  
   
   // Tradier access tokens - typically 20-40 char alphanumeric
   // Will be confirmed via API test since format is generic
