@@ -1323,51 +1323,6 @@ export type Database = {
         }
         Relationships: []
       }
-      polymarket_event_scores: {
-        Row: {
-          conviction: number
-          direction: string
-          end_date: string | null
-          event_id: string
-          market_id: string
-          question: string
-          rationale: string | null
-          scored_at: string
-          symbols: string[]
-          url: string | null
-          volume: number | null
-          yes_probability: number | null
-        }
-        Insert: {
-          conviction: number
-          direction: string
-          end_date?: string | null
-          event_id: string
-          market_id: string
-          question: string
-          rationale?: string | null
-          scored_at?: string
-          symbols?: string[]
-          url?: string | null
-          volume?: number | null
-          yes_probability?: number | null
-        }
-        Update: {
-          conviction?: number
-          direction?: string
-          end_date?: string | null
-          event_id?: string
-          market_id?: string
-          question?: string
-          rationale?: string | null
-          scored_at?: string
-          symbols?: string[]
-          url?: string | null
-          volume?: number | null
-          yes_probability?: number | null
-        }
-        Relationships: []
-      }
       positions: {
         Row: {
           avg_entry_price: number

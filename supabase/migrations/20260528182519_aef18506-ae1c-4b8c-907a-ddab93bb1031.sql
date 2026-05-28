@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS public.polymarket_event_scores CASCADE;
