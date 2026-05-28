@@ -3617,7 +3617,7 @@ serve(async (req) => {
       }
     }
 
-    // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Polymarket + news + liquidations + technicals)
+    // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Coinbase + news + liquidations + technicals)
     // Re-rank and softly gate tradeable list by latest fusion conviction.
     const fusionMap = new Map<string, { conviction: number; direction: string; drivers: any; rationale: string | null }>();
     try {
