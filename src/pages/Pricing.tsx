@@ -65,7 +65,7 @@ const tiers = [
       'PDT rule compliance',
       'Email support',
     ],
-    supportedBrokers: ['Choose 1: Alpaca, Tradier, IBKR, Coinbase, Binance, Kraken, or more'],
+    supportedBrokers: ['Choose 1: Tradier, IBKR, Coinbase, Binance, Kraken, or more'],
     cta: 'Get Pro',
     icon: Zap,
     popular: true,
@@ -89,7 +89,7 @@ const tiers = [
       'Priority support',
       'Early access to new features',
     ],
-    supportedBrokers: ['Alpaca', 'Tradier', 'IBKR'],
+    supportedBrokers: ['Tradier', 'IBKR'],
     supportedExchanges: ['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Gate.io', 'Bitget'],
     cta: 'Go Unlimited',
     icon: Crown,
@@ -519,7 +519,7 @@ export default function Pricing() {
                       Broker & Exchange Connections
                     </td>
                   </tr>
-                  <FeatureRow feature="Stock Brokers (Alpaca, Tradier, IBKR)" free={false} pro="1 broker" unlimited="Unlimited" />
+                  <FeatureRow feature="Stock Brokers (Tradier, IBKR)" free={false} pro="1 broker" unlimited="Unlimited" />
                   <FeatureRow feature="Crypto Exchanges (Coinbase, Binance, etc.)" free={false} pro="1 exchange" unlimited="All 8 exchanges" />
                   <FeatureRow feature="Multi-Exchange Trading" free={false} pro={false} unlimited />
                   
@@ -596,7 +596,7 @@ export default function Pricing() {
               </div>
               <h3 className="font-semibold text-foreground mb-2">Multi-Asset Trading</h3>
               <p className="text-sm text-muted-foreground">
-                Trade stocks via Alpaca, Tradier, IBKR and crypto on 8+ major exchanges.
+                Trade stocks via Tradier, IBKR and crypto on 8+ major exchanges.
               </p>
             </div>
             <div className="text-center">

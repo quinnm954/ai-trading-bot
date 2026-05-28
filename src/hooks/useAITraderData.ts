@@ -418,7 +418,7 @@ export function useAITraderData() {
     if (noBrokerForLive) {
       toast({
         title: 'No Broker Connected',
-        description: 'Live trades will be skipped until you connect Coinbase or Alpaca in API Keys.',
+        description: 'Live trades will be skipped until you connect Coinbase in API Keys.',
         variant: 'destructive',
       });
     }

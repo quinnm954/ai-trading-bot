@@ -368,10 +368,10 @@ export default function ApiKeys() {
             <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary">
               <CheckCircle className="w-4 h-4" />
               <span className="text-sm font-medium">Detected: {detectedExchange}</span>
-              {(detectedExchange.includes('Alpaca') || detectedExchange.includes('Tradier') || detectedExchange.includes('IBKR')) && (
+              {(detectedExchange.includes('Tradier') || detectedExchange.includes('IBKR')) && (
                 <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full ml-2">Stock Broker</span>
               )}
-              {!detectedExchange.includes('Alpaca') && !detectedExchange.includes('Tradier') && !detectedExchange.includes('IBKR') && (
+              {!detectedExchange.includes('Tradier') && !detectedExchange.includes('IBKR') && (
                 <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded-full ml-2">Crypto Exchange</span>
               )}
             </div>
