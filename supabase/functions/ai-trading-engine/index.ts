@@ -13,7 +13,7 @@ const corsHeaders = {
 
 type TradeSide = 'buy' | 'sell';
 
-const DUPLICATE_TRADE_COOLDOWN_MINUTES = 15; // scalp mode: prevent immediate re-entry / thrash on same symbol
+const DUPLICATE_TRADE_COOLDOWN_MINUTES = 5; // fast-compound: allow quick re-entry on continuing movers
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
 
