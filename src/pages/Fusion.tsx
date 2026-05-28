@@ -1,7 +1,7 @@
 import { FusionSignalsPanel } from '@/components/trading/FusionSignalsPanel';
 import { NewsFeedCard } from '@/components/trading/NewsFeedCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Brain, Layers, Zap, Newspaper, TrendingUp, Activity } from 'lucide-react';
+import { Brain, Layers, Zap, Newspaper, Activity, CandlestickChart } from 'lucide-react';
 
 export default function Fusion() {
   return (
@@ -23,7 +23,7 @@ export default function Fusion() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
             <div className="rounded-md border p-2 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" /> Polymarket odds
+              <CandlestickChart className="w-4 h-4 text-primary" /> Coinbase candles
             </div>
             <div className="rounded-md border p-2 flex items-center gap-2">
               <Newspaper className="w-4 h-4 text-primary" /> News sentiment

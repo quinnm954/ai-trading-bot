@@ -29,7 +29,6 @@ async function logAIUsage(supabase: any, userId: string | null, fn: string, mode
 }
 
 interface Feature {
-  polymarket: { conviction: number; direction: string; rationale?: string }[];
   news: { sentiment_avg: number; count: number; headlines: string[] };
   liquidation: { nearest_cluster_pct?: number; side?: string; cluster_usd?: number };
   technicals: { regime?: string; vol_pct?: number };
@@ -37,14 +36,7 @@ interface Feature {
 }
 
 async function gatherFeatures(supabase: any, symbol: string): Promise<Feature> {
-  const [pmRes, newsRes, liqRes, regimeRes, marketRes] = await Promise.all([
-    supabase
-      .from('polymarket_event_scores')
-      .select('conviction, direction, rationale')
-      .contains('symbols', [symbol])
-      .gt('scored_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-      .order('conviction', { ascending: false })
-      .limit(5),
+  const [newsRes, liqRes, regimeRes, marketRes] = await Promise.all([
     supabase
       .from('news_feed')
       .select('title, sentiment')
@@ -79,7 +71,6 @@ async function gatherFeatures(supabase: any, symbol: string): Promise<Feature> {
   const liq = (liqRes.data ?? [])[0];
 
   return {
-    polymarket: (pmRes.data ?? []) as any,
     news: {
       sentiment_avg: Number(sentimentAvg.toFixed(3)),
       count: news.length,

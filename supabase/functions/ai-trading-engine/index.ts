@@ -2206,7 +2206,7 @@ ${trendContext}
 LIVE MARKET DATA:
 ${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
-${fusionMap && fusionMap.size > 0 ? `TITAN FUSION SIGNALS (multi-source AI conviction, 0-100, fused from Polymarket prediction odds, news sentiment, liquidation clusters, technicals):
+${fusionMap && fusionMap.size > 0 ? `TITAN FUSION SIGNALS (multi-source AI conviction, 0-100, fused from Coinbase candles, news sentiment, liquidation clusters, technicals):
 ${marketData.filter(m => fusionMap.has(m.symbol.toUpperCase())).map(m => {
   const f = fusionMap.get(m.symbol.toUpperCase())!;
   const driverList = Array.isArray(f.drivers) ? f.drivers.slice(0, 3).join(', ')
@@ -3617,7 +3617,7 @@ serve(async (req) => {
       }
     }
 
-    // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Polymarket + news + liquidations + technicals)
+    // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Coinbase + news + liquidations + technicals)
     // Re-rank and softly gate tradeable list by latest fusion conviction.
     const fusionMap = new Map<string, { conviction: number; direction: string; drivers: any; rationale: string | null }>();
     try {
@@ -3930,7 +3930,7 @@ serve(async (req) => {
     //
     // Combines the underlying decision confidence (price action + momentum +
     // volume + regime alignment, already baked into d.confidence) with
-    // Polymarket fusion sentiment as a booster/penalty. Hard rule:
+    // Titan Fusion sentiment as a booster/penalty. Hard rule:
     //   score ≥ 70  → full size
     //   60–69       → half size
     //   < 60        → NO TRADE
