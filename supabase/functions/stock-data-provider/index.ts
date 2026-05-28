@@ -214,47 +214,15 @@ async function fetchYahooQuotes(symbols: string[]): Promise<StockQuote[]> {
 }
 
 /**
- * Get historical bars from Alpaca
+/**
+ * Alpaca bars removed.
  */
 async function fetchAlpacaBars(
-  symbol: string, 
-  timeframe: '1Min' | '5Min' | '15Min' | '1Hour' | '1Day',
-  limit: number = 100
+  _symbol: string,
+  _timeframe: '1Min' | '5Min' | '15Min' | '1Hour' | '1Day',
+  _limit: number = 100
 ): Promise<StockBar[]> {
-  const apiKey = Deno.env.get('ALPACA_API_KEY');
-  const apiSecret = Deno.env.get('ALPACA_API_SECRET');
-  
-  if (!apiKey || !apiSecret) {
-    return [];
-  }
-  
-  try {
-    const response = await fetch(
-      `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=${timeframe}&limit=${limit}`,
-      {
-        headers: {
-          'APCA-API-KEY-ID': apiKey,
-          'APCA-API-SECRET-KEY': apiSecret,
-        },
-      }
-    );
-    
-    if (!response.ok) return [];
-    
-    const data = await response.json();
-    
-    return (data.bars || []).map((bar: any) => ({
-      timestamp: bar.t,
-      open: bar.o,
-      high: bar.h,
-      low: bar.l,
-      close: bar.c,
-      volume: bar.v,
-    }));
-  } catch (error) {
-    console.error('Alpaca bars fetch error:', error);
-    return [];
-  }
+  return [];
 }
 
 serve(async (req) => {
