@@ -34,8 +34,6 @@ import { formatDistanceToNow } from 'date-fns';
 import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { useFollowedTraders } from '@/hooks/useFollowedTraders';
 import { useCopyTradeSignals } from '@/hooks/useCopyTradeSignals';
-import { LiquidationMapCard } from '@/components/trading/LiquidationMapCard';
-import { PolymarketSignalsCard } from '@/components/trading/PolymarketSignalsCard';
 import { NewsFeedCard } from '@/components/trading/NewsFeedCard';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -362,12 +360,6 @@ export default function CryptoSignals() {
               </TabsTrigger>
               <TabsTrigger value="defi" className="gap-2">
                 <TrendingUp className="w-4 h-4" /> DeFi Yields
-              </TabsTrigger>
-              <TabsTrigger value="liqmap" className="gap-2">
-                <TrendingUp className="w-4 h-4" /> Liquidation Map
-              </TabsTrigger>
-              <TabsTrigger value="polymarket" className="gap-2">
-                <TrendingUp className="w-4 h-4" /> Polymarket
               </TabsTrigger>
               <TabsTrigger value="news" className="gap-2">
                 <MessageSquare className="w-4 h-4" /> News
@@ -960,14 +952,6 @@ export default function CryptoSignals() {
                   </ScrollArea>
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            <TabsContent value="liqmap">
-              <LiquidationMapCard limit={20} />
-            </TabsContent>
-
-            <TabsContent value="polymarket">
-              <PolymarketSignalsCard />
             </TabsContent>
 
             <TabsContent value="news">
