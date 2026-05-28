@@ -250,7 +250,7 @@ async function getRecentLosingSymbols(
       console.log(`⏸️ LOSS COOLDOWN - Recent losing symbols (across all modes):`);
       lossCooldownMap.forEach((loss, symbol) => {
         const hoursSinceLoss = (Date.now() - loss.lastLossAt.getTime()) / (1000 * 60 * 60);
-        const isOnCooldown = hoursSinceLoss < cooldownHours || loss.lossCount >= maxConsecutiveLosses;
+        const isOnCooldown = hoursSinceLoss < cooldownHours;
         console.log(`   ${symbol}: ${loss.lossCount} loss(es), -${loss.totalLossPercent.toFixed(2)}%, ${hoursSinceLoss.toFixed(1)}h ago ${isOnCooldown ? '🚫 BLOCKED' : '✅ OK'}`);
       });
     }
