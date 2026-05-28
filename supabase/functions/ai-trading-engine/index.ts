@@ -1750,6 +1750,27 @@ interface CandleTechnicals {
   atrPct?: number;
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;
+  supportPrice?: number;
+  distanceToSupportPct?: number;
+  supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
+}
+
+// Detect the nearest swing-low support below `price` using ±`window` pivot lows.
+function findSupportLevel(lows: number[], price: number, window = 3): number | undefined {
+  if (lows.length < window * 2 + 1) return undefined;
+  const pivots: number[] = [];
+  for (let i = window; i < lows.length - window; i++) {
+    let isPivot = true;
+    for (let j = i - window; j <= i + window; j++) {
+      if (j !== i && lows[j] < lows[i]) { isPivot = false; break; }
+    }
+    if (isPivot) pivots.push(lows[i]);
+  }
+  // Also consider the session low as a fallback support.
+  pivots.push(Math.min(...lows));
+  // Nearest pivot that sits at or below the current price.
+  const below = pivots.filter(p => p <= price).sort((a, b) => b - a);
+  return below[0];
 }
 
 function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' | 'extreme'; score: number } {
