@@ -135,11 +135,13 @@ export function AIDecisionsBreakdownCard() {
         ) : (
           <div className="divide-y divide-border max-h-[520px] overflow-y-auto">
             {decisions.map((d) => {
-              const accepted = !!d.valid;
-              const score = d.score ?? d.factor_scores?.total_score ?? null;
-              const rejection = inferRejectionReason(d);
-              const isOpen = openId === d.id;
               const isExecution = d.decision_type === 'ai_trade_execution';
+              // Any logged execution means the trade went through, regardless
+              // of the advisory signal-quality `valid` flag.
+              const accepted = isExecution || !!d.valid;
+              const score = d.score ?? d.factor_scores?.total_score ?? null;
+              const rejection = accepted ? null : inferRejectionReason(d);
+              const isOpen = openId === d.id;
 
               return (
                 <Collapsible
