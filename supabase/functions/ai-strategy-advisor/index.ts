@@ -94,6 +94,36 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
+    const sb = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+
+    // Identify user for usage logging + credit deduction
+    let userId: string | null = null;
+    try {
+      const authHeader = req.headers.get('Authorization');
+      if (authHeader) {
+        const token = authHeader.replace('Bearer ', '');
+        const { data: u } = await sb.auth.getUser(token);
+        userId = u.user?.id ?? null;
+      }
+    } catch (_) { /* anonymous ok */ }
+
+    // Gate by in-app credits if user identified
+    if (userId) {
+      const balance = await getUserBalance(sb, userId);
+      if (balance < ADVISOR_CREDIT_COST) {
+        return new Response(JSON.stringify({
+          error: 'insufficient_credits',
+          message: `This advisor call costs ${ADVISOR_CREDIT_COST} credits. Top up to continue.`,
+          required: ADVISOR_CREDIT_COST,
+          balance,
+        }), { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+
     // Fetch crypto market data
     const cryptos = 'bitcoin,ethereum,solana,cardano,ripple,dogecoin,polkadot,avalanche-2,chainlink,litecoin';
     const marketResponse = await fetch(
