@@ -1,119 +1,40 @@
+# Tie position cap to notional, not margin
 
-# Titan AI: Precision Scalping + Sentiment Engine Upgrade
+## What changes
 
-Refactor the trading engine around one principle: **"Not trading is better than bad trading."** Remove every code path that forces trades when no valid setup exists, and replace it with a regime-gated, confidence-scored, sentiment-aware pipeline.
+Today the engine clamps **margin used** to 5% of equity. With $20k equity that's $1,000 max per scalp regardless of leverage — which makes leverage pointless for sizing.
 
----
+After this change, the 5% cap applies to **notional exposure** (margin × leverage). On spot/1x trades nothing changes. On leveraged trades the margin shrinks but the *market position* you control stays meaningful and predictable.
 
-## Scope of changes
+## Heads-up before I build
 
-All work happens in three edge functions plus one small UI badge. No schema changes.
+This is the literal "option 3" from my previous message, but I want to flag the tradeoff so you don't get a surprise:
 
-- `supabase/functions/ai-trading-engine/index.ts` — main pipeline rewrite
-- `supabase/functions/risk-manager/index.ts` — tighten per-trade + cooldown rules
-- `supabase/functions/titan-fusion-engine/index.ts` — expose sentiment score for the scoring model (read-only consumer added in trading engine)
-- `src/components/dashboard/MarketRegimeCard.tsx` — show new `STANDBY` / `NO-TRADE` state and current confidence threshold
+- **Spot crypto (Coinbase) runs at 1x leverage.** Notional = margin. Your $1k cap **does not move** unless you're on the futures path.
+- **Leveraged trades will use *less* margin per position** — e.g. on $20k equity at 5x, margin drops to $200 (controls $1k notional). That frees capital for more concurrent positions but each single position's margin is smaller, not bigger.
 
-No database migrations. Existing `ai_settings.current_regime`, `titan_fusion_signals`, and `risk_events` tables are reused.
+If what you actually want is **bigger positions overall**, the right lever is raising `SCALP_MAX_POSITION_PCT` from 5% → 10–15% (your "option 1"). I can do both in one pass if you want — say the word.
 
----
+## Implementation
 
-## New pipeline (executed every cycle, in order)
+**File:** `supabase/functions/ai-trading-engine/index.ts` (around lines 4419–4440)
 
-```text
-1. Regime detector            -> trending | ranging | high_vol | dead
-2. If dead                    -> STANDBY, return []
-3. Strategy selector by regime
-     trending  -> momentum scalp
-     ranging   -> mean-revert scalp / grid
-     high_vol  -> strict breakout, half size
-4. Candidate scan (Coinbase universe, meme/low-price filter respected)
-5. Micro price-action filter  (breakout, S/R flip, liquidity grab,
-                               continuation, rejection wick)
-6. Momentum + volume filter   (rising vol, no single-spike, no exhaustion)
-7. Confidence score 0-100     (weights below)
-8. Polymarket sentiment       (boost / penalty, never sole trigger)
-9. Threshold gate
-     >= 70  -> full size
-     60-69  -> half size
-     < 60   -> NO TRADE
-10. Risk manager validate     (stop required, cooldowns, drawdown)
-11. Execute via limit order near liquidity, with hard SL
-```
+1. Keep `SCALP_MAX_POSITION_PCT = 5` (or raise — your call).
+2. Change the hard-cap block so the comparison is against **notional**:
+   ```ts
+   const equityCap = equity * (SCALP_MAX_POSITION_PCT / 100);
+   const notional = tradeValue * decisionLeverage;
+   if (notional > equityCap) {
+     const newMargin = equityCap / decisionLeverage;
+     console.log(`🛡️ Scalp cap (notional): ${symbolUpper} notional $${notional.toFixed(2)} → $${equityCap.toFixed(2)}, margin $${tradeValue.toFixed(2)} → $${newMargin.toFixed(2)} @ ${decisionLeverage}x`);
+     tradeValue = Math.max(newMargin, MIN_TRADE_VALUE);
+   }
+   ```
+3. Update the comment block above the cap to describe the new behavior.
+4. Update the engine's settings-summary log line (line ~4442) so it reads `per-pos ${SCALP_MAX_POSITION_PCT}% notional`.
 
-### Confidence scoring weights
-
-| Input | Weight |
-|---|---|
-| Price-action setup quality | 25 |
-| Volume confirmation | 20 |
-| Momentum strength (multi-bar) | 15 |
-| Spread + liquidity | 10 |
-| Regime alignment | 15 |
-| Polymarket sentiment alignment | 15 |
-
-Sentiment can add up to +15 when aligned, subtract up to -15 when conflicting. Hard floor: score < 60 returns no trade regardless of other inputs.
-
----
-
-## Removals (forced-activity logic)
-
-- Cascading fallback chain `grid → scalp → ema_crossover` (already partly removed, finish the job).
-- "Always pick a rising coin" fallback in `analyzeWithRules`.
-- Any branch where `decisions = []` triggers a synthetic trade.
-- Auto-rotation that fires solely because no positions are open.
-
-Replaced with a single explicit `STANDBY` return path that logs `🛑 NO-TRADE: <reason>` and exits cleanly.
-
----
-
-## Risk + frequency controls
-
-- Risk per trade clamped to 0.5–2% of equity (was unbounded by user-set max position).
-- Hard stop loss required on every order (paper + live).
-- Per-symbol cooldown: 15 min after any exit, 60 min after a loss.
-- Global cooldown: 5 min between any two entries.
-- After 2 consecutive losses: position size halved for next 3 trades.
-- Daily drawdown limit reads from `ai_settings.max_daily_loss`; on breach → STANDBY for rest of UTC day.
-
----
-
-## Polymarket integration (signal booster only)
-
-Trading engine pulls latest `titan_fusion_signals` row per symbol (already populated by `titan-fusion-engine`). Mapping:
-
-- `direction === side` and `conviction >= 70` → +10 to +15 score
-- `direction === side` and `conviction 50-69` → +5
-- `direction` opposite of `side` and `conviction >= 60` → -15 (often pushes below threshold)
-- No fresh signal (<6h) → neutral, no adjustment
-
-Polymarket never opens a trade on its own.
-
----
-
-## UI
-
-`MarketRegimeCard` gains:
-- `STANDBY` pill when engine returned no trades with reason
-- Current confidence threshold (70) and last cycle's best score
-- Small "Sentiment: bullish/bearish/neutral" line from latest fusion signal
-
-Purely presentational, reads from existing tables.
-
----
-
-## Out of scope (call out)
-
-- New WebSocket feeds — keep current REST polling; mention as a follow-up.
-- Order-book depth scoring — current spread proxy stays; flagged for a later pass.
-- New Polymarket endpoints — reuse `polymarket-ai-score` + `titan-fusion-engine` already deployed.
-
----
+No DB migration, no UI change, no other files touched.
 
 ## Verification
 
-After deploy, watch one full cycle of `ai-trading-engine` logs and confirm:
-1. A regime line is logged first
-2. Either `🛑 NO-TRADE: <reason>` or a scored decision with `score=NN`
-3. No `cascading to ...` lines remain
-4. Risk-manager log shows cooldown / size-halving when applicable
+After deploy, check `daily-trade-audit` / engine logs for the new "🛡️ Scalp cap (notional)" line on the next leveraged scalp. On 1x trades the line shouldn't appear unless margin still exceeds 5% of equity.
