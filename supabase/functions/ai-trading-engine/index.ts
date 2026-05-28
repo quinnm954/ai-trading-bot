@@ -1339,6 +1339,9 @@ interface MarketData {
   percentB?: number;    // (close-lower)/(upper-lower)
   techSetup?: string;   // human-readable signal label
   techScore?: number;   // 0–100 quality of entry
+  atrPct?: number;      // ATR(14) on 5m candles as % of price — realized volatility
+  volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
+  volScore?: number;    // 0–100 — favors the "sweet spot" of tradable volatility
 }
 
 interface AITradingDecision {
