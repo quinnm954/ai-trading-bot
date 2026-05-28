@@ -1330,6 +1330,15 @@ interface MarketData {
   baseIncrement?: string;
   quoteMinSize?: number;
   spreadPercent?: number;
+  // Coinbase candle technicals (computed from 5m candles)
+  rsi14?: number;
+  bbLower?: number;
+  bbMid?: number;
+  bbUpper?: number;
+  bbWidth?: number;     // (upper-lower)/mid — squeeze indicator
+  percentB?: number;    // (close-lower)/(upper-lower)
+  techSetup?: string;   // human-readable signal label
+  techScore?: number;   // 0–100 quality of entry
 }
 
 interface AITradingDecision {
