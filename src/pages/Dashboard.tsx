@@ -22,6 +22,7 @@ import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressC
 import { DailyAuditCard } from '@/components/dashboard/DailyAuditCard';
 import { AICreditsMeter } from '@/components/dashboard/AICreditsMeter';
 import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
+import { AggressiveGrowthModeCard } from '@/components/dashboard/AggressiveGrowthModeCard';
 import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
