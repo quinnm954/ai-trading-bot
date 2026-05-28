@@ -45,7 +45,7 @@ export function FusionSignalsPanel() {
             <Sparkles className="w-4 h-4 text-primary/60" />
           </CardTitle>
           <CardDescription>
-            Unified conviction per asset — blends Polymarket odds, news sentiment, liquidation map, technicals, and volume.
+            Unified conviction per asset — blends Coinbase candles, technicals, and volume.
           </CardDescription>
         </div>
         <div className="flex gap-2">
