@@ -2004,17 +2004,17 @@ Rules:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-5.4',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: 'You are an autonomous AI trading system with full control over position sizing and leverage. Your goal is to maximize growth toward the $1M target while strictly preserving capital. Respond ONLY with valid JSON arrays.' },
           { role: 'user', content: prompt }
         ],
-        reasoning: { effort: 'medium' },
       }),
     });
 
     if (!response.ok) {
-      console.error('AI Gateway error:', response.status);
+      const errBody = await response.text().catch(() => '');
+      console.error('AI Gateway error:', response.status, errBody.slice(0, 300));
       return [];
     }
 
