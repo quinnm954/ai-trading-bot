@@ -2004,17 +2004,17 @@ Rules:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-5.4',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: 'You are an autonomous AI trading system with full control over position sizing and leverage. Your goal is to maximize growth toward the $1M target while strictly preserving capital. Respond ONLY with valid JSON arrays.' },
           { role: 'user', content: prompt }
         ],
-        reasoning: { effort: 'medium' },
       }),
     });
 
     if (!response.ok) {
-      console.error('AI Gateway error:', response.status);
+      const errBody = await response.text().catch(() => '');
+      console.error('AI Gateway error:', response.status, errBody.slice(0, 300));
       return [];
     }
 
@@ -3363,11 +3363,9 @@ serve(async (req) => {
     // compounding losses. Existing positions remain managed by auto-take-profit.
     const dayLossPct = balance > 0 ? (todaysNetPnL / balance) * 100 : 0;
     const bullishRegime = regimeReport.profile === 'trending_up';
-    // Tightened: stand down at -0.5% day loss (was -1.0%) in any non-bullish regime,
-    // OR immediately on a trending_down regime once we're red at all.
-    const standDownOnLoss =
-      (todaysNetPnL < 0 && !bullishRegime && dayLossPct <= -0.5) ||
-      (regimeReport.profile === 'trending_down' && todaysNetPnL < 0);
+    // Stand down only on meaningful daily losses so the bot can still trade
+    // through normal noise. Hard kill at -2% day loss in any non-bullish regime.
+    const standDownOnLoss = !bullishRegime && dayLossPct <= -2.0;
 
     if (standDownOnLoss) {
       console.log(`🛡️ STAND-DOWN: dayPnL=$${todaysNetPnL.toFixed(2)} (${dayLossPct.toFixed(2)}%), regime=${regimeReport.profile}. No new entries until day turns green or regime flips bullish.`);
