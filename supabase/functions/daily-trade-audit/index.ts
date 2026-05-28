@@ -243,7 +243,7 @@ async function auditUser(supabase: any, userId: string) {
     worst_samples: worstSamples,
   };
 
-  const ai = await callAI(stats);
+  const ai = await callAI(stats, supabase, userId);
 
   // --- Apply safe, deterministic learning adjustments ---
   // Rule: for any strategy with ≥3 trades and win_rate < 35% in the past 24h,
