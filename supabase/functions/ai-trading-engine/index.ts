@@ -2902,6 +2902,158 @@ function analyzeWithRules(
   return decisions.sort((a, b) => b.confidence - a.confidence).slice(0, 15);
 }
 
+// =============================================================================
+// 🧠 ADAPTIVE PARAMETER TUNER — adjusts scalp + risk parameters per-trade
+//   Reads the user's last N closed trades, computes win-rate / avg-win / avg-loss
+//   / expectancy / streak, and nudges scalp_settings & ai_settings to chase
+//   maximum profit while clamping inside safe bounds. Persists a `risk_event`
+//   row (`adaptive_tune`) with the diff so the user can audit every change.
+// =============================================================================
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+async function adaptParametersFromRecentTrades(
+  supabase: any,
+  userId: string,
+  isPaperMode: boolean,
+): Promise<void> {
+  try {
+    const { data: trades } = await supabase
+      .from('trades')
+      .select('pnl, entry_price, exit_price, closed_at, is_paper')
+      .eq('user_id', userId)
+      .eq('is_paper', isPaperMode)
+      .eq('status', 'closed')
+      .not('closed_at', 'is', null)
+      .order('closed_at', { ascending: false })
+      .limit(30);
+    if (!trades || trades.length < 5) return; // need a small sample
+
+    const pcts: number[] = [];
+    for (const t of trades) {
+      const ep = Number(t.entry_price);
+      const xp = Number(t.exit_price);
+      if (ep > 0 && xp > 0) pcts.push(((xp - ep) / ep) * 100);
+    }
+    if (pcts.length < 5) return;
+
+    const wins = pcts.filter(p => p > 0);
+    const losses = pcts.filter(p => p <= 0);
+    const winRate = (wins.length / pcts.length) * 100;
+    const avgWin = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
+    const avgLoss = losses.length ? Math.abs(losses.reduce((a, b) => a + b, 0) / losses.length) : 0;
+    const expectancy = (winRate / 100) * avgWin - (1 - winRate / 100) * avgLoss;
+
+    // Most recent (first) streak — same-sign run
+    let streak = 0;
+    const sign = pcts[0] > 0 ? 1 : -1;
+    for (const p of pcts) {
+      if ((p > 0 ? 1 : -1) !== sign) break;
+      streak += sign;
+    }
+
+    // Load current settings
+    const { data: ss } = await supabase
+      .from('scalp_settings').select('*').eq('user_id', userId).maybeSingle();
+    const { data: as_ } = await supabase
+      .from('ai_settings').select('max_daily_loss, max_position_size, max_concurrent_trades').eq('user_id', userId).maybeSingle();
+    if (!ss) return;
+
+    const next: Record<string, number> = {};
+
+    // 1) Take profit — capture more when winners run, take less when they barely tag
+    let tp = Number(ss.take_profit_pct);
+    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, 0.6, 4.0);
+    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, 0.6, 4.0);
+    if (Math.abs(tp - Number(ss.take_profit_pct)) >= 0.05) next.take_profit_pct = round2(tp);
+
+    // 2) Trailing drop — tighten in hot streaks, loosen in cold
+    let td = Number(ss.trailing_drop_pct);
+    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.6, 3.0);
+    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.6, 3.0);
+    if (Math.abs(td - Number(ss.trailing_drop_pct)) >= 0.05) next.trailing_drop_pct = round2(td);
+
+    // 3) Hard stop loss — pull in to the realized avg loss with safety buffer
+    let sl = Number(ss.hard_stop_loss_pct);
+    if (avgLoss > 0 && losses.length >= 3) {
+      const target = clamp(avgLoss * 1.25, 1.0, 4.0); // 25% buffer beyond avg realized loss
+      // ease toward target so we don't whipsaw
+      sl = clamp(sl * 0.6 + target * 0.4, 1.0, 4.0);
+    }
+    if (Math.abs(sl - Number(ss.hard_stop_loss_pct)) >= 0.05) next.hard_stop_loss_pct = round2(sl);
+
+    // 4) Entry thresholds — be pickier after a losing streak, more permissive after wins
+    let e5 = Number(ss.entry_min_5m_pct);
+    let e15 = Number(ss.entry_min_15m_pct);
+    let e1h = Number(ss.entry_min_1h_pct);
+    if (streak <= -3) {
+      e5 = clamp(e5 + 0.05, 0.1, 1.2);
+      e15 = clamp(e15 + 0.05, 0.1, 1.2);
+      e1h = clamp(e1h + 0.05, 0.1, 1.5);
+    } else if (streak >= 3 && expectancy > 0) {
+      e5 = clamp(e5 - 0.05, 0.1, 1.2);
+      e15 = clamp(e15 - 0.05, 0.1, 1.2);
+      e1h = clamp(e1h - 0.05, 0.1, 1.5);
+    }
+    if (Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
+    if (Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
+    if (Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
+
+    // 5) Position sizing — scale with expectancy
+    let size = Number(ss.target_position_size_usd);
+    if (expectancy > 0.3 && winRate >= 55) size = clamp(size * 1.1, 20, 300);
+    else if (expectancy < -0.2 || winRate <= 40) size = clamp(size * 0.85, 20, 300);
+    if (Math.abs(size - Number(ss.target_position_size_usd)) >= 1) next.target_position_size_usd = Math.round(size);
+
+    // 6) Concurrent positions — expand on positive expectancy, contract on negative
+    let maxPos = Number(ss.max_concurrent_positions);
+    if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 4, 18);
+    else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 4, 18);
+    if (maxPos !== Number(ss.max_concurrent_positions)) next.max_concurrent_positions = Math.round(maxPos);
+
+    if (Object.keys(next).length > 0) {
+      next.updated_at = Date.now() as any;
+      await supabase.from('scalp_settings').update({ ...next, updated_at: new Date().toISOString() }).eq('user_id', userId);
+    }
+
+    // 7) ai_settings — tighten max_daily_loss when expectancy is negative
+    if (as_) {
+      const nextAi: Record<string, number> = {};
+      let mdl = Number(as_.max_daily_loss ?? 2);
+      if (expectancy < -0.3) mdl = clamp(mdl * 0.85, 1, 10);
+      else if (expectancy > 0.5 && winRate >= 60) mdl = clamp(mdl * 1.05, 1, 10);
+      if (Math.abs(mdl - Number(as_.max_daily_loss ?? 2)) >= 0.1) nextAi.max_daily_loss = round2(mdl);
+      if (Object.keys(nextAi).length > 0) {
+        await supabase.from('ai_settings').update({ ...nextAi, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      }
+    }
+
+    // Audit trail — only log if something actually changed
+    if (Object.keys(next).length > 0) {
+      await supabase.from('risk_events').insert({
+        user_id: userId,
+        event_type: 'adaptive_tune',
+        severity: 'info',
+        message: `Tuned ${Object.keys(next).length} param(s) — win ${winRate.toFixed(0)}%, expectancy ${expectancy.toFixed(2)}%, streak ${streak}`,
+        details: {
+          sample_size: pcts.length,
+          win_rate: round2(winRate),
+          avg_win_pct: round2(avgWin),
+          avg_loss_pct: round2(avgLoss),
+          expectancy_pct: round2(expectancy),
+          streak,
+          changes: next,
+          is_paper: isPaperMode,
+        },
+      });
+      console.log(`🧠 ADAPTIVE TUNE [${userId.slice(0, 8)}]: win ${winRate.toFixed(0)}% exp ${expectancy.toFixed(2)}% streak ${streak} →`, next);
+    }
+  } catch (e) {
+    console.error('adaptive tuner error:', e);
+  }
+}
+
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -4531,6 +4683,11 @@ serve(async (req) => {
         console.log('🛑 KILL SWITCH TRIGGERED by drawdown check');
       }
     }
+
+    // 🧠 ADAPTIVE PARAMETER TUNING — adjust scalp/risk params from recent closed trades
+    // Runs every cycle so any newly-closed position immediately reshapes future entries.
+    await adaptParametersFromRecentTrades(supabase, user.id, isPaperMode);
+
 
     return new Response(JSON.stringify({
       status: 'success',
