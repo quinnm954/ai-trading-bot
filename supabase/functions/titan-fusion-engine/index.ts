@@ -162,6 +162,9 @@ Deno.serve(async (req) => {
         features,
       };
 
+      const ai_usage = ai.usage;
+      await logAIUsage(supabase, null, 'titan-fusion-engine', 'google/gemini-3.5-flash', ai_usage, 'ok');
+
       const { error } = await supabase.from('titan_fusion_signals').insert(row);
       if (error) console.error('insert error', error);
       results.push(row);
