@@ -1796,6 +1796,7 @@ serve(async (req) => {
       totalTakeProfitClosed: totalTakeProfit,
       totalStopLossClosed: totalStopLoss,
       totalDirectConversions: totalConversions,
+      autoRestarts,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
