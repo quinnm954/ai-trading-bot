@@ -1729,11 +1729,13 @@ serve(async (req) => {
     let totalStopLoss = 0;
     let totalConversions = 0;
 
+    let autoRestarts = 0;
+
     for (const userId of userIds) {
-      // Get user's trading mode
+      // Get user's trading mode + current bot state (needed for auto-restart check)
       const { data: settings } = await supabase
         .from('ai_settings')
-        .select('trading_mode')
+        .select('trading_mode, enabled, kill_switch_active, bot_status')
         .eq('user_id', userId)
         .single();
 
@@ -1742,6 +1744,43 @@ serve(async (req) => {
       totalTakeProfit += result.takeProfitCount;
       totalStopLoss += result.stopLossCount;
       totalConversions += result.conversions || 0;
+
+      // 🔁 AUTO-RESTART: if the bot is currently stopped (kill-switch or disabled)
+      // and all positions for this mode are now closed, bring it back online so
+      // the next trading-engine cycle resumes scanning.
+      const stopped = settings?.kill_switch_active === true || settings?.enabled === false;
+      const closedAny = (result.takeProfitCount + result.stopLossCount) > 0;
+      if (stopped && closedAny) {
+        const { count: openCount } = await supabase
+          .from('positions')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .eq('is_paper', isPaperMode);
+
+        if ((openCount ?? 0) === 0) {
+          await supabase.from('ai_settings').update({
+            enabled: true,
+            kill_switch_active: false,
+            kill_switch_triggered_at: null,
+            bot_status: 'idle',
+            updated_at: new Date().toISOString(),
+          }).eq('user_id', userId);
+
+          await supabase.from('risk_events').insert({
+            user_id: userId,
+            event_type: 'bot_auto_restart',
+            severity: 'info',
+            message: 'Bot auto-restarted after all positions closed',
+            details: {
+              trigger: settings?.kill_switch_active ? 'kill_switch_cleared' : 'bot_re_enabled',
+              mode: isPaperMode ? 'paper' : 'live',
+            },
+          });
+
+          autoRestarts += 1;
+          console.log(`🔁 Auto-restart: bot re-enabled for user ${userId} (all ${isPaperMode ? 'paper' : 'live'} positions closed)`);
+        }
+      }
     }
 
     return new Response(JSON.stringify({
