@@ -1744,6 +1744,18 @@ interface CandleTechnicals {
   percentB?: number;
   techSetup: string;
   techScore: number;
+  atrPct?: number;
+  volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
+  volScore?: number;
+}
+
+function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' | 'extreme'; score: number } {
+  // ATR% measured on 5m candles. Tradable "sweet spot" ≈ 0.25%–0.9%.
+  if (atrPct < 0.08) return { cls: 'dead', score: 10 };          // illiquid / flat
+  if (atrPct < 0.25) return { cls: 'low', score: 55 };           // workable but thin moves
+  if (atrPct <= 0.9) return { cls: 'sweet', score: 100 };        // ideal for scalp entries
+  if (atrPct <= 1.8) return { cls: 'high', score: 65 };          // moves are real but slippage rises
+  return { cls: 'extreme', score: 25 };                          // chaotic — wide stops, poor R:R
 }
 
 function computeRSI(closes: number[], period = 14): number | undefined {
