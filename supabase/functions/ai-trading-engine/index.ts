@@ -13,7 +13,9 @@ const corsHeaders = {
 
 type TradeSide = 'buy' | 'sell';
 
-const DUPLICATE_TRADE_COOLDOWN_MINUTES = 5; // fast-compound: allow quick re-entry on continuing movers
+const DUPLICATE_TRADE_COOLDOWN_MINUTES = 20; // forces rotation across the candidate pool (was 5 → too sticky on HYPE/AVAX/PAXG)
+const DIVERSITY_LOOKBACK_MINUTES = 90;       // window used to penalise recently-traded symbols during ranking
+const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window triggers the rotation penalty
 const SCALP_MAX_POSITION_PCT = 5; // hard cap: each scalp position ≤ 5% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
 
@@ -3753,6 +3755,46 @@ serve(async (req) => {
     } else {
       console.log('👥 No followed traders - using standard priority');
     }
+
+    // 🔄 DIVERSITY ROTATION — push symbols traded recently to the back of the line
+    // so the bot stops camping on HYPE/AVAX/PAXG every cycle. Symbols outside the
+    // duplicate-cooldown but still inside DIVERSITY_LOOKBACK_MINUTES get a soft
+    // demotion; fresh symbols rise to the top.
+    try {
+      const lookbackCutoff = new Date(Date.now() - DIVERSITY_LOOKBACK_MINUTES * 60 * 1000).toISOString();
+      const { data: recentBuys } = await supabase
+        .from('trades')
+        .select('symbol, created_at')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode)
+        .eq('side', 'buy')
+        .gte('created_at', lookbackCutoff)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      const recentBuyCount = new Map<string, number>();
+      for (const t of (recentBuys || []) as any[]) {
+        const s = String(t.symbol || '').toUpperCase();
+        if (!s) continue;
+        recentBuyCount.set(s, (recentBuyCount.get(s) || 0) + 1);
+      }
+
+      if (recentBuyCount.size > 0) {
+        prioritizedTradeable = [...prioritizedTradeable].sort((a, b) => {
+          const aN = recentBuyCount.get(a.symbol.toUpperCase()) || 0;
+          const bN = recentBuyCount.get(b.symbol.toUpperCase()) || 0;
+          const aPenalised = aN >= DIVERSITY_RECENT_BUYS_FOR_PENALTY ? 1 : 0;
+          const bPenalised = bN >= DIVERSITY_RECENT_BUYS_FOR_PENALTY ? 1 : 0;
+          if (aPenalised !== bPenalised) return aPenalised - bPenalised; // fresh first
+          return aN - bN; // among penalised, least-traded first
+        });
+        console.log(`🔄 Diversity rotation: demoted ${[...recentBuyCount.entries()].map(([s, n]) => `${s}×${n}`).join(', ')} (${DIVERSITY_LOOKBACK_MINUTES}m lookback)`);
+        console.log(`🔄 Rotated order: ${prioritizedTradeable.slice(0, 10).map(c => c.symbol).join(', ')}${prioritizedTradeable.length > 10 ? '...' : ''}`);
+      }
+    } catch (err) {
+      console.warn('🔄 Diversity rotation failed (non-fatal):', err instanceof Error ? err.message : err);
+    }
+
 
     // If all coins are in downtrend, skip trading entirely
     if (tradeable.length === 0) {
