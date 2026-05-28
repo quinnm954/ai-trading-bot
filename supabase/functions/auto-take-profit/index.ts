@@ -11,21 +11,21 @@ const corsHeaders = {
 // Sell positions with gains and rotate into assets showing upward momentum
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
-// Rotation threshold: when position gains X%, rotate into rising asset
- // SCALP MODE (small-capital tuned): targets must clear ~1.2% round-trip fees.
- // Tightened to capture small wins instead of riding peaks back to flat.
- const ROTATION_PROFIT_THRESHOLD = 1.5; // 1.5% profit triggers rotation into a fresh mover
- // Stop loss: widened slightly so small positions aren't stopped out by fee+spread noise
- const BASE_STOP_LOSS_PERCENT = -2.0;
- // Trailing stop: arm fast, exit on small giveback
- const TRAILING_STOP_DROP = 0.5; // Sell when current gain is 0.5% below peak gain
- const TRAILING_STOP_MIN_PEAK = 0.8; // Activate trailing as soon as peak ≥ 0.8%
- // Hard take-profit: lock in once gain hits this level regardless of peak/trail
- const HARD_TAKE_PROFIT_PCT = 1.8; // 1.8% gross ≈ 0.6% net after ~1.2% round-trip fees
- // Minimum momentum for target asset (must be rising)
- const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
- // Maximum momentum - avoid buying at the top
- const MAX_TARGET_MOMENTUM = 15.0; // Don't buy if already up 15%+ (too late)
+ // Rotation threshold: when position gains X%, rotate into rising asset
+  // FAST-COMPOUND MODE: maximize trades/day. Targets clear ~0.8% maker round-trip;
+  // book small wins quickly and recycle capital into the next mover.
+  const ROTATION_PROFIT_THRESHOLD = 1.2; // 1.2% triggers rotation into a fresh mover
+  // Stop loss: tighter — small losers must die fast so capital can rotate
+  const BASE_STOP_LOSS_PERCENT = -1.5;
+  // Trailing stop: arm very fast, exit on tiny giveback (lock the move)
+  const TRAILING_STOP_DROP = 0.35; // Sell when current gain is 0.35% below peak gain
+  const TRAILING_STOP_MIN_PEAK = 0.6; // Activate trailing as soon as peak ≥ 0.6%
+  // Hard take-profit: lock in once gain hits this level regardless of peak/trail
+  const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
+  // Minimum momentum for target asset (must be rising)
+  const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
+  // Maximum momentum - avoid buying at the top
+  const MAX_TARGET_MOMENTUM = 15.0; // Don't buy if already up 15%+ (too late)
 
 // Latency tracking for dynamic threshold adjustment
 interface LatencyMetrics {
