@@ -48,8 +48,38 @@ function topN(map: Record<string, number>, n = 5) {
     .map(([key, count]) => ({ key, count }));
 }
 
-async function callAI(stats: any): Promise<{ themes: any[]; recommendations: any[]; summary: string } | null> {
+// Rough price book ($ per 1M tokens). Used to estimate workspace spend.
+const MODEL_PRICES: Record<string, { in: number; out: number }> = {
+  "google/gemini-3-flash-preview": { in: 0.075, out: 0.30 },
+  "google/gemini-2.5-flash": { in: 0.075, out: 0.30 },
+  "google/gemini-2.5-pro": { in: 1.25, out: 5.0 },
+  "openai/gpt-5-mini": { in: 0.25, out: 2.0 },
+  "openai/gpt-5": { in: 1.25, out: 10.0 },
+};
+
+async function logAIUsage(supabase: any, userId: string | null, fn: string, model: string, usage: any, status: string) {
+  try {
+    const price = MODEL_PRICES[model] || { in: 0.1, out: 0.4 };
+    const inTok = usage?.prompt_tokens ?? 0;
+    const outTok = usage?.completion_tokens ?? 0;
+    const cost = (inTok * price.in + outTok * price.out) / 1_000_000;
+    await supabase.from("ai_usage_log").insert({
+      user_id: userId,
+      function_name: fn,
+      model,
+      cost_usd: Number(cost.toFixed(6)),
+      tokens_in: inTok,
+      tokens_out: outTok,
+      status,
+    });
+  } catch (e) {
+    console.warn("logAIUsage failed:", e);
+  }
+}
+
+async function callAI(stats: any, supabase: any, userId: string): Promise<{ themes: any[]; recommendations: any[]; summary: string } | null> {
   if (!LOVABLE_API_KEY) return null;
+  const model = "google/gemini-3-flash-preview";
   try {
     const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -113,14 +143,17 @@ async function callAI(stats: any): Promise<{ themes: any[]; recommendations: any
     });
     if (!resp.ok) {
       console.warn("AI gateway non-OK:", resp.status, await resp.text());
+      await logAIUsage(supabase, userId, "daily-trade-audit", model, null, `error_${resp.status}`);
       return null;
     }
     const data = await resp.json();
+    await logAIUsage(supabase, userId, "daily-trade-audit", model, data?.usage, "ok");
     const args = data?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
     if (!args) return null;
     return JSON.parse(args);
   } catch (e) {
     console.error("AI call failed:", e);
+    await logAIUsage(supabase, userId, "daily-trade-audit", model, null, "exception");
     return null;
   }
 }
@@ -210,7 +243,7 @@ async function auditUser(supabase: any, userId: string) {
     worst_samples: worstSamples,
   };
 
-  const ai = await callAI(stats);
+  const ai = await callAI(stats, supabase, userId);
 
   // --- Apply safe, deterministic learning adjustments ---
   // Rule: for any strategy with ≥3 trades and win_rate < 35% in the past 24h,

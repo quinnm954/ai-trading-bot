@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_credit_balances: {
+        Row: {
+          credits: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          credits?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          credits?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ai_credit_transactions: {
+        Row: {
+          created_at: string
+          delta: number
+          description: string | null
+          id: string
+          stripe_session_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta: number
+          description?: string | null
+          id?: string
+          stripe_session_id?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          delta?: number
+          description?: string | null
+          id?: string
+          stripe_session_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_decisions: {
         Row: {
           action: string | null
@@ -65,6 +113,7 @@ export type Database = {
       ai_settings: {
         Row: {
           ai_autonomous_mode: boolean | null
+          ai_monthly_budget_usd: number
           allowed_markets: string[] | null
           bot_status: Database["public"]["Enums"]["bot_status"] | null
           created_at: string | null
@@ -98,6 +147,7 @@ export type Database = {
         }
         Insert: {
           ai_autonomous_mode?: boolean | null
+          ai_monthly_budget_usd?: number
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           created_at?: string | null
@@ -131,6 +181,7 @@ export type Database = {
         }
         Update: {
           ai_autonomous_mode?: boolean | null
+          ai_monthly_budget_usd?: number
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           created_at?: string | null
@@ -161,6 +212,42 @@ export type Database = {
           user_id?: string | null
           weekly_loss_current?: number | null
           weekly_loss_limit?: number | null
+        }
+        Relationships: []
+      }
+      ai_usage_log: {
+        Row: {
+          cost_usd: number
+          created_at: string
+          function_name: string
+          id: string
+          model: string | null
+          status: string
+          tokens_in: number | null
+          tokens_out: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cost_usd?: number
+          created_at?: string
+          function_name: string
+          id?: string
+          model?: string | null
+          status?: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cost_usd?: number
+          created_at?: string
+          function_name?: string
+          id?: string
+          model?: string | null
+          status?: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string | null
         }
         Relationships: []
       }
