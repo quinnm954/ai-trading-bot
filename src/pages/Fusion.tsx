@@ -23,7 +23,7 @@ export default function Fusion() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
             <div className="rounded-md border p-2 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" /> Polymarket odds
+              <CandlestickChart className="w-4 h-4 text-primary" /> Coinbase candles
             </div>
             <div className="rounded-md border p-2 flex items-center gap-2">
               <Newspaper className="w-4 h-4 text-primary" /> News sentiment
