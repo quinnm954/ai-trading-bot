@@ -428,6 +428,7 @@ export default function Dashboard() {
           <MilestoneProgressCard />
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
+          <AIDecisionsBreakdownCard />
         </div>
         <div className="space-y-6">
           <AIStatusCard />
