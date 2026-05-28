@@ -1796,6 +1796,8 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     if (candles.length < 2) return null;
     const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
     const closes = sorted.map((c: any) => Number(c.close));
+    const highs = sorted.map((c: any) => Number(c.high));
+    const lows = sorted.map((c: any) => Number(c.low));
     const last = closes[closes.length - 1];
     const prev5 = closes[closes.length - 2];
     const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
@@ -1806,7 +1808,31 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     const bb = computeBollinger(closes, 20, 2);
     const percentB = bb && bb.upper > bb.lower ? (last - bb.lower) / (bb.upper - bb.lower) : undefined;
 
-    // Score the setup: 0–100. Favor oversold-bouncing-in-squeeze near lower band.
+    // ATR(14) on 5m → realized volatility as % of last price
+    let atrPct: number | undefined;
+    let volClass: 'dead' | 'low' | 'sweet' | 'high' | 'extreme' | undefined;
+    let volScore: number | undefined;
+    if (closes.length >= 15) {
+      const trs: number[] = [];
+      for (let i = 1; i < closes.length; i++) {
+        const tr = Math.max(
+          highs[i] - lows[i],
+          Math.abs(highs[i] - closes[i - 1]),
+          Math.abs(lows[i] - closes[i - 1]),
+        );
+        trs.push(tr);
+      }
+      const slice = trs.slice(-14);
+      const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
+      if (last > 0) {
+        atrPct = (atr / last) * 100;
+        const v = classifyVol(atrPct);
+        volClass = v.cls;
+        volScore = v.score;
+      }
+    }
+
+    // Score the setup: 0–100. Favor oversold-bouncing-in-squeeze near lower band, sweet-spot volatility.
     let score = 50;
     const labels: string[] = [];
     if (rsi !== undefined) {
@@ -1822,10 +1848,17 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       else if (percentB > 0.8) { score -= 8; labels.push(`%B ${percentB.toFixed(2)} upper band`); }
     }
     if (bb && bb.width < 0.03) { score += 8; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
-    // Bullish reclaim: positive 5m momentum after being near lower band
     if (change5m > 0 && percentB !== undefined && percentB < 0.4) { score += 10; labels.push('bounce from lower BB'); }
-    // Already-pumped penalty
     if (change5m > 3) { score -= 15; labels.push('5m spike'); }
+
+    // Volatility-aware adjustments
+    if (atrPct !== undefined && volClass) {
+      if (volClass === 'sweet') { score += 12; labels.push(`vol sweet ATR ${atrPct.toFixed(2)}%`); }
+      else if (volClass === 'high') { score += 2; labels.push(`vol high ATR ${atrPct.toFixed(2)}%`); }
+      else if (volClass === 'low') { score -= 4; labels.push(`vol low ATR ${atrPct.toFixed(2)}%`); }
+      else if (volClass === 'dead') { score -= 25; labels.push(`vol dead ATR ${atrPct.toFixed(2)}%`); }
+      else if (volClass === 'extreme') { score -= 20; labels.push(`vol extreme ATR ${atrPct.toFixed(2)}%`); }
+    }
 
     score = Math.max(0, Math.min(100, score));
     const techSetup = labels.length ? labels.join(' | ') : 'neutral';
@@ -1836,6 +1869,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       bbLower: bb?.lower, bbMid: bb?.mid, bbUpper: bb?.upper, bbWidth: bb?.width,
       percentB,
       techSetup, techScore: score,
+      atrPct, volClass, volScore,
     };
   } catch (_e) {
     return null;
