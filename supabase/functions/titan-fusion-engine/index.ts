@@ -6,6 +6,28 @@ const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 // Top symbols we fuse — keep small to bound AI cost
 const SYMBOLS = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
 
+const MODEL_PRICES: Record<string, { in: number; out: number }> = {
+  'google/gemini-3.5-flash': { in: 0.075, out: 0.30 },
+  'google/gemini-2.5-flash': { in: 0.075, out: 0.30 },
+  'google/gemini-2.5-pro': { in: 1.25, out: 5.0 },
+  'openai/gpt-5-mini': { in: 0.25, out: 2.0 },
+  'openai/gpt-5': { in: 1.25, out: 10.0 },
+  'openai/gpt-5.4': { in: 1.25, out: 10.0 },
+};
+
+async function logAIUsage(supabase: any, userId: string | null, fn: string, model: string, usage: any, status: string) {
+  try {
+    const p = MODEL_PRICES[model] || { in: 0.1, out: 0.4 };
+    const inTok = usage?.prompt_tokens ?? 0;
+    const outTok = usage?.completion_tokens ?? 0;
+    const cost = (inTok * p.in + outTok * p.out) / 1_000_000;
+    await supabase.from('ai_usage_log').insert({
+      user_id: userId, function_name: fn, model,
+      cost_usd: Number(cost.toFixed(6)), tokens_in: inTok, tokens_out: outTok, status,
+    });
+  } catch (e) { console.warn('logAIUsage failed', e); }
+}
+
 interface Feature {
   polymarket: { conviction: number; direction: string; rationale?: string }[];
   news: { sentiment_avg: number; count: number; headlines: string[] };
@@ -139,6 +161,9 @@ Deno.serve(async (req) => {
         rationale: String(parsed.rationale ?? '').slice(0, 500),
         features,
       };
+
+      const ai_usage = ai.usage;
+      await logAIUsage(supabase, null, 'titan-fusion-engine', 'google/gemini-3.5-flash', ai_usage, 'ok');
 
       const { error } = await supabase.from('titan_fusion_signals').insert(row);
       if (error) console.error('insert error', error);
