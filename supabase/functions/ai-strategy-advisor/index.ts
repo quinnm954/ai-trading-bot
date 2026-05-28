@@ -1,9 +1,48 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const ADVISOR_CREDIT_COST = 2;
+
+const MODEL_PRICES: Record<string, { in: number; out: number }> = {
+  'openai/gpt-5.4': { in: 1.25, out: 10.0 },
+  'openai/gpt-5-mini': { in: 0.25, out: 2.0 },
+  'openai/gpt-5': { in: 1.25, out: 10.0 },
+  'google/gemini-2.5-flash': { in: 0.075, out: 0.30 },
+  'google/gemini-2.5-pro': { in: 1.25, out: 5.0 },
+};
+
+async function logAIUsage(sb: any, userId: string | null, fn: string, model: string, usage: any, status: string) {
+  try {
+    const p = MODEL_PRICES[model] || { in: 0.1, out: 0.4 };
+    const inTok = usage?.prompt_tokens ?? 0;
+    const outTok = usage?.completion_tokens ?? 0;
+    const cost = (inTok * p.in + outTok * p.out) / 1_000_000;
+    await sb.from('ai_usage_log').insert({
+      user_id: userId, function_name: fn, model,
+      cost_usd: Number(cost.toFixed(6)), tokens_in: inTok, tokens_out: outTok, status,
+    });
+  } catch (e) { console.warn('logAIUsage failed', e); }
+}
+
+async function getUserBalance(sb: any, userId: string): Promise<number> {
+  const { data } = await sb.from('ai_credit_balances').select('credits').eq('user_id', userId).maybeSingle();
+  return Number(data?.credits ?? 0);
+}
+
+async function deductCredits(sb: any, userId: string, amount: number, description: string) {
+  const current = await getUserBalance(sb, userId);
+  const next = Math.max(0, current - amount);
+  await sb.from('ai_credit_balances').upsert({ user_id: userId, credits: next, updated_at: new Date().toISOString() });
+  await sb.from('ai_credit_transactions').insert({
+    user_id: userId, type: 'debit', delta: -amount, description,
+  });
+}
+
 
 interface CryptoData {
   id: string;
