@@ -1727,12 +1727,52 @@ const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
 // =============================================================================
-// 📡 SHORT-WINDOW MOMENTUM RESEARCH (Coinbase candles)
+// 📡 COINBASE CANDLE TECHNICALS — momentum + Bollinger Bands(20,2) + RSI(14)
 // =============================================================================
-async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
+interface CandleTechnicals {
+  change5m: number;
+  change15m: number;
+  lastClose: number;
+  rsi14?: number;
+  bbLower?: number;
+  bbMid?: number;
+  bbUpper?: number;
+  bbWidth?: number;
+  percentB?: number;
+  techSetup: string;
+  techScore: number;
+}
+
+function computeRSI(closes: number[], period = 14): number | undefined {
+  if (closes.length < period + 1) return undefined;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function computeBollinger(closes: number[], period = 20, mult = 2) {
+  if (closes.length < period) return null;
+  const slice = closes.slice(closes.length - period);
+  const mid = slice.reduce((a, b) => a + b, 0) / period;
+  const variance = slice.reduce((a, b) => a + (b - mid) ** 2, 0) / period;
+  const sd = Math.sqrt(variance);
+  const upper = mid + mult * sd;
+  const lower = mid - mult * sd;
+  return { mid, upper, lower, width: mid > 0 ? (upper - lower) / mid : 0 };
+}
+
+async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
-    const start = now - 60 * 25;
+    // 60 × 5m = 5h of data — enough for BB(20) + RSI(14) on 5m
+    const start = now - 60 * 60 * 5;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
     const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
     if (!resp.ok) return null;
@@ -1746,7 +1786,42 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
     const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
     const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
     const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
-    return { change5m, change15m };
+
+    const rsi = computeRSI(closes, 14);
+    const bb = computeBollinger(closes, 20, 2);
+    const percentB = bb && bb.upper > bb.lower ? (last - bb.lower) / (bb.upper - bb.lower) : undefined;
+
+    // Score the setup: 0–100. Favor oversold-bouncing-in-squeeze near lower band.
+    let score = 50;
+    const labels: string[] = [];
+    if (rsi !== undefined) {
+      if (rsi < 30) { score += 15; labels.push(`RSI ${rsi.toFixed(0)} oversold`); }
+      else if (rsi < 45) { score += 8; labels.push(`RSI ${rsi.toFixed(0)} cool`); }
+      else if (rsi > 70) { score -= 20; labels.push(`RSI ${rsi.toFixed(0)} overbought`); }
+      else if (rsi > 60) { score -= 8; labels.push(`RSI ${rsi.toFixed(0)} hot`); }
+    }
+    if (percentB !== undefined) {
+      if (percentB < 0.1) { score += 15; labels.push(`%B ${percentB.toFixed(2)} at lower BB`); }
+      else if (percentB < 0.3) { score += 8; labels.push(`%B ${percentB.toFixed(2)} lower half`); }
+      else if (percentB > 0.95) { score -= 20; labels.push(`%B ${percentB.toFixed(2)} above upper BB`); }
+      else if (percentB > 0.8) { score -= 8; labels.push(`%B ${percentB.toFixed(2)} upper band`); }
+    }
+    if (bb && bb.width < 0.03) { score += 8; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
+    // Bullish reclaim: positive 5m momentum after being near lower band
+    if (change5m > 0 && percentB !== undefined && percentB < 0.4) { score += 10; labels.push('bounce from lower BB'); }
+    // Already-pumped penalty
+    if (change5m > 3) { score -= 15; labels.push('5m spike'); }
+
+    score = Math.max(0, Math.min(100, score));
+    const techSetup = labels.length ? labels.join(' | ') : 'neutral';
+
+    return {
+      change5m, change15m, lastClose: last,
+      rsi14: rsi,
+      bbLower: bb?.lower, bbMid: bb?.mid, bbUpper: bb?.upper, bbWidth: bb?.width,
+      percentB,
+      techSetup, techScore: score,
+    };
   } catch (_e) {
     return null;
   }
