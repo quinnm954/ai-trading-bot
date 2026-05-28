@@ -1965,14 +1965,24 @@ async function filterByTrend(
       console.log(`🧪 WEAK SETUP: ${coin.symbol} techScore ${tScore} (${coin.techSetup})`);
       return false;
     }
-    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | tech ${tScore} (${coin.techSetup})`);
+    // Volatility gate: reject dead or extreme — neither is profitable to scalp.
+    if (coin.volClass === 'dead') {
+      console.log(`💤 DEAD VOL: ${coin.symbol} ATR ${(coin.atrPct ?? 0).toFixed(2)}% — no movement to capture`);
+      return false;
+    }
+    if (coin.volClass === 'extreme') {
+      console.log(`🌪️  EXTREME VOL: ${coin.symbol} ATR ${(coin.atrPct ?? 0).toFixed(2)}% — slippage/wick risk`);
+      return false;
+    }
+    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | tech ${tScore}`);
     return true;
   });
 
-  // Rank by technical score + momentum + liquidity.
+  // Rank by tech + volatility-fit + momentum + liquidity. Volatility-fit is now a first-class factor.
   scalpCandidates.sort((a, b) => {
     const score = (c: MarketData) =>
-      (c.techScore ?? 50) * 0.5 +
+      (c.techScore ?? 50) * 0.4 +
+      (c.volScore ?? 50) * 0.35 +
       (c.change5m ?? 0) * 2 +
       (c.change1h ?? 0) +
       Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
