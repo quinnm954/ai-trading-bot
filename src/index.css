@@ -2,92 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
+    /* Midnight Indigo palette — deep navy + electric indigo accent */
+    --background: 240 47% 6%;          /* #0a0a1a */
+    --foreground: 220 30% 96%;
 
-    --card: 222 47% 8%;
-    --card-foreground: 210 40% 98%;
+    --card: 235 40% 9%;                /* slightly raised navy */
+    --card-foreground: 220 30% 96%;
 
-    --popover: 222 47% 8%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 235 40% 10%;
+    --popover-foreground: 220 30% 96%;
 
-    --primary: 187 100% 50%;
-    --primary-foreground: 222 47% 6%;
+    --primary: 243 76% 59%;            /* electric indigo #4f46e5 */
+    --primary-foreground: 220 30% 98%;
+    --primary-glow: 243 90% 70%;
 
-    --secondary: 222 47% 12%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 237 45% 14%;          /* #141432 */
+    --secondary-foreground: 220 30% 96%;
 
-    --muted: 222 47% 15%;
-    --muted-foreground: 215 20% 55%;
+    --muted: 236 30% 16%;
+    --muted-foreground: 225 15% 65%;
 
-    --accent: 222 47% 15%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 239 60% 24%;             /* #1e1e5a */
+    --accent-foreground: 220 30% 98%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 62%;
+    --destructive-foreground: 220 30% 98%;
 
-    --success: 142 76% 45%;
-    --success-foreground: 210 40% 98%;
+    --success: 152 76% 48%;
+    --success-foreground: 220 30% 98%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 222 47% 6%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 240 47% 6%;
 
-    --border: 222 47% 15%;
-    --input: 222 47% 12%;
-    --ring: 187 100% 50%;
+    --border: 236 30% 18%;
+    --input: 236 30% 14%;
+    --ring: 243 76% 59%;
 
-    --radius: 0.75rem;
+    --radius: 1rem;
 
-    --chart-1: 187 100% 50%;
-    --chart-2: 142 76% 45%;
-    --chart-3: 0 84% 60%;
-    --chart-4: 38 92% 50%;
-    --chart-5: 262 83% 58%;
+    --chart-1: 243 76% 59%;
+    --chart-2: 152 76% 48%;
+    --chart-3: 0 84% 62%;
+    --chart-4: 38 92% 55%;
+    --chart-5: 280 80% 65%;
 
-    --sidebar-background: 222 47% 5%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 187 100% 50%;
-    --sidebar-primary-foreground: 222 47% 6%;
-    --sidebar-accent: 222 47% 12%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 47% 12%;
-    --sidebar-ring: 187 100% 50%;
+    --sidebar-background: 240 50% 5%;
+    --sidebar-foreground: 220 30% 96%;
+    --sidebar-primary: 243 76% 59%;
+    --sidebar-primary-foreground: 220 30% 98%;
+    --sidebar-accent: 237 45% 14%;
+    --sidebar-accent-foreground: 220 30% 96%;
+    --sidebar-border: 236 30% 18%;
+    --sidebar-ring: 243 76% 59%;
 
-    /* Custom trading colors */
-    --profit: 142 76% 45%;
-    --loss: 0 84% 60%;
-    --neutral: 215 20% 55%;
-    
-    /* Glow effects */
-    --glow-primary: 0 0 20px hsl(187 100% 50% / 0.3);
-    --glow-success: 0 0 20px hsl(142 76% 45% / 0.3);
-    --glow-danger: 0 0 20px hsl(0 84% 60% / 0.3);
+    --profit: 152 76% 48%;
+    --loss: 0 84% 62%;
+    --neutral: 225 15% 65%;
+
+    --glow-primary: 0 0 24px hsl(243 90% 70% / 0.4);
+    --glow-success: 0 0 24px hsl(152 76% 48% / 0.35);
+    --glow-danger: 0 0 24px hsl(0 84% 62% / 0.35);
+
+    /* Native-feel safe areas */
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+    --tab-bar-h: 4.25rem;
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 8%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 8%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 187 100% 50%;
-    --primary-foreground: 222 47% 6%;
-    --secondary: 222 47% 12%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 222 47% 15%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 222 47% 15%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 222 47% 15%;
-    --input: 222 47% 12%;
-    --ring: 187 100% 50%;
+    --background: 240 47% 6%;
+    --foreground: 220 30% 96%;
+    --card: 235 40% 9%;
+    --card-foreground: 220 30% 96%;
+    --popover: 235 40% 10%;
+    --popover-foreground: 220 30% 96%;
+    --primary: 243 76% 59%;
+    --primary-foreground: 220 30% 98%;
+    --secondary: 237 45% 14%;
+    --secondary-foreground: 220 30% 96%;
+    --muted: 236 30% 16%;
+    --muted-foreground: 225 15% 65%;
+    --accent: 239 60% 24%;
+    --accent-foreground: 220 30% 98%;
+    --destructive: 0 84% 62%;
+    --destructive-foreground: 220 30% 98%;
+    --border: 236 30% 18%;
+    --input: 236 30% 14%;
+    --ring: 243 76% 59%;
   }
 }
 
@@ -98,13 +103,17 @@
 
   html {
     @apply dark;
+    /* Prevent rubber-band over-scroll exposing the page background */
+    background: hsl(var(--background));
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     overscroll-behavior-y: none;
     touch-action: manipulation;
   }
@@ -113,8 +122,24 @@
     overflow-x: hidden;
   }
 
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Sora', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.015em;
+  }
+
+  .font-display {
+    font-family: 'Sora', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Subtle native-style focus rings */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.6);
+    outline-offset: 2px;
   }
 }
 
