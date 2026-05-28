@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const ADVISOR_CREDIT_COST = 2;
+
 
 const MODEL_PRICES: Record<string, { in: number; out: number }> = {
   'openai/gpt-5.4': { in: 1.25, out: 10.0 },
