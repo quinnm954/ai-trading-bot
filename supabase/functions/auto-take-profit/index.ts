@@ -1754,10 +1754,11 @@ serve(async (req) => {
 
       // 🔁 AUTO-RESTART: if the bot is currently stopped (kill-switch or disabled)
       // and all positions for this mode are now closed, bring it back online so
-      // the next trading-engine cycle resumes scanning.
+      // the next trading-engine cycle resumes scanning. Runs every cycle (not
+      // only when we just closed something) so a bot that was disabled while
+      // already flat still gets re-armed.
       const stopped = settings?.kill_switch_active === true || settings?.enabled === false;
-      const closedAny = (result.takeProfitCount + result.stopLossCount) > 0;
-      if (stopped && closedAny) {
+      if (stopped) {
         const { count: openCount } = await supabase
           .from('positions')
           .select('id', { count: 'exact', head: true })
@@ -1777,7 +1778,7 @@ serve(async (req) => {
             user_id: userId,
             event_type: 'bot_auto_restart',
             severity: 'info',
-            message: 'Bot auto-restarted after all positions closed',
+            message: 'Bot auto-restarted (flat + stopped)',
             details: {
               trigger: settings?.kill_switch_active ? 'kill_switch_cleared' : 'bot_re_enabled',
               mode: isPaperMode ? 'paper' : 'live',
