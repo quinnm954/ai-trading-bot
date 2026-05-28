@@ -1849,8 +1849,6 @@ const strategyDescriptions: Record<string, string> = {
 };
 
 
-  custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
-};
 
 // AUTONOMOUS AI CONFIG - Risk tolerance drives behavior
 const RISK_TOLERANCE_CONFIG = {
