@@ -17,7 +17,7 @@ export function AppLayout() {
   const showExpiredOverlay = false;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground antialiased">
       {showExpiredOverlay && <TrialExpiredOverlay />}
       {showTrialBanner && <TrialBanner daysRemaining={0} />}
 
@@ -26,8 +26,11 @@ export function AppLayout() {
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <ScalpingDisclaimer />
         <main
-          className="p-4 lg:p-6 pb-24 lg:pb-6"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 6rem)' }}
+          className="px-4 pt-4 lg:px-6 lg:pt-6 safe-x"
+          style={{
+            paddingBottom:
+              'calc(env(safe-area-inset-bottom) + var(--tab-bar-h) + 1.25rem)',
+          }}
         >
           <Outlet />
         </main>
