@@ -239,6 +239,7 @@ export default function Dashboard() {
     <>
       <PaperTradingOnboarding />
       <div className="space-y-4 lg:space-y-6 animate-fade-in">
+      <AICreditsMeter />
       {/* Header with Refresh */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
