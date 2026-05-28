@@ -143,14 +143,17 @@ async function callAI(stats: any, supabase: any, userId: string): Promise<{ them
     });
     if (!resp.ok) {
       console.warn("AI gateway non-OK:", resp.status, await resp.text());
+      await logAIUsage(supabase, userId, "daily-trade-audit", model, null, `error_${resp.status}`);
       return null;
     }
     const data = await resp.json();
+    await logAIUsage(supabase, userId, "daily-trade-audit", model, data?.usage, "ok");
     const args = data?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
     if (!args) return null;
     return JSON.parse(args);
   } catch (e) {
     console.error("AI call failed:", e);
+    await logAIUsage(supabase, userId, "daily-trade-audit", model, null, "exception");
     return null;
   }
 }
