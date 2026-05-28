@@ -3439,6 +3439,10 @@ serve(async (req) => {
 
       const passed: any[] = [];
       for (const d of scored) {
+        if ((d as any)._fusionVeto) {
+          console.log(`🛑 FUSION VETO: ${d.symbol} ${d.action.toUpperCase()} blocked — fusion signal opposes trade direction (${d._sentimentNote})`);
+          continue;
+        }
         if (d._score >= 70) {
           passed.push(d);
           console.log(`✅ SCORE ${d._score} (full size) ${d.action.toUpperCase()} ${d.symbol} | sentiment=${d._sentimentNote}`);
