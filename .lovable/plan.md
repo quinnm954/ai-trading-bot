@@ -1,77 +1,119 @@
-# Aligning Titan AI to the Roadmap
 
-I audited the codebase against your 3-stage picture. Here's the gap analysis and what I'll build.
+# Titan AI: Precision Scalping + Sentiment Engine Upgrade
 
-## Audit vs. roadmap
+Refactor the trading engine around one principle: **"Not trading is better than bad trading."** Remove every code path that forces trades when no valid setup exists, and replace it with a regime-gated, confidence-scored, sentiment-aware pipeline.
 
-**Stage 1 — Coinbase scalper** ✅ Complete
-- trend scalping (ema_crossover, macd, trend_breakout) ✅
-- breakout scalping (volatility_breakout) ✅
-- volatility detection (shared volatility profile) ✅
-- risk engine (risk-manager) ✅
+---
 
-**Stage 2 — Polymarket intelligence** ⚠️ Partial
-- sentiment feed ✅ (just shipped `polymarket-signals`)
-- event scanner ❌ — no countdown / high-impact filter
-- AI confidence scoring ❌
+## Scope of changes
 
-**Stage 3 — AI fusion** ⚠️ Partial
-- Polymarket sentiment ✅
-- liquidation maps ✅
-- technicals ✅ (in trading engine)
-- volume analysis ✅ (moonshot + learning)
-- X/Twitter trends ❌ (only CoinGecko-derived sentiment, not social)
-- news feeds ❌
-- **Fusion layer** ❌ (no single AI call combining all signals into one conviction)
+All work happens in three edge functions plus one small UI badge. No schema changes.
 
-## What I'll build
+- `supabase/functions/ai-trading-engine/index.ts` — main pipeline rewrite
+- `supabase/functions/risk-manager/index.ts` — tighten per-trade + cooldown rules
+- `supabase/functions/titan-fusion-engine/index.ts` — expose sentiment score for the scoring model (read-only consumer added in trading engine)
+- `src/components/dashboard/MarketRegimeCard.tsx` — show new `STANDBY` / `NO-TRADE` state and current confidence threshold
 
-### 1. Polymarket event scanner + AI confidence (Stage 2)
-- Extend `polymarket-signals` to flag **high-impact crypto events** within next 30 days (ETF rulings, halvings, SEC decisions) using volume + keyword filters
-- New edge function `polymarket-ai-score` calls Lovable AI (gemini-3-flash-preview) on each event → returns `{ conviction: 0-100, direction: bullish/bearish/neutral, rationale }` for BTC/ETH/SOL
-- Cache scores in new `polymarket_event_scores` table (1h TTL)
-- UI: new "Event Scanner" sub-tab inside the Polymarket card showing event + countdown + AI conviction badge
+No database migrations. Existing `ai_settings.current_regime`, `titan_fusion_signals`, and `risk_events` tables are reused.
 
-### 2. News feed ingestion (Stage 3)
-- New edge function `crypto-news-scanner` pulls CryptoPanic-style free RSS (CoinDesk + Cointelegraph + Decrypt public feeds — no key needed)
-- Stores latest 50 items in new `news_feed` table with `symbols[]`, `sentiment` (lightweight keyword), `published_at`
-- Cron every 15 min
-- UI: new "News" tab on Crypto Signals page
+---
 
-### 3. X/Twitter trends (Stage 3)
-- Twitter's public API now requires a paid key. Options:
-  - **(a) Skip for now** — keep CoinGecko-derived sentiment as proxy and label it "Social Proxy" honestly
-  - **(b) Add later** — wire a `TWITTER_BEARER_TOKEN` secret when you're ready
-- I'll go with **(a)** by default and leave a clean stub; tell me if you want me to set up (b) now.
+## New pipeline (executed every cycle, in order)
 
-### 4. Titan AI Fusion engine (Stage 3 — the headline piece)
-- New edge function `titan-fusion-engine` runs every 5 min, per top-20 crypto:
-  1. Pulls Polymarket conviction (from #1)
-  2. Pulls news sentiment (from #2)
-  3. Pulls liquidation map proximity
-  4. Pulls technicals from trading engine (RSI, EMA, volatility)
-  5. Pulls volume analysis
-  6. Calls Lovable AI with all features → single JSON: `{ symbol, conviction: 0-100, direction, top_drivers: [...], horizon }`
-- Stores in new `titan_fusion_signals` table
-- AI trading engine reads these as an additional gate (high conviction can boost size within risk caps; low conviction blocks)
+```text
+1. Regime detector            -> trending | ranging | high_vol | dead
+2. If dead                    -> STANDBY, return []
+3. Strategy selector by regime
+     trending  -> momentum scalp
+     ranging   -> mean-revert scalp / grid
+     high_vol  -> strict breakout, half size
+4. Candidate scan (Coinbase universe, meme/low-price filter respected)
+5. Micro price-action filter  (breakout, S/R flip, liquidity grab,
+                               continuation, rejection wick)
+6. Momentum + volume filter   (rising vol, no single-spike, no exhaustion)
+7. Confidence score 0-100     (weights below)
+8. Polymarket sentiment       (boost / penalty, never sole trigger)
+9. Threshold gate
+     >= 70  -> full size
+     60-69  -> half size
+     < 60   -> NO TRADE
+10. Risk manager validate     (stop required, cooldowns, drawdown)
+11. Execute via limit order near liquidity, with hard SL
+```
 
-### 5. Titan AI Fusion dashboard
-- New page `/fusion` (or new tab on Dashboard) showing the top 10 fusion signals ranked by conviction
-- Each row: symbol, conviction bar, direction arrow, top 3 drivers (chips), AI rationale tooltip
-- Auto-refresh every 60s
+### Confidence scoring weights
 
-## Files
+| Input | Weight |
+|---|---|
+| Price-action setup quality | 25 |
+| Volume confirmation | 20 |
+| Momentum strength (multi-bar) | 15 |
+| Spread + liquidity | 10 |
+| Regime alignment | 15 |
+| Polymarket sentiment alignment | 15 |
 
-**New edge functions**: `polymarket-ai-score`, `crypto-news-scanner`, `titan-fusion-engine`
-**New tables**: `polymarket_event_scores`, `news_feed`, `titan_fusion_signals`
-**New UI**: `src/pages/Fusion.tsx`, `src/components/trading/FusionSignalCard.tsx`, `src/components/trading/NewsFeedCard.tsx`, `src/hooks/useTitanFusion.ts`, `src/hooks/useCryptoNews.ts`
-**Edits**: `polymarket-signals` (event scanner mode), `ai-trading-engine` (fusion gate), `CryptoSignals.tsx` (News tab), `App.tsx` (route), nav sidebar
+Sentiment can add up to +15 when aligned, subtract up to -15 when conflicting. Hard floor: score < 60 returns no trade regardless of other inputs.
 
-## Out of scope
-- Paid X/Twitter API (skipping until you confirm — option 4(b) above)
-- Changes to scalping strategies, risk caps, live execution, paper defaults
+---
 
-## Estimated impact
-~3 new tables, 3 new edge functions, ~6 new frontend files, 1 new page. Existing scalper + risk engine untouched.
+## Removals (forced-activity logic)
 
-Approve to build, or tell me which sub-pieces to skip.
+- Cascading fallback chain `grid → scalp → ema_crossover` (already partly removed, finish the job).
+- "Always pick a rising coin" fallback in `analyzeWithRules`.
+- Any branch where `decisions = []` triggers a synthetic trade.
+- Auto-rotation that fires solely because no positions are open.
+
+Replaced with a single explicit `STANDBY` return path that logs `🛑 NO-TRADE: <reason>` and exits cleanly.
+
+---
+
+## Risk + frequency controls
+
+- Risk per trade clamped to 0.5–2% of equity (was unbounded by user-set max position).
+- Hard stop loss required on every order (paper + live).
+- Per-symbol cooldown: 15 min after any exit, 60 min after a loss.
+- Global cooldown: 5 min between any two entries.
+- After 2 consecutive losses: position size halved for next 3 trades.
+- Daily drawdown limit reads from `ai_settings.max_daily_loss`; on breach → STANDBY for rest of UTC day.
+
+---
+
+## Polymarket integration (signal booster only)
+
+Trading engine pulls latest `titan_fusion_signals` row per symbol (already populated by `titan-fusion-engine`). Mapping:
+
+- `direction === side` and `conviction >= 70` → +10 to +15 score
+- `direction === side` and `conviction 50-69` → +5
+- `direction` opposite of `side` and `conviction >= 60` → -15 (often pushes below threshold)
+- No fresh signal (<6h) → neutral, no adjustment
+
+Polymarket never opens a trade on its own.
+
+---
+
+## UI
+
+`MarketRegimeCard` gains:
+- `STANDBY` pill when engine returned no trades with reason
+- Current confidence threshold (70) and last cycle's best score
+- Small "Sentiment: bullish/bearish/neutral" line from latest fusion signal
+
+Purely presentational, reads from existing tables.
+
+---
+
+## Out of scope (call out)
+
+- New WebSocket feeds — keep current REST polling; mention as a follow-up.
+- Order-book depth scoring — current spread proxy stays; flagged for a later pass.
+- New Polymarket endpoints — reuse `polymarket-ai-score` + `titan-fusion-engine` already deployed.
+
+---
+
+## Verification
+
+After deploy, watch one full cycle of `ai-trading-engine` logs and confirm:
+1. A regime line is logged first
+2. Either `🛑 NO-TRADE: <reason>` or a scored decision with `score=NN`
+3. No `cascading to ...` lines remain
+4. Risk-manager log shows cooldown / size-halving when applicable

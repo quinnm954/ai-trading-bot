@@ -2607,8 +2607,9 @@ function analyzeWithRules(
     }
     if (regime === 'ranging' && bestStrategy === 'rsi') confidence *= 1.15;
     
-    // Lower threshold for more trades
-    if (action !== 'hold' && confidence >= 0.50) {
+    // Precision-first threshold: rule strategies must clear 0.60 confidence before
+    // they're even considered for the unified scoring/sentiment gate downstream.
+    if (action !== 'hold' && confidence >= 0.60) {
       const positionValue = balance * (maxPositionSize / 100) * confidence;
       const quantity = positionValue / coin.price;
       
@@ -3438,7 +3439,63 @@ serve(async (req) => {
     // Removed in favor of regime-aware behavior — Titan now learns when to stand down
     // (dead markets) rather than manufacturing entries with no edge.
 
+    // ──────────────────────────────────────────────────────────────────────
+    // 🎯 PRECISION SCORING + POLYMARKET SENTIMENT GATE (0–100)
+    //
+    // Combines the underlying decision confidence (price action + momentum +
+    // volume + regime alignment, already baked into d.confidence) with
+    // Polymarket fusion sentiment as a booster/penalty. Hard rule:
+    //   score ≥ 70  → full size
+    //   60–69       → half size
+    //   < 60        → NO TRADE
+    // Sentiment never opens a trade on its own — it can only modulate.
+    // ──────────────────────────────────────────────────────────────────────
+    if (decisions.length > 0) {
+      const scored = decisions.map((d) => {
+        const baseScore = Math.round(Math.min(0.99, Math.max(0, d.confidence ?? 0)) * 85); // 0–84
+        const fusion = fusionMap?.get(d.symbol.toUpperCase());
+        let sentimentAdj = 0;
+        let sentimentNote = 'no-signal';
+        if (fusion) {
+          const aligned =
+            (d.action === 'buy' && (fusion.direction === 'bullish' || fusion.direction === 'long')) ||
+            (d.action === 'sell' && (fusion.direction === 'bearish' || fusion.direction === 'short'));
+          const opposite =
+            (d.action === 'buy' && (fusion.direction === 'bearish' || fusion.direction === 'short')) ||
+            (d.action === 'sell' && (fusion.direction === 'bullish' || fusion.direction === 'long'));
+          if (aligned && fusion.conviction >= 70) { sentimentAdj = 15; sentimentNote = `aligned+${fusion.conviction}`; }
+          else if (aligned && fusion.conviction >= 50) { sentimentAdj = 8; sentimentNote = `aligned~${fusion.conviction}`; }
+          else if (opposite && fusion.conviction >= 60) { sentimentAdj = -15; sentimentNote = `OPPOSED-${fusion.conviction}`; }
+          else if (opposite && fusion.conviction >= 40) { sentimentAdj = -8; sentimentNote = `opposed~${fusion.conviction}`; }
+          else { sentimentNote = `neutral-${fusion.conviction}`; }
+        }
+        const score = Math.max(0, Math.min(100, baseScore + sentimentAdj));
+        return { ...d, _score: score, _sentimentNote: sentimentNote };
+      });
 
+      const passed: any[] = [];
+      for (const d of scored) {
+        if (d._score >= 70) {
+          passed.push(d);
+          console.log(`✅ SCORE ${d._score} (full size) ${d.action.toUpperCase()} ${d.symbol} | sentiment=${d._sentimentNote}`);
+        } else if (d._score >= 60) {
+          // Half size for medium-confidence trades
+          (d as any).suggestedSize = (d.suggestedSize ?? 0) * 0.5;
+          (d as any)._halfSize = true;
+          passed.push(d);
+          console.log(`⚖️ SCORE ${d._score} (HALF size) ${d.action.toUpperCase()} ${d.symbol} | sentiment=${d._sentimentNote}`);
+        } else {
+          console.log(`🛑 NO-TRADE: ${d.symbol} score=${d._score} < 60 | sentiment=${d._sentimentNote}`);
+        }
+      }
+
+      if (passed.length === 0) {
+        console.log(`🛑 STANDBY: ${decisions.length} candidate(s) considered, none cleared the 60-score floor. Not trading is better than bad trading.`);
+      }
+      decisions = passed;
+    } else {
+      console.log(`🛑 STANDBY: no candidates this cycle (regime=${regimeReport.profile}). Holding cash.`);
+    }
 
     // 🛡️ LOSS PREVENTION FILTER REMOVED — per user request, no cooldown after losing trades.
     // The bot will retry symbols regardless of recent loss history.
