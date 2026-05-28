@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { fetchCoinbasePrices } from '@/lib/coinbasePrices';
+
 
 export interface Position {
   id: string;
@@ -78,15 +80,19 @@ function resolveGeckoId(symbol: string): string | undefined {
 }
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
-  const prices: Record<string, number> = {};
+  // 1) PRIMARY: Coinbase Exchange — real-time, no rate limits, matches our broker exactly
+  const prices = await fetchCoinbasePrices(symbols);
 
-  // If any symbol is unmapped, populate the dynamic cache from CoinGecko's full list
-  if (symbols.some(s => !resolveGeckoId(s))) {
+  // 2) FALLBACK: CoinGecko for anything Coinbase doesn't list (e.g. non-US tokens)
+  const missing = symbols.filter(s => !prices[s.toUpperCase()]);
+  if (missing.length === 0) return prices;
+
+  if (missing.some(s => !resolveGeckoId(s))) {
     await ensureDynamicMap();
   }
 
   const ids = [...new Set(
-    symbols.map(s => resolveGeckoId(s)).filter((v): v is string => Boolean(v))
+    missing.map(s => resolveGeckoId(s)).filter((v): v is string => Boolean(v))
   )];
 
   if (ids.length === 0) return prices;
@@ -98,21 +104,22 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
 
     if (response.ok) {
       const data = await response.json();
-      for (const symbol of symbols) {
+      for (const symbol of missing) {
         const geckoId = resolveGeckoId(symbol);
         if (geckoId && data[geckoId]?.usd) {
           prices[symbol.toUpperCase()] = data[geckoId].usd;
         }
       }
     } else {
-      console.warn('[Positions] CoinGecko price fetch failed:', response.status);
+      console.warn('[Positions] CoinGecko fallback failed:', response.status);
     }
   } catch (error) {
-    console.error('Error fetching live prices:', error);
+    console.error('[Positions] CoinGecko fallback error:', error);
   }
 
   return prices;
 }
+
 
 export function usePositionsData(isPaper: boolean = true) {
   const { user } = useAuth();

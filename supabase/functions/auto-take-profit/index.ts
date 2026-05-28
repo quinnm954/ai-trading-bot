@@ -307,12 +307,42 @@ async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string
   throw new Error("All key import methods failed");
 }
 
-// Fetch 24h price changes to find most profitable conversion targets
+// Fetch live price + 24h change. Coinbase Exchange first (real-time, matches our
+// venue), then CoinGecko for any long-tail symbols Coinbase doesn't list.
 async function fetchPriceChanges(symbols: string[]): Promise<Record<string, { price: number; change24h: number }>> {
   const result: Record<string, { price: number; change24h: number }> = {};
 
-  // 1) Try CoinGecko in bulk for symbols we have an ID for
-  const ids = symbols
+  // 1) PRIMARY: Coinbase Exchange ticker + stats (real-time, no rate limits)
+  await Promise.all(symbols.map(async (symbol) => {
+    const sym = symbol.toUpperCase();
+    for (const quote of ['USD', 'USDC']) {
+      try {
+        const [tickerRes, statsRes] = await Promise.all([
+          fetch(`https://api.exchange.coinbase.com/products/${sym}-${quote}/ticker`),
+          fetch(`https://api.exchange.coinbase.com/products/${sym}-${quote}/stats`),
+        ]);
+        if (!tickerRes.ok) continue;
+        const ticker = await tickerRes.json();
+        const price = Number(ticker?.price) || 0;
+        if (price <= 0) continue;
+        let change24h = 0;
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          const open = Number(stats?.open) || 0;
+          const last = Number(stats?.last) || price;
+          if (open > 0) change24h = ((last - open) / open) * 100;
+        }
+        result[sym] = { price, change24h };
+        return;
+      } catch (err) {
+        // try next quote
+      }
+    }
+  }));
+
+  // 2) FALLBACK: CoinGecko for symbols Coinbase doesn't list
+  const missing = symbols.filter(s => !result[s.toUpperCase()]);
+  const ids = missing
     .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
     .filter(Boolean);
 
@@ -324,7 +354,7 @@ async function fetchPriceChanges(symbols: string[]): Promise<Record<string, { pr
 
       if (response.ok) {
         const data = await response.json();
-        for (const symbol of symbols) {
+        for (const symbol of missing) {
           const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
           if (geckoId && data[geckoId]) {
             result[symbol.toUpperCase()] = {
@@ -335,44 +365,13 @@ async function fetchPriceChanges(symbols: string[]): Promise<Record<string, { pr
         }
       }
     } catch (error) {
-      console.error('Error fetching price changes from CoinGecko:', error);
+      console.error('CoinGecko fallback failed in fetchPriceChanges:', error);
     }
-  }
-
-  // 2) Fallback: for any symbol still missing, hit Coinbase's public exchange
-  //    ticker + stats. This guarantees positions in long-tail / newly-listed
-  //    tokens (VIRTUAL, EDGE, PUMP, BILL, ...) still get monitored so
-  //    stop-loss / take-profit actually fire on them.
-  const missing = symbols.filter(s => !result[s.toUpperCase()]);
-  if (missing.length > 0) {
-    await Promise.all(missing.map(async (symbol) => {
-      const sym = symbol.toUpperCase();
-      try {
-        const [tickerRes, statsRes] = await Promise.all([
-          fetch(`https://api.exchange.coinbase.com/products/${sym}-USD/ticker`),
-          fetch(`https://api.exchange.coinbase.com/products/${sym}-USD/stats`),
-        ]);
-        if (!tickerRes.ok) return;
-        const ticker = await tickerRes.json();
-        const price = Number(ticker?.price) || 0;
-        let change24h = 0;
-        if (statsRes.ok) {
-          const stats = await statsRes.json();
-          const open = Number(stats?.open) || 0;
-          const last = Number(stats?.last) || price;
-          if (open > 0) change24h = ((last - open) / open) * 100;
-        }
-        if (price > 0) {
-          result[sym] = { price, change24h };
-        }
-      } catch (error) {
-        console.error(`[fallback] Coinbase ticker failed for ${sym}:`, error);
-      }
-    }));
   }
 
   return result;
 }
+
 
 // Fetch available trading pairs from Coinbase
 async function fetchAvailablePairs(): Promise<Set<string>> {
@@ -778,21 +777,45 @@ async function sellAllCoinbaseHoldings(): Promise<{ sold: Array<{ symbol: string
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
-  
-  const ids = symbols
+
+  // 1) PRIMARY: Coinbase Exchange — real-time and matches our execution venue exactly.
+  //    This is what decides take-profit / stop-loss, so we want the same tick the
+  //    sell order will hit, not a cached CoinGecko price.
+  await Promise.all(symbols.map(async (sym) => {
+    const upper = sym.toUpperCase();
+    for (const quote of ['USD', 'USDC']) {
+      try {
+        const res = await fetch(`https://api.exchange.coinbase.com/products/${upper}-${quote}/ticker`);
+        if (res.ok) {
+          const data = await res.json();
+          const price = Number(data?.price);
+          if (price > 0) {
+            prices[upper] = price;
+            return;
+          }
+        }
+      } catch (err) {
+        // try next quote
+      }
+    }
+  }));
+
+  // 2) FALLBACK: CoinGecko for anything Coinbase doesn't list
+  const missing = symbols.filter(s => !prices[s.toUpperCase()]);
+  const ids = missing
     .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
     .filter(Boolean);
-  
+
   if (ids.length === 0) return prices;
-  
+
   try {
     const response = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
     );
-    
+
     if (response.ok) {
       const data = await response.json();
-      for (const symbol of symbols) {
+      for (const symbol of missing) {
         const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
         if (geckoId && data[geckoId]?.usd) {
           prices[symbol.toUpperCase()] = data[geckoId].usd;
@@ -800,11 +823,12 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
       }
     }
   } catch (error) {
-    console.error('Error fetching prices:', error);
+    console.error('Error fetching prices (CoinGecko fallback):', error);
   }
-  
+
   return prices;
 }
+
 
 // Stock sell stub (removed Alpaca integration)
 async function executeAlpacaSell(_symbol: string, _quantity: number, _userId: string, _supabase: any): Promise<{ success: boolean; usdValue?: number; error?: string }> {
