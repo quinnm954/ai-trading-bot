@@ -1977,6 +1977,9 @@ async function filterByTrend(
       coin.atrPct = t.atrPct;
       coin.volClass = t.volClass;
       coin.volScore = t.volScore;
+      coin.supportPrice = t.supportPrice;
+      coin.distanceToSupportPct = t.distanceToSupportPct;
+      coin.supportContext = t.supportContext;
     }
   }));
 
