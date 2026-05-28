@@ -1260,7 +1260,7 @@ async function executeStockTrade(
 
 /**
  * Fetch stock market data for trading analysis
- * Uses Alpaca as primary, Yahoo Finance as fallback
+ * Uses Yahoo Finance for stock quotes
  */
 async function fetchStockMarketData(): Promise<MarketData[]> {
   // Check if market is open
