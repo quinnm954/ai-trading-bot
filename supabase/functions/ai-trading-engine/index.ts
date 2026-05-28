@@ -4416,10 +4416,11 @@ serve(async (req) => {
 
 
 
-      // 🛡️ HARD SCALP CAP: each new scalp ≤ SCALP_MAX_POSITION_PCT of equity
-      // (skip for top-ups, which intentionally add to existing positions)
+      // 🛡️ HARD SCALP CAP: each new scalp's NOTIONAL ≤ SCALP_MAX_POSITION_PCT of equity.
+      // Cap applies to notional (margin × leverage), so leverage scales the market exposure
+      // a position controls — not the margin. On 1x trades notional == margin, so behavior
+      // is unchanged. (skip for top-ups, which intentionally add to existing positions)
       if (!(decision as any)._topup) {
-        // Pull current open positions value for equity calc
         const { data: _capPositions } = await supabase
           .from('positions')
           .select('quantity, avg_entry_price')
@@ -4430,16 +4431,18 @@ serve(async (req) => {
         );
         const equity = balance + _openVal;
         const equityCap = equity * (SCALP_MAX_POSITION_PCT / 100);
-        if (tradeValue > equityCap) {
-          console.log(`🛡️ Scalp cap: clamping ${symbolUpper} $${tradeValue.toFixed(2)} → $${equityCap.toFixed(2)} (${SCALP_MAX_POSITION_PCT}% of $${equity.toFixed(0)} equity)`);
-          tradeValue = Math.max(equityCap, MIN_TRADE_VALUE);
+        const notional = tradeValue * decisionLeverage;
+        if (notional > equityCap) {
+          const newMargin = equityCap / Math.max(decisionLeverage, 1);
+          console.log(`🛡️ Scalp cap (notional): ${symbolUpper} notional $${notional.toFixed(2)} → $${equityCap.toFixed(2)}, margin $${tradeValue.toFixed(2)} → $${newMargin.toFixed(2)} @ ${decisionLeverage}x (${SCALP_MAX_POSITION_PCT}% of $${equity.toFixed(0)} equity)`);
+          tradeValue = Math.max(newMargin, MIN_TRADE_VALUE);
         }
       }
 
       let quantity = tradeValue / coinData.price;
       let actualEntryPrice = coinData.price;
       
-      console.log(`⚙️ Using YOUR settings: maxCapital=${maxCapitalUsage}%, maxPosition=${maxPositionSize}%, maxTrades=${settings.max_concurrent_trades} (scalp cap ${SCALP_MAX_CONCURRENT}, per-pos ${SCALP_MAX_POSITION_PCT}%)`);
+      console.log(`⚙️ Using YOUR settings: maxCapital=${maxCapitalUsage}%, maxPosition=${maxPositionSize}%, maxTrades=${settings.max_concurrent_trades} (scalp cap ${SCALP_MAX_CONCURRENT}, per-pos ${SCALP_MAX_POSITION_PCT}% notional)`);
       console.log(`📈 Leveraged trade: $${tradeValue.toFixed(2)} × ${decisionLeverage}x = $${(tradeValue * decisionLeverage).toFixed(2)} notional`);
 
       // STRICT VALIDATION: Skip if trade value, quantity, or price is $0 or invalid
