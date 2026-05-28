@@ -115,9 +115,9 @@ export function ScalpingStatsRow() {
       />
       <StatCard
         title="Active Strategy"
-        value="scalp"
+        value={s.activeStrategy}
         icon={Cpu}
-        changeLabel="Forced scalp mode"
+        changeLabel={`Auto-selected for ${regimeLabel(s.regime).toLowerCase()} regime`}
       />
       <StatCard
         title="Market Regime"
