@@ -2364,6 +2364,8 @@ function analyzeWithRules(
         // Scalping rides POSITIVE momentum only — never catch falling knives.
         // Require +0.3%–+5% daily momentum; below that there's nothing to
         // scalp, above that we're chasing a parabolic blow-off.
+        const ch5m = (coin as any).change5m ?? 0;
+        const ch1h = (coin as any).change1h ?? 0;
         const momentumOk = m >= 0.3 && m < 5;
         const trendOk = ch7d >= -3;
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
@@ -2371,9 +2373,25 @@ function analyzeWithRules(
         const rangeOk = pricePosition >= 0.30 && pricePosition <= 0.80;
         const liquidityOk = vol24h >= 250_000;
         const spreadOk = coin.spreadPercent === undefined || coin.spreadPercent <= 0.8;
+        // ⚠️ FRESH-MOMENTUM GATE: 24h positive isn't enough — most of our losses
+        // came from buying assets that printed a positive 24h but were ROLLING
+        // OVER on 5m/1h. Require alignment across all 3 timeframes.
+        const freshMomentumOk = ch5m > 0 && ch1h > -0.2;
+        // ⚠️ REGIME-AWARE GATE: in trending_down / volatile regimes, demand
+        // strictly positive 1h AND 24h ≥ +1% (no marginal entries).
+        const hostileRegime = regime === 'trending_down' || regime === 'volatile' || regime === 'high_volatility';
+        const regimeStrictOk = !hostileRegime || (ch1h > 0.1 && m >= 1.0 && ch5m >= 0.1);
 
         if (!momentumOk) {
           console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.3% to +5% (positive only)`);
+          break;
+        }
+        if (!freshMomentumOk) {
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: stale momentum — 5m ${ch5m.toFixed(2)}% / 1h ${ch1h.toFixed(2)}% (need 5m>0 & 1h>-0.2)`);
+          break;
+        }
+        if (!regimeStrictOk) {
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: hostile regime ${regime} — need 5m≥0.1%, 1h>0.1%, 24h≥1% (got 5m ${ch5m.toFixed(2)}%, 1h ${ch1h.toFixed(2)}%, 24h ${m.toFixed(2)}%)`);
           break;
         }
         if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk || !spreadOk) {
