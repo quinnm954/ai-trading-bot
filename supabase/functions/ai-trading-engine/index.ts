@@ -279,16 +279,10 @@ function shouldBlockSymbolDueToLosses(
   
   const hoursSinceLoss = (Date.now() - lossData.lastLossAt.getTime()) / (1000 * 60 * 60);
   
-  // Block if too many consecutive losses (extended cooldown)
-  if (lossData.lossCount >= maxConsecutiveLosses) {
-    const extendedCooldown = cooldownHours * lossData.lossCount; // Scale cooldown with losses
-    if (hoursSinceLoss < extendedCooldown) {
-      return {
-        blocked: true,
-        reason: `🛑 BLOCKED: ${symbol} has ${lossData.lossCount} consecutive losses (-${lossData.totalLossPercent.toFixed(1)}%). Cooldown: ${(extendedCooldown - hoursSinceLoss).toFixed(1)}h remaining`,
-      };
-    }
-  }
+  // Consecutive-losses governor removed per user request — only standard cooldown applies.
+  void maxConsecutiveLosses;
+
+  
   
   // Block if within standard cooldown period
   if (hoursSinceLoss < cooldownHours) {
