@@ -29,19 +29,8 @@ async function logAIUsage(sb: any, userId: string | null, fn: string, model: str
   } catch (e) { console.warn('logAIUsage failed', e); }
 }
 
-async function getUserBalance(sb: any, userId: string): Promise<number> {
-  const { data } = await sb.from('ai_credit_balances').select('credits').eq('user_id', userId).maybeSingle();
-  return Number(data?.credits ?? 0);
-}
 
-async function deductCredits(sb: any, userId: string, amount: number, description: string) {
-  const current = await getUserBalance(sb, userId);
-  const next = Math.max(0, current - amount);
-  await sb.from('ai_credit_balances').upsert({ user_id: userId, credits: next, updated_at: new Date().toISOString() });
-  await sb.from('ai_credit_transactions').insert({
-    user_id: userId, type: 'debit', delta: -amount, description,
-  });
-}
+
 
 
 interface CryptoData {
