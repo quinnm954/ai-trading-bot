@@ -4684,6 +4684,11 @@ serve(async (req) => {
       }
     }
 
+    // 🧠 ADAPTIVE PARAMETER TUNING — adjust scalp/risk params from recent closed trades
+    // Runs every cycle so any newly-closed position immediately reshapes future entries.
+    await adaptParametersFromRecentTrades(supabase, user.id, isPaperMode);
+
+
     return new Response(JSON.stringify({
       status: 'success',
       regime,
