@@ -778,21 +778,45 @@ async function sellAllCoinbaseHoldings(): Promise<{ sold: Array<{ symbol: string
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
-  
-  const ids = symbols
+
+  // 1) PRIMARY: Coinbase Exchange — real-time and matches our execution venue exactly.
+  //    This is what decides take-profit / stop-loss, so we want the same tick the
+  //    sell order will hit, not a cached CoinGecko price.
+  await Promise.all(symbols.map(async (sym) => {
+    const upper = sym.toUpperCase();
+    for (const quote of ['USD', 'USDC']) {
+      try {
+        const res = await fetch(`https://api.exchange.coinbase.com/products/${upper}-${quote}/ticker`);
+        if (res.ok) {
+          const data = await res.json();
+          const price = Number(data?.price);
+          if (price > 0) {
+            prices[upper] = price;
+            return;
+          }
+        }
+      } catch (err) {
+        // try next quote
+      }
+    }
+  }));
+
+  // 2) FALLBACK: CoinGecko for anything Coinbase doesn't list
+  const missing = symbols.filter(s => !prices[s.toUpperCase()]);
+  const ids = missing
     .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
     .filter(Boolean);
-  
+
   if (ids.length === 0) return prices;
-  
+
   try {
     const response = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
     );
-    
+
     if (response.ok) {
       const data = await response.json();
-      for (const symbol of symbols) {
+      for (const symbol of missing) {
         const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
         if (geckoId && data[geckoId]?.usd) {
           prices[symbol.toUpperCase()] = data[geckoId].usd;
@@ -800,11 +824,12 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
       }
     }
   } catch (error) {
-    console.error('Error fetching prices:', error);
+    console.error('Error fetching prices (CoinGecko fallback):', error);
   }
-  
+
   return prices;
 }
+
 
 // Stock sell stub (removed Alpaca integration)
 async function executeAlpacaSell(_symbol: string, _quantity: number, _userId: string, _supabase: any): Promise<{ success: boolean; usdValue?: number; error?: string }> {
