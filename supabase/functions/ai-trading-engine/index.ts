@@ -1837,17 +1837,18 @@ async function filterByTrend(
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
 const strategyDescriptions: Record<string, string> = {
-  scalp: 'PURE SCALP: Short-window momentum entries (0.5%–3% over last few minutes). Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%. No traditional indicators.',
-  rsi: 'DISABLED — scalp-only mode',
-  ema_crossover: 'DISABLED — scalp-only mode',
-  macd: 'DISABLED — scalp-only mode',
-  trend_breakout: 'DISABLED — scalp-only mode',
-  volatility_breakout: 'DISABLED — scalp-only mode',
-  grid: 'DISABLED — scalp-only mode',
-  dca: 'DISABLED — scalp-only mode',
-
-  custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
+  scalp: 'SCALP: Short-window momentum entries (0.5%–3% over last few minutes) for fast trending markets. Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%.',
+  rsi: 'RSI MEAN-REVERSION: Buy oversold (RSI<30) in ranging markets, sell overbought (RSI>70). Tight stops. Best when price oscillates around a stable mean.',
+  ema_crossover: 'EMA CROSSOVER: Enter long when fast EMA crosses above slow EMA in a sustained uptrend. Best for clean directional trends with low chop.',
+  macd: 'MACD: Trade MACD signal-line crossovers with histogram confirmation. Trend-following, works in directional markets.',
+  trend_breakout: 'TREND BREAKOUT: Enter on a clean break above recent resistance with volume confirmation. Best in trending markets just emerging from consolidation.',
+  volatility_breakout: 'VOLATILITY BREAKOUT: Enter on expansion candles after a volatility squeeze (Bollinger/ATR). Best in high-volatility regimes where range expansion follows compression.',
+  grid: 'GRID: Place buy orders at discrete price levels below the current price; take profit at each grid step. Best in ranging / low-volatility markets where price oscillates within a band.',
+  dca: 'DCA: Scale into position with multiple staggered buys as price drops. Best for low-volatility accumulation, NOT for hostile/downtrending regimes.',
+  custom: 'CUSTOM: AI-selected mixed approach based on current conditions.',
 };
+
+
 
 // AUTONOMOUS AI CONFIG - Risk tolerance drives behavior
 const RISK_TOLERANCE_CONFIG = {
@@ -2176,13 +2177,79 @@ function getRegimePolicy(report: RegimeReport): RegimePolicy {
   }
 }
 
-// SCALPING ONLY: Traditional strategies (RSI/EMA/MACD/grid/DCA/breakout) are disabled.
-// The bot exclusively runs the unified scalp entry — short-window momentum with
-// trailing/hard stops handled in auto-take-profit. This matches scalping-replay.
-async function getBestStrategyForRegime(_supabase: any, _userId: string, _regime: string): Promise<string> {
-  console.log(`⚡ SCALP-ONLY mode: ignoring traditional strategies, using pure momentum scalp`);
-  return 'scalp';
+/**
+ * Pick the strategy that best fits the *current* market regime instead of
+ * blindly forcing scalp every cycle. This is what makes the bot "adapt":
+ *
+ *   trending_up (fast momentum)    → scalp (catch the breakout move)
+ *   trending_up (slow drift)       → trend_breakout (ride the trend)
+ *   trending_down                  → scalp (only highest-conviction longs allowed by policy)
+ *   volatile / high_volatility     → volatility_breakout (expansion plays)
+ *   ranging + low_volatility       → grid (mean-reversion between bands)
+ *   ranging                        → rsi (oversold bounces)
+ *   dead                           → 'none' (caller stands down)
+ *
+ * The regime profile already encodes movement intensity, so we use it
+ * (not the bare enum) to pick between fast-momentum (scalp) and slow-trend
+ * (trend_breakout) variants of the same "trending" enum value.
+ */
+async function getBestStrategyForRegime(
+  _supabase: any,
+  _userId: string,
+  regime: string,
+  report?: RegimeReport,
+): Promise<string> {
+  const profile = report?.profile;
+  const enumRegime = regime;
+
+  // 1) Dead market — caller will skip; return 'none' so downstream logs are honest.
+  if (profile === 'dead') {
+    console.log(`💤 Dead market — no strategy selected (stand-down)`);
+    return 'none';
+  }
+
+  // 2) Volatile / high-volatility — expansion plays, not scalps that get whipsawed.
+  if (profile === 'volatile' || enumRegime === 'high_volatility') {
+    console.log(`🎯 ${profile ?? enumRegime} regime → volatility_breakout`);
+    return 'volatility_breakout';
+  }
+
+  // 3) Trending up — fast intra-cycle momentum gets scalp; slower steady drift gets trend_breakout.
+  if (profile === 'trending_up') {
+    const fast = (report?.avg5mAbs ?? 0) >= 0.45; // >0.45% avg |5m| = real intra-bar momentum
+    const strategy = fast ? 'scalp' : 'trend_breakout';
+    console.log(`🎯 trending_up (avg|5m|=${(report?.avg5mAbs ?? 0).toFixed(2)}%) → ${strategy}`);
+    return strategy;
+  }
+
+  // 4) Trending down — policy will already gate hard; use scalp (the only entry path
+  //    with tight trailing/hard stops). DCA/grid would compound losses here.
+  if (profile === 'trending_down') {
+    console.log(`🎯 trending_down → scalp (highest-conviction longs only, tight stops)`);
+    return 'scalp';
+  }
+
+  // 5) Ranging — grid in calm ranges, RSI mean-reversion otherwise.
+  if (profile === 'ranging' || enumRegime === 'ranging') {
+    if (enumRegime === 'low_volatility') {
+      console.log(`🎯 ranging + low_volatility → grid`);
+      return 'grid';
+    }
+    console.log(`🎯 ranging → rsi (mean-reversion)`);
+    return 'rsi';
+  }
+
+  // 6) Low-vol enum without a profile reading — grid still safest.
+  if (enumRegime === 'low_volatility') {
+    console.log(`🎯 low_volatility → grid`);
+    return 'grid';
+  }
+
+  // 7) Fallback — generic trending → ema_crossover.
+  console.log(`🎯 fallback for regime=${enumRegime} → ema_crossover`);
+  return 'ema_crossover';
 }
+
 
 
 // ============= SIGNAL SCORING (0-100) — synthesized from per-coin metrics =============
@@ -3305,9 +3372,11 @@ serve(async (req) => {
       })
       .eq('user_id', user.id);
 
-    // 🎯 Get BEST STRATEGY for current regime BEFORE analysis
-    const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
-    console.log(`🎯 Selected strategy for ${regime}: ${bestStrategy}`);
+    // 🎯 Regime-aware strategy selection — picks scalp / grid / rsi / trend_breakout / volatility_breakout
+    // based on the detected market profile instead of forcing scalp every cycle.
+    const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime, regimeReport);
+    console.log(`🎯 Selected strategy for regime=${regime}/${regimeReport.profile}: ${bestStrategy}`);
+
 
     // 🤖 FULL AUTONOMY — AI self-tunes risk params per cycle based on regime, fusion, and today's P&L.
     // User can opt out by setting ai_settings.ai_autonomous_mode = false (defaults to true).
