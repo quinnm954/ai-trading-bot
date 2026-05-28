@@ -1837,14 +1837,17 @@ async function filterByTrend(
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
 const strategyDescriptions: Record<string, string> = {
-  scalp: 'PURE SCALP: Short-window momentum entries (0.5%–3% over last few minutes). Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%. No traditional indicators.',
-  rsi: 'DISABLED — scalp-only mode',
-  ema_crossover: 'DISABLED — scalp-only mode',
-  macd: 'DISABLED — scalp-only mode',
-  trend_breakout: 'DISABLED — scalp-only mode',
-  volatility_breakout: 'DISABLED — scalp-only mode',
-  grid: 'DISABLED — scalp-only mode',
-  dca: 'DISABLED — scalp-only mode',
+  scalp: 'SCALP: Short-window momentum entries (0.5%–3% over last few minutes) for fast trending markets. Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%.',
+  rsi: 'RSI MEAN-REVERSION: Buy oversold (RSI<30) in ranging markets, sell overbought (RSI>70). Tight stops. Best when price oscillates around a stable mean.',
+  ema_crossover: 'EMA CROSSOVER: Enter long when fast EMA crosses above slow EMA in a sustained uptrend. Best for clean directional trends with low chop.',
+  macd: 'MACD: Trade MACD signal-line crossovers with histogram confirmation. Trend-following, works in directional markets.',
+  trend_breakout: 'TREND BREAKOUT: Enter on a clean break above recent resistance with volume confirmation. Best in trending markets just emerging from consolidation.',
+  volatility_breakout: 'VOLATILITY BREAKOUT: Enter on expansion candles after a volatility squeeze (Bollinger/ATR). Best in high-volatility regimes where range expansion follows compression.',
+  grid: 'GRID: Place buy orders at discrete price levels below the current price; take profit at each grid step. Best in ranging / low-volatility markets where price oscillates within a band.',
+  dca: 'DCA: Scale into position with multiple staggered buys as price drops. Best for low-volatility accumulation, NOT for hostile/downtrending regimes.',
+  custom: 'CUSTOM: AI-selected mixed approach based on current conditions.',
+};
+
 
   custom: 'ADAPTIVE SCALP: Use momentum, volume, and price action for fastest possible profits.',
 };
