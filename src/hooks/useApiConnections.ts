@@ -28,7 +28,7 @@ import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
 // Extended to include stock brokers (Alpaca, IBKR, Tradier) for multi-asset support
-export type ExchangeProvider = 'alpaca' | 'ibkr' | 'tradier' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
+export type ExchangeProvider = 'ibkr' | 'tradier' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
 
 export interface ApiConnection {
   id: string;
@@ -143,7 +143,7 @@ export function useApiConnections() {
 
       // Store encrypted credentials in broker_credentials table for stock brokers
       // This enables backend sync without requiring global secrets
-      const stockBrokers: ExchangeProvider[] = ['alpaca', 'ibkr', 'tradier'];
+      const stockBrokers: ExchangeProvider[] = ['ibkr', 'tradier'];
       if (stockBrokers.includes(detectedProvider)) {
         const { error: credError } = await supabase
           .from('broker_credentials')
@@ -154,7 +154,7 @@ export function useApiConnections() {
             secret_key_encrypted: credentials.secretKey || null,
             passphrase_encrypted: credentials.passphrase || null,
             access_token_encrypted: detectedProvider === 'tradier' ? credentials.apiKey : null,
-            is_paper: credentials.apiKey.startsWith('PK'), // Alpaca paper keys start with PK
+            is_paper: false,
           }, {
             onConflict: 'user_id,provider',
           });
