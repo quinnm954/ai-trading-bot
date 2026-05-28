@@ -1707,17 +1707,24 @@ serve(async (req) => {
       }
     }
 
-    // If no specific user, process ALL users with AI enabled
+    // If no specific user, process ALL users with AI enabled OR with open positions
+    // (so we can auto-restart bots that were stopped by kill-switch / disable).
     if (userIds.length === 0) {
-      console.log('🔄 Cron job: Processing all users with AI enabled');
+      console.log('🔄 Cron job: Processing all users with AI enabled or open positions');
+      const ids = new Set<string>();
+
       const { data: aiSettings } = await supabase
         .from('ai_settings')
-        .select('user_id, trading_mode')
-        .eq('enabled', true);
+        .select('user_id')
+        .or('enabled.eq.true,kill_switch_active.eq.true');
+      aiSettings?.forEach((s: any) => ids.add(s.user_id));
 
-      if (aiSettings) {
-        userIds = aiSettings.map((s: any) => s.user_id);
-      }
+      const { data: openPos } = await supabase
+        .from('positions')
+        .select('user_id');
+      openPos?.forEach((p: any) => ids.add(p.user_id));
+
+      userIds = Array.from(ids);
     }
 
     console.log(`Processing ${userIds.length} user(s)`);
@@ -1747,10 +1754,11 @@ serve(async (req) => {
 
       // 🔁 AUTO-RESTART: if the bot is currently stopped (kill-switch or disabled)
       // and all positions for this mode are now closed, bring it back online so
-      // the next trading-engine cycle resumes scanning.
+      // the next trading-engine cycle resumes scanning. Runs every cycle (not
+      // only when we just closed something) so a bot that was disabled while
+      // already flat still gets re-armed.
       const stopped = settings?.kill_switch_active === true || settings?.enabled === false;
-      const closedAny = (result.takeProfitCount + result.stopLossCount) > 0;
-      if (stopped && closedAny) {
+      if (stopped) {
         const { count: openCount } = await supabase
           .from('positions')
           .select('id', { count: 'exact', head: true })
@@ -1770,7 +1778,7 @@ serve(async (req) => {
             user_id: userId,
             event_type: 'bot_auto_restart',
             severity: 'info',
-            message: 'Bot auto-restarted after all positions closed',
+            message: 'Bot auto-restarted (flat + stopped)',
             details: {
               trigger: settings?.kill_switch_active ? 'kill_switch_cleared' : 'bot_re_enabled',
               mode: isPaperMode ? 'paper' : 'live',
