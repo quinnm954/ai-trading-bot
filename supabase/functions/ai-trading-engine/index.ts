@@ -1782,9 +1782,60 @@ const MEME_MAX_PRICE_USD = 100;
 const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
-// Fetch short-window (5m, 15m) momentum from Coinbase candles for a product.
-// Returns { change5m, change15m } as percentages. null on failure.
+// =============================================================================
+// 📡 ALPACA-POWERED RESEARCH LAYER
+// Alpaca is preferred for signals (crypto bars + quotes). Coinbase remains the
+// execution venue for actual live trades.
+// =============================================================================
+let __alpacaCreds: { apiKey: string; secretKey: string } | null = null;
+function setAlpacaResearchCreds(creds: { apiKey: string; secretKey: string } | null) {
+  __alpacaCreds = creds && creds.apiKey && creds.secretKey ? creds : null;
+  if (__alpacaCreds) console.log('🔭 Alpaca research layer ACTIVE — signals will prefer Alpaca data');
+}
+function productIdToAlpacaSymbol(productId: string): string | null {
+  // "BTC-USD" -> "BTC/USD". Skip non-USD quote pairs.
+  if (!productId || !productId.includes('-')) return null;
+  const [base, quote] = productId.split('-');
+  if (!base || !quote) return null;
+  if (quote.toUpperCase() !== 'USD' && quote.toUpperCase() !== 'USDC' && quote.toUpperCase() !== 'USDT') return null;
+  return `${base.toUpperCase()}/USD`;
+}
+async function fetchAlpacaShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
+  if (!__alpacaCreds) return null;
+  const sym = productIdToAlpacaSymbol(productId);
+  if (!sym) return null;
+  try {
+    const url = `https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(sym)}&timeframe=5Min&limit=5`;
+    const resp = await fetch(url, {
+      headers: {
+        'APCA-API-KEY-ID': __alpacaCreds.apiKey,
+        'APCA-API-SECRET-KEY': __alpacaCreds.secretKey,
+      },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const bars = data?.bars?.[sym];
+    if (!Array.isArray(bars) || bars.length < 2) return null;
+    const closes = bars.map((b: any) => Number(b.c));
+    const last = closes[closes.length - 1];
+    const prev5 = closes[closes.length - 2];
+    const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
+    const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
+    const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
+    return { change5m, change15m };
+  } catch (_e) {
+    return null;
+  }
+}
+
+// Fetch short-window (5m, 15m) momentum. Prefers Alpaca crypto bars when
+// Alpaca creds are loaded for this cycle; falls back to Coinbase candles.
 async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
+  // 1) Alpaca research (preferred signal source)
+  const fromAlpaca = await fetchAlpacaShortWindowMomentum(productId);
+  if (fromAlpaca) return fromAlpaca;
+
+  // 2) Coinbase candles (fallback signal source — and also our exec venue)
   try {
     const now = Math.floor(Date.now() / 1000);
     // Last ~20 min of 5-min candles (4 candles) — Coinbase returns [time, low, high, open, close, volume]
@@ -1804,6 +1855,35 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
     const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
     const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
     return { change5m, change15m };
+  } catch (_e) {
+    return null;
+  }
+}
+
+// Fetch Alpaca crypto snapshot (latest bid/ask/last) — used as a research
+// signal (spread quality, freshness) without ever placing an order on Alpaca.
+async function fetchAlpacaCryptoSnapshot(productId: string): Promise<{ bid: number; ask: number; last: number; spreadBps: number } | null> {
+  if (!__alpacaCreds) return null;
+  const sym = productIdToAlpacaSymbol(productId);
+  if (!sym) return null;
+  try {
+    const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(sym)}`;
+    const resp = await fetch(url, {
+      headers: {
+        'APCA-API-KEY-ID': __alpacaCreds.apiKey,
+        'APCA-API-SECRET-KEY': __alpacaCreds.secretKey,
+      },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const snap = data?.snapshots?.[sym];
+    const bid = Number(snap?.latestQuote?.bp ?? 0);
+    const ask = Number(snap?.latestQuote?.ap ?? 0);
+    const last = Number(snap?.latestTrade?.p ?? snap?.minuteBar?.c ?? 0);
+    if (!bid || !ask) return null;
+    const mid = (bid + ask) / 2;
+    const spreadBps = mid > 0 ? ((ask - bid) / mid) * 10000 : 0;
+    return { bid, ask, last: last || mid, spreadBps };
   } catch (_e) {
     return null;
   }
@@ -2867,6 +2947,29 @@ serve(async (req) => {
     const user = { id: userId };
 
     console.log(`🤖 Processing user: ${user.id}`);
+
+    // 🔭 Load Alpaca credentials for this cycle's RESEARCH layer (signals only).
+    // Live trade execution always remains on Coinbase — Alpaca is never sent orders here.
+    try {
+      const { data: alpacaCred } = await supabase
+        .from('broker_credentials')
+        .select('api_key_encrypted, secret_key_encrypted')
+        .eq('user_id', userId)
+        .eq('provider', 'alpaca')
+        .maybeSingle();
+      if (alpacaCred?.api_key_encrypted && alpacaCred?.secret_key_encrypted) {
+        setAlpacaResearchCreds({
+          apiKey: alpacaCred.api_key_encrypted,
+          secretKey: alpacaCred.secret_key_encrypted,
+        });
+      } else {
+        setAlpacaResearchCreds(null);
+        console.log('🔭 No Alpaca creds — research falls back to Coinbase candles');
+      }
+    } catch (e) {
+      setAlpacaResearchCreds(null);
+      console.log('🔭 Alpaca creds lookup failed, using Coinbase research:', (e as Error).message);
+    }
 
     // Fetch user's AI settings
     const { data: settings, error: settingsError } = await supabase
