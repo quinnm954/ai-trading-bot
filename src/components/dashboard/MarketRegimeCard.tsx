@@ -85,6 +85,13 @@ export function MarketRegimeCard() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">{config.description}</p>
+      <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">Min confidence to trade</span>
+        <span className="font-semibold text-foreground">≥ 70 / 100</span>
+      </div>
+      <p className="mt-1 text-[10px] text-muted-foreground italic">
+        Precision mode: not trading is better than bad trading.
+      </p>
     </div>
   );
 }
