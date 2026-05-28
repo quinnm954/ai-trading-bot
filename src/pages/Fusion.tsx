@@ -1,7 +1,7 @@
 import { FusionSignalsPanel } from '@/components/trading/FusionSignalsPanel';
 import { NewsFeedCard } from '@/components/trading/NewsFeedCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Brain, Layers, Zap, Newspaper, TrendingUp, Activity } from 'lucide-react';
+import { Brain, Layers, Zap, Newspaper, Activity, CandlestickChart } from 'lucide-react';
 
 export default function Fusion() {
   return (
