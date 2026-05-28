@@ -995,7 +995,7 @@ interface StockBrokerBalance {
   cash: number;
   buyingPower: number;
   equity: number;
-  broker: 'alpaca' | 'ibkr' | 'tradier';
+  broker: 'ibkr' | 'tradier';
 }
 
 interface StockTradeResult {
@@ -1008,7 +1008,6 @@ interface StockTradeResult {
 
 /**
  * Check if US stock market is currently open
- * Stock trading is only available during market hours
  */
 function isStockMarketOpen(): boolean {
   const now = new Date();
@@ -1017,11 +1016,8 @@ function isStockMarketOpen(): boolean {
   const hour = nyTime.getHours();
   const minute = nyTime.getMinutes();
   const time = hour * 100 + minute;
-  
-  // Monday-Friday, 9:30 AM - 4:00 PM ET
-  if (day === 0 || day === 6) return false; // Weekend
-  if (time < 930 || time >= 1600) return false; // Outside hours
-  
+  if (day === 0 || day === 6) return false;
+  if (time < 930 || time >= 1600) return false;
   return true;
 }
 
@@ -1029,31 +1025,29 @@ function isStockMarketOpen(): boolean {
  * Get user's connected stock broker credentials from broker_credentials table
  */
 async function getConnectedStockBroker(supabase: any, userId: string): Promise<{ 
-  broker: 'alpaca' | 'ibkr' | 'tradier'; 
+  broker: 'ibkr' | 'tradier'; 
   apiKey: string; 
   secretKey: string;
   accessToken?: string;
   isPaper: boolean;
 } | null> {
   try {
-    // Query broker_credentials table for connected stock brokers
     const { data: credentials, error } = await supabase
       .from('broker_credentials')
       .select('provider, api_key_encrypted, secret_key_encrypted, access_token_encrypted, is_paper')
       .eq('user_id', userId)
-      .in('provider', ['alpaca', 'ibkr', 'tradier']);
+      .in('provider', ['ibkr', 'tradier']);
     
     if (error || !credentials || credentials.length === 0) {
       console.log('No stock broker credentials found in database');
       return null;
     }
     
-    // Return first available broker with valid credentials
     for (const cred of credentials) {
       if (cred.api_key_encrypted) {
         console.log(`🏦 Found ${cred.provider} credentials for user`);
         return {
-          broker: cred.provider as 'alpaca' | 'ibkr' | 'tradier',
+          broker: cred.provider as 'ibkr' | 'tradier',
           apiKey: cred.api_key_encrypted,
           secretKey: cred.secret_key_encrypted || '',
           accessToken: cred.access_token_encrypted,
@@ -1069,63 +1063,6 @@ async function getConnectedStockBroker(supabase: any, userId: string): Promise<{
   }
 }
 
-/**
- * Execute stock trade via Alpaca
- * Supports both paper and live trading
- */
-async function executeAlpacaTrade(
-  apiKey: string,
-  secretKey: string,
-  symbol: string,
-  side: 'buy' | 'sell',
-  quantity: number,
-  isPaper: boolean = true
-): Promise<StockTradeResult> {
-  try {
-    const baseUrl = isPaper 
-      ? 'https://paper-api.alpaca.markets'
-      : 'https://api.alpaca.markets';
-    
-    console.log(`📈 Alpaca ${isPaper ? 'PAPER' : 'LIVE'} ${side.toUpperCase()}: ${quantity} ${symbol}`);
-    
-    const orderBody = {
-      symbol: symbol,
-      qty: quantity.toString(),
-      side: side,
-      type: 'market',
-      time_in_force: 'day',
-    };
-    
-    const response = await fetch(`${baseUrl}/v2/orders`, {
-      method: 'POST',
-      headers: {
-        'APCA-API-KEY-ID': apiKey,
-        'APCA-API-SECRET-KEY': secretKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(orderBody),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Alpaca order failed: ${errorText}`);
-      return { success: false, error: errorText };
-    }
-    
-    const order = await response.json();
-    console.log(`✅ Alpaca order placed: ${order.id}`);
-    
-    return {
-      success: true,
-      orderId: order.id,
-      quantity: parseFloat(order.qty),
-      price: parseFloat(order.filled_avg_price || order.limit_price || '0'),
-    };
-  } catch (error) {
-    console.error('Alpaca trade error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-}
 
 /**
  * Execute stock trade via Interactive Brokers
@@ -2949,28 +2886,7 @@ serve(async (req) => {
 
     console.log(`🤖 Processing user: ${user.id}`);
 
-    // 🔭 Load Alpaca credentials for this cycle's RESEARCH layer (signals only).
-    // Live trade execution always remains on Coinbase — Alpaca is never sent orders here.
-    try {
-      const { data: alpacaCred } = await supabase
-        .from('broker_credentials')
-        .select('api_key_encrypted, secret_key_encrypted')
-        .eq('user_id', userId)
-        .eq('provider', 'alpaca')
-        .maybeSingle();
-      if (alpacaCred?.api_key_encrypted && alpacaCred?.secret_key_encrypted) {
-        setAlpacaResearchCreds({
-          apiKey: alpacaCred.api_key_encrypted,
-          secretKey: alpacaCred.secret_key_encrypted,
-        });
-      } else {
-        setAlpacaResearchCreds(null);
-        console.log('🔭 No Alpaca creds — research falls back to Coinbase candles');
-      }
-    } catch (e) {
-      setAlpacaResearchCreds(null);
-      console.log('🔭 Alpaca creds lookup failed, using Coinbase research:', (e as Error).message);
-    }
+    // Research and execution both use Coinbase for crypto.
 
     // Fetch user's AI settings
     const { data: settings, error: settingsError } = await supabase
