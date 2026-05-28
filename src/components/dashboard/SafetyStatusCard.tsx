@@ -109,7 +109,6 @@ export function SafetyStatusCard() {
           </div>
         </div>
 
-        <Row label="Consecutive Losses" value={`${consecutiveLosses} / 3`} tone={consecutiveLosses >= 3 ? 'loss' : undefined} />
         <Row label="Max Position Size" value={`${settings?.maxPositionSize || 10}%`} />
         <Row label="Broker" value={hasBroker ? 'Connected' : 'Not Connected'} tone={hasBroker ? undefined : 'muted'} />
         <Row label="Mode" value={(settings?.tradingMode || 'paper').toUpperCase()} />
