@@ -2553,7 +2553,7 @@ function buildSignalFactors(coin: any, _regime: string, confidence: number, side
 
 // ─── Volatility / regime / leverage / grid / liq-map helpers ────────────────
 // Mirror of src/lib/volatility.ts (edge functions can't import from src/).
-function classifyVol(rangePct: number): 'low' | 'normal' | 'high' | 'extreme' {
+function classifyVolRange(rangePct: number): 'low' | 'normal' | 'high' | 'extreme' {
   const v = rangePct / 2; // approx ATR% from 24h range
   if (v < 1.5) return 'low';
   if (v < 4) return 'normal';
@@ -2563,7 +2563,7 @@ function classifyVol(rangePct: number): 'low' | 'normal' | 'high' | 'extreme' {
 
 function computeEffectiveLeverage(userCap: number, regime: string, rangePct: number): { leverage: number; reason: string } {
   const cap = Math.max(1, userCap);
-  const cls = classifyVol(rangePct);
+  const cls = classifyVolRange(rangePct);
   if (regime === 'news_driven') return { leverage: Math.min(cap, 1), reason: 'news regime' };
   if (regime === 'high_volatility' || cls === 'extreme') return { leverage: Math.min(cap, 2), reason: 'high vol' };
   if (cls === 'high') return { leverage: Math.min(cap, Math.max(2, Math.floor(cap * 0.5))), reason: 'elevated vol' };
