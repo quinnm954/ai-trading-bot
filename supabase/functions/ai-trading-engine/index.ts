@@ -1249,8 +1249,6 @@ async function executeStockTrade(
   console.log(`🏦 Routing stock trade to: ${broker.broker} (${broker.isPaper ? 'PAPER' : 'LIVE'} mode)`);
   
   switch (broker.broker) {
-    case 'alpaca':
-      return executeAlpacaTrade(broker.apiKey, broker.secretKey, symbol, side, quantity, broker.isPaper || isPaper);
     case 'ibkr':
       return executeIBKRTrade(broker.accessToken || broker.apiKey, symbol, side, quantity);
     case 'tradier':
@@ -1720,62 +1718,11 @@ const MAX_24H_CHANGE_FOR_ENTRY = 1;
 const MIN_24H_CHANGE_FOR_ENTRY = -5;
 
 // =============================================================================
-// 📡 ALPACA-POWERED RESEARCH LAYER
-// Alpaca is preferred for signals (crypto bars + quotes). Coinbase remains the
-// execution venue for actual live trades.
+// 📡 SHORT-WINDOW MOMENTUM RESEARCH (Coinbase candles)
 // =============================================================================
-let __alpacaCreds: { apiKey: string; secretKey: string } | null = null;
-function setAlpacaResearchCreds(creds: { apiKey: string; secretKey: string } | null) {
-  __alpacaCreds = creds && creds.apiKey && creds.secretKey ? creds : null;
-  if (__alpacaCreds) console.log('🔭 Alpaca research layer ACTIVE — signals will prefer Alpaca data');
-}
-function productIdToAlpacaSymbol(productId: string): string | null {
-  // "BTC-USD" -> "BTC/USD". Skip non-USD quote pairs.
-  if (!productId || !productId.includes('-')) return null;
-  const [base, quote] = productId.split('-');
-  if (!base || !quote) return null;
-  if (quote.toUpperCase() !== 'USD' && quote.toUpperCase() !== 'USDC' && quote.toUpperCase() !== 'USDT') return null;
-  return `${base.toUpperCase()}/USD`;
-}
-async function fetchAlpacaShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
-  if (!__alpacaCreds) return null;
-  const sym = productIdToAlpacaSymbol(productId);
-  if (!sym) return null;
-  try {
-    const url = `https://data.alpaca.markets/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(sym)}&timeframe=5Min&limit=5`;
-    const resp = await fetch(url, {
-      headers: {
-        'APCA-API-KEY-ID': __alpacaCreds.apiKey,
-        'APCA-API-SECRET-KEY': __alpacaCreds.secretKey,
-      },
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const bars = data?.bars?.[sym];
-    if (!Array.isArray(bars) || bars.length < 2) return null;
-    const closes = bars.map((b: any) => Number(b.c));
-    const last = closes[closes.length - 1];
-    const prev5 = closes[closes.length - 2];
-    const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
-    const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
-    const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
-    return { change5m, change15m };
-  } catch (_e) {
-    return null;
-  }
-}
-
-// Fetch short-window (5m, 15m) momentum. Prefers Alpaca crypto bars when
-// Alpaca creds are loaded for this cycle; falls back to Coinbase candles.
 async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: number; change15m: number } | null> {
-  // 1) Alpaca research (preferred signal source)
-  const fromAlpaca = await fetchAlpacaShortWindowMomentum(productId);
-  if (fromAlpaca) return fromAlpaca;
-
-  // 2) Coinbase candles (fallback signal source — and also our exec venue)
   try {
     const now = Math.floor(Date.now() / 1000);
-    // Last ~20 min of 5-min candles (4 candles) — Coinbase returns [time, low, high, open, close, volume]
     const start = now - 60 * 25;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
     const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
@@ -1783,7 +1730,6 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
     const data = await resp.json();
     const candles = Array.isArray(data?.candles) ? data.candles : [];
     if (candles.length < 2) return null;
-    // Coinbase returns newest-first
     const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
     const closes = sorted.map((c: any) => Number(c.close));
     const last = closes[closes.length - 1];
@@ -1792,35 +1738,6 @@ async function fetchShortWindowMomentum(productId: string): Promise<{ change5m: 
     const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
     const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
     return { change5m, change15m };
-  } catch (_e) {
-    return null;
-  }
-}
-
-// Fetch Alpaca crypto snapshot (latest bid/ask/last) — used as a research
-// signal (spread quality, freshness) without ever placing an order on Alpaca.
-async function fetchAlpacaCryptoSnapshot(productId: string): Promise<{ bid: number; ask: number; last: number; spreadBps: number } | null> {
-  if (!__alpacaCreds) return null;
-  const sym = productIdToAlpacaSymbol(productId);
-  if (!sym) return null;
-  try {
-    const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(sym)}`;
-    const resp = await fetch(url, {
-      headers: {
-        'APCA-API-KEY-ID': __alpacaCreds.apiKey,
-        'APCA-API-SECRET-KEY': __alpacaCreds.secretKey,
-      },
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const snap = data?.snapshots?.[sym];
-    const bid = Number(snap?.latestQuote?.bp ?? 0);
-    const ask = Number(snap?.latestQuote?.ap ?? 0);
-    const last = Number(snap?.latestTrade?.p ?? snap?.minuteBar?.c ?? 0);
-    if (!bid || !ask) return null;
-    const mid = (bid + ask) / 2;
-    const spreadBps = mid > 0 ? ((ask - bid) / mid) * 10000 : 0;
-    return { bid, ask, last: last || mid, spreadBps };
   } catch (_e) {
     return null;
   }
@@ -4010,7 +3927,7 @@ serve(async (req) => {
       
       if (!isPaperMode && decision.action === 'buy') {
         if (isStock) {
-          // 📈 EXECUTE STOCK TRADE via connected broker (Alpaca/IBKR/Tradier)
+          // 📈 EXECUTE STOCK TRADE via connected broker (IBKR/Tradier)
           console.log(`📈 EXECUTING STOCK ${decision.action.toUpperCase()}: ${quantity} ${decision.symbol}`);
           const stockResult = await executeStockTrade(
             supabase,
