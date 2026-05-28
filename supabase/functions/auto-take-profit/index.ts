@@ -1707,17 +1707,24 @@ serve(async (req) => {
       }
     }
 
-    // If no specific user, process ALL users with AI enabled
+    // If no specific user, process ALL users with AI enabled OR with open positions
+    // (so we can auto-restart bots that were stopped by kill-switch / disable).
     if (userIds.length === 0) {
-      console.log('🔄 Cron job: Processing all users with AI enabled');
+      console.log('🔄 Cron job: Processing all users with AI enabled or open positions');
+      const ids = new Set<string>();
+
       const { data: aiSettings } = await supabase
         .from('ai_settings')
-        .select('user_id, trading_mode')
-        .eq('enabled', true);
+        .select('user_id')
+        .or('enabled.eq.true,kill_switch_active.eq.true');
+      aiSettings?.forEach((s: any) => ids.add(s.user_id));
 
-      if (aiSettings) {
-        userIds = aiSettings.map((s: any) => s.user_id);
-      }
+      const { data: openPos } = await supabase
+        .from('positions')
+        .select('user_id');
+      openPos?.forEach((p: any) => ids.add(p.user_id));
+
+      userIds = Array.from(ids);
     }
 
     console.log(`Processing ${userIds.length} user(s)`);
