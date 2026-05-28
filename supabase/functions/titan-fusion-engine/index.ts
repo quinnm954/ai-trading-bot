@@ -29,7 +29,6 @@ async function logAIUsage(supabase: any, userId: string | null, fn: string, mode
 }
 
 interface Feature {
-  polymarket: { conviction: number; direction: string; rationale?: string }[];
   news: { sentiment_avg: number; count: number; headlines: string[] };
   liquidation: { nearest_cluster_pct?: number; side?: string; cluster_usd?: number };
   technicals: { regime?: string; vol_pct?: number };
