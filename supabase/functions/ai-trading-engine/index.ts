@@ -2364,6 +2364,8 @@ function analyzeWithRules(
         // Scalping rides POSITIVE momentum only — never catch falling knives.
         // Require +0.3%–+5% daily momentum; below that there's nothing to
         // scalp, above that we're chasing a parabolic blow-off.
+        const ch5m = (coin as any).change5m ?? 0;
+        const ch1h = (coin as any).change1h ?? 0;
         const momentumOk = m >= 0.3 && m < 5;
         const trendOk = ch7d >= -3;
         const volatilityOk = volPct >= 1.5 && volPct <= 12;
@@ -2371,9 +2373,25 @@ function analyzeWithRules(
         const rangeOk = pricePosition >= 0.30 && pricePosition <= 0.80;
         const liquidityOk = vol24h >= 250_000;
         const spreadOk = coin.spreadPercent === undefined || coin.spreadPercent <= 0.8;
+        // ⚠️ FRESH-MOMENTUM GATE: 24h positive isn't enough — most of our losses
+        // came from buying assets that printed a positive 24h but were ROLLING
+        // OVER on 5m/1h. Require alignment across all 3 timeframes.
+        const freshMomentumOk = ch5m > 0 && ch1h > -0.2;
+        // ⚠️ REGIME-AWARE GATE: in trending_down / volatile regimes, demand
+        // strictly positive 1h AND 24h ≥ +1% (no marginal entries).
+        const hostileRegime = regime === 'trending_down' || regime === 'volatile' || regime === 'high_volatility';
+        const regimeStrictOk = !hostileRegime || (ch1h > 0.1 && m >= 1.0 && ch5m >= 0.1);
 
         if (!momentumOk) {
           console.log(`🚫 SCALP SKIP ${coin.symbol}: momentum ${m.toFixed(2)}% — need +0.3% to +5% (positive only)`);
+          break;
+        }
+        if (!freshMomentumOk) {
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: stale momentum — 5m ${ch5m.toFixed(2)}% / 1h ${ch1h.toFixed(2)}% (need 5m>0 & 1h>-0.2)`);
+          break;
+        }
+        if (!regimeStrictOk) {
+          console.log(`🚫 SCALP SKIP ${coin.symbol}: hostile regime ${regime} — need 5m≥0.1%, 1h>0.1%, 24h≥1% (got 5m ${ch5m.toFixed(2)}%, 1h ${ch1h.toFixed(2)}%, 24h ${m.toFixed(2)}%)`);
           break;
         }
         if (!trendOk || !volatilityOk || !rangeOk || !liquidityOk || !spreadOk) {
@@ -3345,7 +3363,11 @@ serve(async (req) => {
     // compounding losses. Existing positions remain managed by auto-take-profit.
     const dayLossPct = balance > 0 ? (todaysNetPnL / balance) * 100 : 0;
     const bullishRegime = regimeReport.profile === 'trending_up';
-    const standDownOnLoss = todaysNetPnL < 0 && !bullishRegime && dayLossPct <= -1.0;
+    // Tightened: stand down at -0.5% day loss (was -1.0%) in any non-bullish regime,
+    // OR immediately on a trending_down regime once we're red at all.
+    const standDownOnLoss =
+      (todaysNetPnL < 0 && !bullishRegime && dayLossPct <= -0.5) ||
+      (regimeReport.profile === 'trending_down' && todaysNetPnL < 0);
 
     if (standDownOnLoss) {
       console.log(`🛡️ STAND-DOWN: dayPnL=$${todaysNetPnL.toFixed(2)} (${dayLossPct.toFixed(2)}%), regime=${regimeReport.profile}. No new entries until day turns green or regime flips bullish.`);
@@ -3402,9 +3424,14 @@ serve(async (req) => {
             (d.action === 'sell' && (fusion.direction === 'bullish' || fusion.direction === 'long'));
           if (aligned && fusion.conviction >= 70) { sentimentAdj = 15; sentimentNote = `aligned+${fusion.conviction}`; }
           else if (aligned && fusion.conviction >= 50) { sentimentAdj = 8; sentimentNote = `aligned~${fusion.conviction}`; }
-          else if (opposite && fusion.conviction >= 60) { sentimentAdj = -15; sentimentNote = `OPPOSED-${fusion.conviction}`; }
-          else if (opposite && fusion.conviction >= 40) { sentimentAdj = -8; sentimentNote = `opposed~${fusion.conviction}`; }
+          else if (opposite && fusion.conviction >= 60) { sentimentAdj = -25; sentimentNote = `OPPOSED-${fusion.conviction}`; }
+          else if (opposite && fusion.conviction >= 40) { sentimentAdj = -15; sentimentNote = `opposed~${fusion.conviction}`; }
           else { sentimentNote = `neutral-${fusion.conviction}`; }
+          // 🚫 HARD VETO: never buy into a high-conviction bearish fusion signal.
+          // This was the #1 driver of recent losses — fusion said bearish, bot bought anyway.
+          if (opposite && fusion.conviction >= 55) {
+            (d as any)._fusionVeto = true;
+          }
         }
         const score = Math.max(0, Math.min(100, baseScore + sentimentAdj));
         return { ...d, _score: score, _sentimentNote: sentimentNote };
@@ -3412,6 +3439,10 @@ serve(async (req) => {
 
       const passed: any[] = [];
       for (const d of scored) {
+        if ((d as any)._fusionVeto) {
+          console.log(`🛑 FUSION VETO: ${d.symbol} ${d.action.toUpperCase()} blocked — fusion signal opposes trade direction (${d._sentimentNote})`);
+          continue;
+        }
         if (d._score >= 70) {
           passed.push(d);
           console.log(`✅ SCORE ${d._score} (full size) ${d.action.toUpperCase()} ${d.symbol} | sentiment=${d._sentimentNote}`);
