@@ -14,7 +14,7 @@ import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
  * crypto exchanges, enabling the patent's multi-asset trading capability.
  * 
  * SUPPORTED BROKERS/EXCHANGES:
- * - Alpaca: US Stocks & Crypto (commission-free stock trading)
+ * - IBKR / Tradier: US Stocks
  * - Coinbase: Cryptocurrency
  * - Binance, Kraken, KuCoin, Bybit, OKX, Gate.io, Bitget: Crypto
  * 
@@ -218,44 +218,7 @@ function detectExchange(apiKey: string, secretKey: string): DetectionResult | nu
   return { exchange: "coinbase", authType: "legacy", confidence: 0.3 };
 }
 
-/**
- * Test Alpaca connection (US Stocks & Crypto)
- * 
- * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
- * Alpaca supports both stocks and crypto trading through a single API
- */
-async function testAlpaca(apiKey: string, secretKey: string, authType: string) {
-  // Use paper or live API based on key type
-  const baseUrl = authType === "paper" 
-    ? "https://paper-api.alpaca.markets" 
-    : "https://api.alpaca.markets";
-  
-  console.log(`Testing Alpaca ${authType} connection...`);
-  
-  const response = await fetch(`${baseUrl}/v2/account`, {
-    headers: {
-      "APCA-API-KEY-ID": apiKey,
-      "APCA-API-SECRET-KEY": secretKey,
-    },
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Alpaca error (${response.status}): ${errorText}`);
-  }
-  
-  const account = await response.json();
-  
-  return {
-    balance: parseFloat(account.cash || 0),
-    buying_power: parseFloat(account.buying_power || 0),
-    equity: parseFloat(account.equity || 0),
-    tradingMode: authType, // paper or live
-    patternDayTrader: account.pattern_day_trader || false,
-    daytradeCount: account.daytrade_count || 0,
-    status: account.status,
-  };
-}
+// Alpaca integration removed.
 
 /**
  * Test Interactive Brokers connection (Global Multi-Asset)
