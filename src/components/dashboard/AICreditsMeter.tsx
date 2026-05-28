@@ -96,7 +96,9 @@ export function AICreditsMeter() {
             ${monthSpend.toFixed(2)} / ${budget.toFixed(0)}
           </span>
         </div>
-        <Progress value={pct} className="h-2" indicatorClassName={barColor} />
+        <div className="h-2 w-full bg-secondary/40 rounded-full overflow-hidden">
+          <div className={`h-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+        </div>
         {danger && (
           <p className="text-xs text-loss mt-1.5">
             ⚠ You're near your monthly budget. Top up workspace credits to keep AI features running.
