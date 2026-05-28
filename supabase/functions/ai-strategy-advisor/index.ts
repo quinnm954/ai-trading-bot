@@ -249,7 +249,13 @@ Respond with a JSON object (no markdown, just raw JSON):
 
     const aiData = await aiResponse.json();
     const aiContent = aiData.choices?.[0]?.message?.content || '';
-    
+
+    // Log workspace usage + deduct in-app credits
+    await logAIUsage(sb, userId, 'ai-strategy-advisor', 'openai/gpt-5.4', aiData.usage, 'ok');
+    if (userId) {
+      await deductCredits(sb, userId, ADVISOR_CREDIT_COST, 'AI Strategy Advisor analysis');
+    }
+
     console.log('AI response:', aiContent);
 
     // Parse AI response
