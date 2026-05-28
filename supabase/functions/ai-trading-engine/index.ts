@@ -3391,13 +3391,28 @@ serve(async (req) => {
       const topConviction = Math.max(0, ...prioritizedTradeable.map(c => fusionMap.get(c.symbol.toUpperCase())?.conviction ?? 0));
       const profitProgress = todaysNetPnL / Math.max(1, DAILY_PROFIT_TARGET); // 0..1
 
+      // 🎯 DAILY-TARGET PACING — compare actual progress vs expected progress for current UTC hour.
+      // Goal: push the bot to hit $500/day. If we're behind schedule, lean in; if ahead, protect gains.
+      const utcHour = new Date().getUTCHours() + new Date().getUTCMinutes() / 60;
+      const expectedProgress = Math.min(1, utcHour / 20); // expect target by ~20:00 UTC
+      const pacingGap = expectedProgress - profitProgress; // >0 means behind schedule
+      const behindPace = pacingGap > 0.15;
+      const aheadOfPace = pacingGap < -0.15;
+
       // Risk tolerance: bullish regime + high conviction → aggressive; downtrend/volatile → conservative
       if (regime === 'trending' && topConviction >= 65) riskTolerance = 'aggressive';
       else if (regime === 'high_volatility') riskTolerance = 'conservative';
       else if (regime === 'ranging') riskTolerance = 'moderate';
 
-      // De-risk once we're close to the daily target (lock gains rather than chase)
-      if (profitProgress >= 0.6) {
+      // 🚀 BEHIND PACE → lean in (only if day isn't red and regime isn't actively bearish)
+      if (behindPace && todaysNetPnL >= 0 && regimeReport.profile !== 'trending_down') {
+        riskTolerance = topConviction >= 55 ? 'aggressive' : 'moderate';
+        dynMaxPositionSize = Math.min(Math.max(dynMaxPositionSize, 8), settings.max_position_size || 10);
+        dynMaxConcurrent = Math.min(dynMaxConcurrent + 1, settings.max_concurrent_trades || 5);
+      }
+
+      // De-risk only once target is essentially hit (≥85%) — don't choke off the run too early
+      if (profitProgress >= 0.85 || aheadOfPace) {
         riskTolerance = 'conservative';
         dynMaxPositionSize = Math.min(dynMaxPositionSize, 5);
       }
@@ -3419,7 +3434,8 @@ serve(async (req) => {
       dynMaxConcurrent = Math.max(1, Math.round(dynMaxConcurrent * regimePolicy.slotMultiplier));
       console.log(`🧭 Regime overlay (${regimeReport.profile}): size ${sizeBefore}%→${dynMaxPositionSize}% | slots ${slotsBefore}→${dynMaxConcurrent} | strategy=${regimePolicy.strategy}`);
 
-      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime}/${regimeReport.profile} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}`);
+      console.log(`🎯 PACE → progress=${(profitProgress * 100).toFixed(0)}% expected=${(expectedProgress * 100).toFixed(0)}% gap=${(pacingGap * 100).toFixed(0)}% ${behindPace ? '🔥 BEHIND→push' : aheadOfPace ? '🛡️ AHEAD→protect' : 'on track'}`);
+      console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime}/${regimeReport.profile} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}/$${DAILY_PROFIT_TARGET}`);
     }
 
     const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
