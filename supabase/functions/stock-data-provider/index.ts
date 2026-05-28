@@ -164,58 +164,10 @@ function getMarketStatus(): MarketStatus {
 }
 
 /**
- * Fetch stock quotes from Alpaca
+ * Alpaca quotes removed — Yahoo Finance is the primary data source.
  */
-async function fetchAlpacaQuotes(symbols: string[]): Promise<StockQuote[]> {
-  const apiKey = Deno.env.get('ALPACA_API_KEY');
-  const apiSecret = Deno.env.get('ALPACA_API_SECRET');
-  
-  if (!apiKey || !apiSecret) {
-    console.log('Alpaca API keys not configured');
-    return [];
-  }
-  
-  try {
-    const symbolsParam = symbols.join(',');
-    const response = await fetch(
-      `https://data.alpaca.markets/v2/stocks/quotes/latest?symbols=${symbolsParam}`,
-      {
-        headers: {
-          'APCA-API-KEY-ID': apiKey,
-          'APCA-API-SECRET-KEY': apiSecret,
-        },
-      }
-    );
-    
-    if (!response.ok) {
-      console.error('Alpaca API error:', response.status);
-      return [];
-    }
-    
-    const data = await response.json();
-    const quotes: StockQuote[] = [];
-    
-    for (const [symbol, quote] of Object.entries(data.quotes || {})) {
-      const q = quote as any;
-      quotes.push({
-        symbol,
-        price: q.ap || q.bp || 0, // ask price or bid price
-        open: 0,
-        high: 0,
-        low: 0,
-        close: q.ap || 0,
-        volume: 0,
-        change: 0,
-        changePercent: 0,
-        timestamp: q.t || new Date().toISOString(),
-      });
-    }
-    
-    return quotes;
-  } catch (error) {
-    console.error('Alpaca fetch error:', error);
-    return [];
-  }
+async function fetchAlpacaQuotes(_symbols: string[]): Promise<StockQuote[]> {
+  return [];
 }
 
 /**
