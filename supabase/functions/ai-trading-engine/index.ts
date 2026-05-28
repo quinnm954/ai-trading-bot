@@ -1858,59 +1858,83 @@ async function filterByTrend(
 
   console.log(`✅ Eligible coins (${memeOnly ? 'MEME-ONLY, ' : ''}$${minPrice}–$${maxPrice}, non-stable, 24h ∈ [-2%, +5%)): ${eligibleCoins.length}/${marketData.length}`);
 
-  // Fetch 5m candles for eligible coins (Coinbase) — in parallel, capped to 30 to keep latency sane
+  // Fetch 5m candles + Bollinger Bands + RSI for eligible coins (Coinbase) — parallel, capped to 30
   const candleTargets = eligibleCoins.slice(0, 30);
   await Promise.all(candleTargets.map(async (coin) => {
     if (!coin.productId) return;
-    const m = await fetchShortWindowMomentum(coin.productId);
-    if (m) {
-      coin.change5m = m.change5m;
-      // Use 15m as a 1h proxy when CoinGecko 1h is absent (live/Coinbase path)
-      if (coin.change1h === undefined || coin.change1h === 0) {
-        coin.change1h = m.change15m;
-      }
+    const t = await fetchCandleTechnicals(coin.productId);
+    if (t) {
+      coin.change5m = t.change5m;
+      if (coin.change1h === undefined || coin.change1h === 0) coin.change1h = t.change15m;
+      coin.rsi14 = t.rsi14;
+      coin.bbLower = t.bbLower;
+      coin.bbMid = t.bbMid;
+      coin.bbUpper = t.bbUpper;
+      coin.bbWidth = t.bbWidth;
+      coin.percentB = t.percentB;
+      coin.techSetup = t.techSetup;
+      coin.techScore = t.techScore;
     }
   }));
 
-  // LIQUIDITY-AWARE AI-DECIDES GATE — let the AI pick; only block hard chase / no-data.
+  // LIQUIDITY + TECHNICAL ENTRY GATE — only profitable-shaped setups pass.
   const scalpCandidates = candleTargets.filter(coin => {
     const c5 = coin.change5m;
     const c1h = coin.change1h ?? 0;
     const c24 = coin.change24h ?? 0;
     const vol = coin.volume24h ?? 0;
+    const rsi = coin.rsi14;
+    const pB = coin.percentB;
+    const tScore = coin.techScore ?? 50;
 
     if (c5 === undefined && c1h === 0 && c24 === 0) {
-      console.log(`⏭️  NO DATA: ${coin.symbol} — skipping (no momentum signal at all)`);
+      console.log(`⏭️  NO DATA: ${coin.symbol} — skipping`);
       return false;
     }
-    // Hard chase guard: don't buy a candle that already ripped >4% in 5m
     if (c5 !== undefined && c5 > 4) {
-      console.log(`🚫 ALREADY SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late to chase`);
+      console.log(`🚫 SPIKED: ${coin.symbol} 5m +${c5.toFixed(2)}% — too late`);
       return false;
     }
-    // Liquidity floor — AI needs depth to exit cleanly (relaxed to widen pool)
     if (vol > 0 && vol < 100_000) {
-      console.log(`💧 LOW LIQUIDITY: ${coin.symbol} 24h vol $${(vol/1000).toFixed(0)}k — skipping`);
+      console.log(`💧 LOW LIQ: ${coin.symbol} vol $${(vol/1000).toFixed(0)}k`);
       return false;
     }
-    console.log(`🤖 AI-CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | 1h ${c1h.toFixed(2)}% | 24h ${c24.toFixed(2)}% | vol $${(vol/1e6).toFixed(2)}M`);
+    // Technical guard: skip overbought + above upper BB (poor R:R)
+    if (rsi !== undefined && rsi > 75) {
+      console.log(`🔥 OVERBOUGHT: ${coin.symbol} RSI ${rsi.toFixed(0)}`);
+      return false;
+    }
+    if (pB !== undefined && pB > 1.0) {
+      console.log(`📈 ABOVE UPPER BB: ${coin.symbol} %B ${pB.toFixed(2)}`);
+      return false;
+    }
+    // Require a minimum technical quality score
+    if (tScore < 45) {
+      console.log(`🧪 WEAK SETUP: ${coin.symbol} techScore ${tScore} (${coin.techSetup})`);
+      return false;
+    }
+    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | tech ${tScore} (${coin.techSetup})`);
     return true;
   });
 
-  // Rank by liquidity-weighted momentum: rising movers with depth first, then any liquid mover.
+  // Rank by technical score + momentum + liquidity.
   scalpCandidates.sort((a, b) => {
-    const score = (c: MarketData) => (c.change5m ?? 0) * 2 + (c.change1h ?? 0) + Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
+    const score = (c: MarketData) =>
+      (c.techScore ?? 50) * 0.5 +
+      (c.change5m ?? 0) * 2 +
+      (c.change1h ?? 0) +
+      Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
     return score(b) - score(a);
   });
 
-  console.log(`🎯 AI-DECIDES POOL: ${scalpCandidates.length} liquid candidates handed to AI`);
+  console.log(`🎯 AI-DECIDES POOL: ${scalpCandidates.length} technically-qualified candidates`);
 
   const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
     return {
       ...analysis,
       shouldTrade: true,
-      reason: `⚡ SCALP RISING: 5m +${(coin.change5m ?? 0).toFixed(2)}% | 1h +${(coin.change1h ?? 0).toFixed(2)}% | 24h +${(coin.change24h ?? 0).toFixed(2)}%`,
+      reason: `⚡ ENTRY: 5m +${(coin.change5m ?? 0).toFixed(2)}% | RSI ${(coin.rsi14 ?? 50).toFixed(0)} | %B ${(coin.percentB ?? 0.5).toFixed(2)} | ${coin.techSetup ?? 'neutral'}`,
     };
   });
 
