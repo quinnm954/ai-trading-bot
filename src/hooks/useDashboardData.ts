@@ -34,21 +34,22 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
 const LIVE_STARTING_EQUITY_FALLBACK = 100;
 
 async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<string, number>> {
-  const prices: Record<string, number> = {};
-  const ids = symbols.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
-  
-  if (ids.length === 0) {
-    return prices;
-  }
-  
+  // 1) PRIMARY: Coinbase Exchange (real-time, matches our broker)
+  const { fetchCoinbasePrices } = await import('@/lib/coinbasePrices');
+  const prices = await fetchCoinbasePrices(symbols);
+
+  // 2) FALLBACK: CoinGecko for anything Coinbase doesn't have
+  const missing = symbols.filter(s => !prices[s.toUpperCase()]);
+  const ids = missing.map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
+  if (ids.length === 0) return prices;
+
   try {
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`;
     const response = await fetch(url);
-    
+
     if (response.ok) {
       const data = await response.json();
-      
-      for (const symbol of symbols) {
+      for (const symbol of missing) {
         const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
         if (geckoId && data[geckoId]?.usd) {
           prices[symbol.toUpperCase()] = data[geckoId].usd;
@@ -56,11 +57,12 @@ async function fetchLivePricesForDashboard(symbols: string[]): Promise<Record<st
       }
     }
   } catch (error) {
-    console.error('[Dashboard] Error fetching live prices:', error);
+    console.error('[Dashboard] CoinGecko fallback error:', error);
   }
-  
+
   return prices;
 }
+
 
 interface DashboardStats {
   cashBalance: number;
