@@ -1342,6 +1342,9 @@ interface MarketData {
   atrPct?: number;      // ATR(14) on 5m candles as % of price — realized volatility
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;    // 0–100 — favors the "sweet spot" of tradable volatility
+  supportPrice?: number;          // nearest swing-low support below current price
+  distanceToSupportPct?: number;  // (price - support)/price * 100
+  supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
 }
 
 interface AITradingDecision {
@@ -1747,6 +1750,27 @@ interface CandleTechnicals {
   atrPct?: number;
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;
+  supportPrice?: number;
+  distanceToSupportPct?: number;
+  supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
+}
+
+// Detect the nearest swing-low support below `price` using ±`window` pivot lows.
+function findSupportLevel(lows: number[], price: number, window = 3): number | undefined {
+  if (lows.length < window * 2 + 1) return undefined;
+  const pivots: number[] = [];
+  for (let i = window; i < lows.length - window; i++) {
+    let isPivot = true;
+    for (let j = i - window; j <= i + window; j++) {
+      if (j !== i && lows[j] < lows[i]) { isPivot = false; break; }
+    }
+    if (isPivot) pivots.push(lows[i]);
+  }
+  // Also consider the session low as a fallback support.
+  pivots.push(Math.min(...lows));
+  // Nearest pivot that sits at or below the current price.
+  const below = pivots.filter(p => p <= price).sort((a, b) => b - a);
+  return below[0];
 }
 
 function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' | 'extreme'; score: number } {
@@ -1860,6 +1884,32 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       else if (volClass === 'extreme') { score -= 20; labels.push(`vol extreme ATR ${atrPct.toFixed(2)}%`); }
     }
 
+    // Support-level awareness — entries near a recent swing-low are higher-probability bounces.
+    const supportPrice = findSupportLevel(lows, last, 3);
+    let distanceToSupportPct: number | undefined;
+    let supportContext: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support' | undefined;
+    if (supportPrice !== undefined && last > 0) {
+      distanceToSupportPct = ((last - supportPrice) / last) * 100;
+      // Use ATR% as the "what's close?" yardstick when available, else fall back to fixed bands.
+      const nearBand = Math.max(0.4, (atrPct ?? 0.5) * 0.6);   // "at support"
+      const midBand  = Math.max(1.5, (atrPct ?? 0.5) * 2.0);   // "near support"
+      if (distanceToSupportPct < 0) {
+        supportContext = 'below_support';
+        score -= 18; labels.push(`below support ${supportPrice.toFixed(6)}`);
+      } else if (distanceToSupportPct <= nearBand) {
+        supportContext = 'at_support';
+        score += 14; labels.push(`at support ${supportPrice.toFixed(6)} (${distanceToSupportPct.toFixed(2)}% away)`);
+      } else if (distanceToSupportPct <= midBand) {
+        supportContext = 'near_support';
+        score += 6; labels.push(`near support (${distanceToSupportPct.toFixed(2)}% away)`);
+      } else if (distanceToSupportPct <= midBand * 2) {
+        supportContext = 'mid_range';
+      } else {
+        supportContext = 'far_above_support';
+        score -= 10; labels.push(`far above support (${distanceToSupportPct.toFixed(2)}% — poor R:R)`);
+      }
+    }
+
     score = Math.max(0, Math.min(100, score));
     const techSetup = labels.length ? labels.join(' | ') : 'neutral';
 
@@ -1870,6 +1920,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       percentB,
       techSetup, techScore: score,
       atrPct, volClass, volScore,
+      supportPrice, distanceToSupportPct, supportContext,
     };
   } catch (_e) {
     return null;
@@ -1926,6 +1977,9 @@ async function filterByTrend(
       coin.atrPct = t.atrPct;
       coin.volClass = t.volClass;
       coin.volScore = t.volScore;
+      coin.supportPrice = t.supportPrice;
+      coin.distanceToSupportPct = t.distanceToSupportPct;
+      coin.supportContext = t.supportContext;
     }
   }));
 
@@ -1974,15 +2028,31 @@ async function filterByTrend(
       console.log(`🌪️  EXTREME VOL: ${coin.symbol} ATR ${(coin.atrPct ?? 0).toFixed(2)}% — slippage/wick risk`);
       return false;
     }
-    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | tech ${tScore}`);
+    // SUPPORT-LEVEL GATE — don't chase price that has run far above the nearest swing-low.
+    // Below-support (breakdown) is also rejected unless 5m is already reclaiming.
+    if (coin.supportContext === 'far_above_support') {
+      console.log(`📏 FAR FROM SUPPORT: ${coin.symbol} ${(coin.distanceToSupportPct ?? 0).toFixed(2)}% above support — poor R:R`);
+      return false;
+    }
+    if (coin.supportContext === 'below_support' && (coin.change5m ?? 0) <= 0) {
+      console.log(`⛔ BROKEN SUPPORT: ${coin.symbol} below ${(coin.supportPrice ?? 0).toFixed(6)} with no reclaim`);
+      return false;
+    }
+    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | support ${coin.supportContext ?? 'n/a'} (${(coin.distanceToSupportPct ?? 0).toFixed(2)}%) | tech ${tScore}`);
     return true;
   });
 
-  // Rank by tech + volatility-fit + momentum + liquidity. Volatility-fit is now a first-class factor.
+  // Rank by tech + volatility-fit + support-proximity + momentum + liquidity.
+  // Support proximity: full credit at_support, partial near, zero far/below.
   scalpCandidates.sort((a, b) => {
+    const supportBonus = (c: MarketData) =>
+      c.supportContext === 'at_support' ? 20 :
+      c.supportContext === 'near_support' ? 10 :
+      c.supportContext === 'mid_range' ? 0 : -10;
     const score = (c: MarketData) =>
-      (c.techScore ?? 50) * 0.4 +
-      (c.volScore ?? 50) * 0.35 +
+      (c.techScore ?? 50) * 0.35 +
+      (c.volScore ?? 50) * 0.25 +
+      supportBonus(c) +
       (c.change5m ?? 0) * 2 +
       (c.change1h ?? 0) +
       Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
