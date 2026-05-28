@@ -93,7 +93,7 @@ async function callAI(stats: any, supabase: any, userId: string): Promise<{ them
           {
             role: "system",
             content:
-              "You are a trading post-mortem analyst for an automated crypto/equity bot. Given the last 24h of trade stats, identify the 3-5 dominant failure themes and concrete, conservative parameter/behavior recommendations. Keep recommendations small and incremental. Use the provided tool to return structured output.",
+              "You are a trading post-mortem analyst for an automated crypto scalping bot. Given the last 24h of trade stats, identify 3-5 dominant failure themes and concrete, conservative recommendations to reduce losses. Prefer tightening entries, trailing, and reducing concurrency when win rate is low. Changes are clamped to small increments by the system. Use the provided tool to return structured output.",
           },
           { role: "user", content: JSON.stringify(stats) },
         ],
@@ -124,9 +124,17 @@ async function callAI(stats: any, supabase: any, userId: string): Promise<{ them
                     items: {
                       type: "object",
                       properties: {
-                        action: { type: "string", description: "e.g. lower_score, raise_score, cooldown_symbol, tighten_stop" },
-                        target: { type: "string", description: "strategy:regime or symbol or 'global'" },
-                        delta: { type: "number", description: "magnitude (e.g. -10, +5, or minutes)" },
+                        action: {
+                          type: "string",
+                          description:
+                            "One of: lower_score, raise_score, cooldown_symbol, tighten_stop, loosen_stop, tighten_entry, loosen_entry, tighten_trailing, loosen_trailing, raise_take_profit, lower_take_profit, reduce_position_size, increase_position_size, reduce_concurrency, increase_concurrency",
+                        },
+                        target: {
+                          type: "string",
+                          description:
+                            "Context: strategy[:regime] for score actions, SYMBOL for cooldown_symbol, '5m'|'15m'|'1h'|'24h' for entry actions, 'global' otherwise",
+                        },
+                        delta: { type: "number", description: "magnitude (e.g. -10, +5, minutes, or % depending on action)" },
                         reason: { type: "string" },
                       },
                       required: ["action", "target", "reason"],
@@ -294,15 +302,87 @@ async function auditUser(supabase: any, userId: string) {
     }
   }
 
+  // --- Load current scalp_settings once; we'll mutate fields and write at the end ---
+  const { data: scalpRow } = await supabase
+    .from("scalp_settings")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const scalpUpdates: Record<string, number> = {};
+  const getScalp = (k: string): number =>
+    scalpUpdates[k] !== undefined ? scalpUpdates[k] : Number(scalpRow?.[k] ?? 0);
+
+  // --- Auto-rule: a clearly losing day triggers a small protective tightening ---
+  // If WR < 40% AND >=5 losers AND net negative, tighten entries + reduce concurrency by 1.
+  if (scalpRow && winRate < 40 && losers.length >= 5 && totalPnl < 0) {
+    const tfs = ["entry_min_5m_pct", "entry_min_15m_pct", "entry_min_1h_pct", "entry_min_24h_pct"];
+    for (const k of tfs) {
+      const cur = getScalp(k);
+      const next = Math.min(2.0, Math.max(0.1, Number((cur + 0.05).toFixed(2))));
+      if (next !== cur) {
+        scalpUpdates[k] = next;
+        applied.push({
+          type: "scalp_entry_tighten_auto",
+          strategy: "scalp",
+          delta: Number((next - cur).toFixed(2)),
+          new_score: next,
+          reason: `auto: WR ${winRate.toFixed(0)}% with ${losers.length} losers — tightened ${k}`,
+        });
+      }
+    }
+    const curCc = getScalp("max_concurrent_positions");
+    const nextCc = Math.max(1, Math.round(curCc - 1));
+    if (nextCc !== curCc) {
+      scalpUpdates["max_concurrent_positions"] = nextCc;
+      applied.push({
+        type: "scalp_concurrency_auto",
+        strategy: "scalp",
+        delta: nextCc - curCc,
+        new_score: nextCc,
+        reason: `auto: WR ${winRate.toFixed(0)}% — reduced concurrent positions`,
+      });
+    }
+  }
+
   // --- Apply LLM recommendations through a safe whitelist ---
   // Hard caps prevent one bad audit from wrecking config.
-  // Supported actions:
-  //   - lower_score / raise_score  → strategy_performance.score (±10 max, floor 5, cap 100)
-  //   - cooldown_symbol            → symbol_cooldowns row (max 12h)
-  //   - tighten_stop / loosen_stop → scalp_settings.hard_stop_loss_pct (±0.3 max per audit, clamped 1.5–6)
   const recs = Array.isArray(ai?.recommendations) ? ai!.recommendations : [];
   let scalpStopDeltaTotal = 0;
   const MAX_STOP_DELTA_PER_RUN = 0.3;
+  let trailingDeltaTotal = 0;
+  const MAX_TRAILING_DELTA_PER_RUN = 0.3;
+  let tpDeltaTotal = 0;
+  const MAX_TP_DELTA_PER_RUN = 0.3;
+
+  // helper to apply a clamped scalar change to a scalp field, tracking a per-run budget
+  const adjustScalpField = (
+    field: string,
+    sign: number,
+    rawMag: number,
+    perStepCap: number,
+    runningTotalRef: { v: number },
+    runBudget: number,
+    clampMin: number,
+    clampMax: number,
+    actionType: string,
+    reason: string,
+  ) => {
+    if (!scalpRow) return;
+    const mag = Math.min(perStepCap, Math.max(perStepCap * 0.1, Math.abs(rawMag) || perStepCap * 0.5));
+    if (Math.abs(runningTotalRef.v + sign * mag) > runBudget) return;
+    const cur = getScalp(field);
+    const next = Math.min(clampMax, Math.max(clampMin, Number((cur + sign * mag).toFixed(2))));
+    if (next === cur) return;
+    scalpUpdates[field] = next;
+    runningTotalRef.v += sign * mag;
+    applied.push({
+      type: actionType,
+      strategy: "scalp",
+      delta: Number((next - cur).toFixed(2)),
+      new_score: next,
+      reason,
+    });
+  };
 
   for (const rec of recs) {
     try {
@@ -312,7 +392,6 @@ async function auditUser(supabase: any, userId: string) {
       const reason = String(rec?.reason || "audit recommendation").slice(0, 200);
 
       if (action === "lower_score" || action === "raise_score") {
-        // target format: "strategy" or "strategy:regime"
         const [strat, regime] = target.split(":").map((s) => s.trim()).filter(Boolean);
         if (!strat) continue;
         const sign = action === "lower_score" ? -1 : 1;
@@ -343,7 +422,7 @@ async function auditUser(supabase: any, userId: string) {
         }
       } else if (action === "cooldown_symbol") {
         if (!target || target.toLowerCase() === "global") continue;
-        const minutes = Math.min(720, Math.max(15, Math.abs(rawDelta) || 360)); // 15m–12h, default 6h
+        const minutes = Math.min(720, Math.max(15, Math.abs(rawDelta) || 360));
         const expiresAt = new Date(Date.now() + minutes * 60_000).toISOString();
         await supabase.from("symbol_cooldowns").insert({
           user_id: userId,
@@ -360,29 +439,78 @@ async function auditUser(supabase: any, userId: string) {
           reason: `cooldown ${minutes}m — ${reason}`,
         });
       } else if (action === "tighten_stop" || action === "loosen_stop") {
+        // hard_stop_loss_pct stored as POSITIVE magnitude. tighten = smaller magnitude.
         const sign = action === "tighten_stop" ? -1 : 1;
-        const magnitude = Math.min(0.3, Math.max(0.05, Math.abs(rawDelta) || 0.1));
-        if (Math.abs(scalpStopDeltaTotal + sign * magnitude) > MAX_STOP_DELTA_PER_RUN) continue;
-        const { data: scalpRow } = await supabase
-          .from("scalp_settings")
-          .select("id,hard_stop_loss_pct")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (!scalpRow) continue;
-        // hard_stop_loss_pct is stored as a POSITIVE magnitude (e.g. 3.0 means -3%)
-        // tighten_stop = smaller magnitude; loosen_stop = larger magnitude
-        const cur = Number(scalpRow.hard_stop_loss_pct);
-        const next = Math.min(6, Math.max(1.5, cur + sign * magnitude * -1));
+        const ref = { v: scalpStopDeltaTotal };
+        adjustScalpField(
+          "hard_stop_loss_pct", sign, rawDelta, 0.3, ref, MAX_STOP_DELTA_PER_RUN, 1.5, 6, "scalp_stop_adjust", reason,
+        );
+        scalpStopDeltaTotal = ref.v;
+      } else if (action === "tighten_trailing" || action === "loosen_trailing") {
+        // trailing_drop_pct: tighten = smaller drop = exits sooner
+        const sign = action === "tighten_trailing" ? -1 : 1;
+        const ref = { v: trailingDeltaTotal };
+        adjustScalpField(
+          "trailing_drop_pct", sign, rawDelta, 0.3, ref, MAX_TRAILING_DELTA_PER_RUN, 0.5, 4, "scalp_trailing_adjust", reason,
+        );
+        trailingDeltaTotal = ref.v;
+      } else if (action === "raise_take_profit" || action === "lower_take_profit") {
+        const sign = action === "raise_take_profit" ? 1 : -1;
+        const ref = { v: tpDeltaTotal };
+        adjustScalpField(
+          "take_profit_pct", sign, rawDelta, 0.3, ref, MAX_TP_DELTA_PER_RUN, 0.5, 5, "scalp_tp_adjust", reason,
+        );
+        tpDeltaTotal = ref.v;
+      } else if (action === "tighten_entry" || action === "loosen_entry") {
+        // target: "5m" | "15m" | "1h" | "24h"
+        const tfMap: Record<string, string> = {
+          "5m": "entry_min_5m_pct",
+          "15m": "entry_min_15m_pct",
+          "1h": "entry_min_1h_pct",
+          "24h": "entry_min_24h_pct",
+        };
+        const field = tfMap[target.toLowerCase()];
+        if (!field || !scalpRow) continue;
+        const sign = action === "tighten_entry" ? 1 : -1; // tighten = require larger move
+        const mag = Math.min(0.2, Math.max(0.02, Math.abs(rawDelta) || 0.05));
+        const cur = getScalp(field);
+        const next = Math.min(2.0, Math.max(0.1, Number((cur + sign * mag).toFixed(2))));
         if (next === cur) continue;
-        await supabase
-          .from("scalp_settings")
-          .update({ hard_stop_loss_pct: next, updated_at: new Date().toISOString() })
-          .eq("id", scalpRow.id);
-        scalpStopDeltaTotal += sign * magnitude;
+        scalpUpdates[field] = next;
         applied.push({
-          type: "scalp_stop_adjust",
+          type: "scalp_entry_adjust",
           strategy: "scalp",
           delta: Number((next - cur).toFixed(2)),
+          new_score: next,
+          reason: `${target}: ${reason}`,
+        });
+      } else if (action === "reduce_position_size" || action === "increase_position_size") {
+        if (!scalpRow) continue;
+        const sign = action === "reduce_position_size" ? -1 : 1;
+        const cur = getScalp("target_position_size_usd");
+        const pct = Math.min(0.2, Math.max(0.05, Math.abs(rawDelta) || 0.1)); // 5–20%
+        const next = Math.min(500, Math.max(10, Number((cur * (1 + sign * pct)).toFixed(2))));
+        if (next === cur) continue;
+        scalpUpdates["target_position_size_usd"] = next;
+        applied.push({
+          type: "scalp_size_adjust",
+          strategy: "scalp",
+          delta: Number((next - cur).toFixed(2)),
+          new_score: next,
+          reason,
+        });
+      } else if (action === "reduce_concurrency" || action === "increase_concurrency") {
+        if (!scalpRow) continue;
+        const sign = action === "reduce_concurrency" ? -1 : 1;
+        const step = Math.min(2, Math.max(1, Math.round(Math.abs(rawDelta) || 1)));
+        const cur = getScalp("max_concurrent_positions");
+        const next = Math.min(20, Math.max(1, Math.round(cur + sign * step)));
+        if (next === cur) continue;
+        scalpUpdates["max_concurrent_positions"] = next;
+        applied.push({
+          type: "scalp_concurrency_adjust",
+          strategy: "scalp",
+          delta: next - cur,
           new_score: next,
           reason,
         });
@@ -391,6 +519,15 @@ async function auditUser(supabase: any, userId: string) {
       console.warn("Failed applying recommendation:", rec, e);
     }
   }
+
+  // Flush any accumulated scalp_settings changes in a single update
+  if (scalpRow && Object.keys(scalpUpdates).length > 0) {
+    await supabase
+      .from("scalp_settings")
+      .update({ ...scalpUpdates, updated_at: new Date().toISOString() })
+      .eq("id", scalpRow.id);
+  }
+
 
 
   // Persist the report
