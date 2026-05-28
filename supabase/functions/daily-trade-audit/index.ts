@@ -93,7 +93,7 @@ async function callAI(stats: any, supabase: any, userId: string): Promise<{ them
           {
             role: "system",
             content:
-              "You are a trading post-mortem analyst for an automated crypto/equity bot. Given the last 24h of trade stats, identify the 3-5 dominant failure themes and concrete, conservative parameter/behavior recommendations. Keep recommendations small and incremental. Use the provided tool to return structured output.",
+              "You are a trading post-mortem analyst for an automated crypto scalping bot. Given the last 24h of trade stats, identify 3-5 dominant failure themes and concrete, conservative recommendations to reduce losses. Prefer tightening entries, trailing, and reducing concurrency when win rate is low. Changes are clamped to small increments by the system. Use the provided tool to return structured output.",
           },
           { role: "user", content: JSON.stringify(stats) },
         ],
@@ -124,9 +124,17 @@ async function callAI(stats: any, supabase: any, userId: string): Promise<{ them
                     items: {
                       type: "object",
                       properties: {
-                        action: { type: "string", description: "e.g. lower_score, raise_score, cooldown_symbol, tighten_stop" },
-                        target: { type: "string", description: "strategy:regime or symbol or 'global'" },
-                        delta: { type: "number", description: "magnitude (e.g. -10, +5, or minutes)" },
+                        action: {
+                          type: "string",
+                          description:
+                            "One of: lower_score, raise_score, cooldown_symbol, tighten_stop, loosen_stop, tighten_entry, loosen_entry, tighten_trailing, loosen_trailing, raise_take_profit, lower_take_profit, reduce_position_size, increase_position_size, reduce_concurrency, increase_concurrency",
+                        },
+                        target: {
+                          type: "string",
+                          description:
+                            "Context: strategy[:regime] for score actions, SYMBOL for cooldown_symbol, '5m'|'15m'|'1h'|'24h' for entry actions, 'global' otherwise",
+                        },
+                        delta: { type: "number", description: "magnitude (e.g. -10, +5, minutes, or % depending on action)" },
                         reason: { type: "string" },
                       },
                       required: ["action", "target", "reason"],
