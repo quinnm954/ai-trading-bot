@@ -385,8 +385,13 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* Aggressive Growth Mode preset */}
+      <AggressiveGrowthModeCard />
+
       {/* Scalping Performance Stats (6 cards) */}
       <ScalpingStatsRow />
+
+
 
 
       {/* Live Accounts Summary (only show in live mode) */}
