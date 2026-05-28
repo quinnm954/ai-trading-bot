@@ -44,38 +44,73 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'STORJ': 'storj', 'OCEAN': 'ocean-protocol', 'RPL': 'rocket-pool', 'GMX': 'gmx',
   'AXS': 'axie-infinity', 'BLUR': 'blur', 'XEC': 'ecash', 'BCH': 'bitcoin-cash',
   'OKB': 'okb',
+  // Gold / pegged / stables / wrapped
+  'PAXG': 'pax-gold', 'XAUT': 'tether-gold',
+  'USDC': 'usd-coin', 'USDT': 'tether', 'DAI': 'dai', 'USDS': 'usds',
+  'WBTC': 'wrapped-bitcoin', 'WETH': 'weth', 'CBETH': 'coinbase-wrapped-staked-eth',
 };
+
+// Dynamic resolver for symbols not in the static map.
+const dynamicSymbolCache: Record<string, string> = {};
+let dynamicListPromise: Promise<void> | null = null;
+
+async function ensureDynamicMap(): Promise<void> {
+  if (!dynamicListPromise) {
+    dynamicListPromise = fetch('https://api.coingecko.com/api/v3/coins/list')
+      .then(r => r.ok ? r.json() : [])
+      .then((list: Array<{ id: string; symbol: string }>) => {
+        for (const c of list) {
+          const sym = c.symbol?.toUpperCase();
+          if (sym && !dynamicSymbolCache[sym]) dynamicSymbolCache[sym] = c.id;
+        }
+      })
+      .catch(err => {
+        console.warn('[Positions] CoinGecko coin list failed:', err);
+        dynamicListPromise = null;
+      });
+  }
+  await dynamicListPromise;
+}
+
+function resolveGeckoId(symbol: string): string | undefined {
+  const upper = symbol.toUpperCase();
+  return SYMBOL_TO_COINGECKO[upper] ?? dynamicSymbolCache[upper];
+}
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
-  
-  // Map symbols to CoinGecko IDs
-  const ids = symbols
-    .map(s => SYMBOL_TO_COINGECKO[s.toUpperCase()])
-    .filter(Boolean);
-  
+
+  // If any symbol is unmapped, populate the dynamic cache from CoinGecko's full list
+  if (symbols.some(s => !resolveGeckoId(s))) {
+    await ensureDynamicMap();
+  }
+
+  const ids = [...new Set(
+    symbols.map(s => resolveGeckoId(s)).filter((v): v is string => Boolean(v))
+  )];
+
   if (ids.length === 0) return prices;
-  
+
   try {
     const response = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
     );
-    
+
     if (response.ok) {
       const data = await response.json();
-      
-      // Map back to original symbols
       for (const symbol of symbols) {
-        const geckoId = SYMBOL_TO_COINGECKO[symbol.toUpperCase()];
+        const geckoId = resolveGeckoId(symbol);
         if (geckoId && data[geckoId]?.usd) {
           prices[symbol.toUpperCase()] = data[geckoId].usd;
         }
       }
+    } else {
+      console.warn('[Positions] CoinGecko price fetch failed:', response.status);
     }
   } catch (error) {
     console.error('Error fetching live prices:', error);
   }
-  
+
   return prices;
 }
 
