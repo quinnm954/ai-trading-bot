@@ -1342,6 +1342,9 @@ interface MarketData {
   atrPct?: number;      // ATR(14) on 5m candles as % of price — realized volatility
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;    // 0–100 — favors the "sweet spot" of tradable volatility
+  supportPrice?: number;          // nearest swing-low support below current price
+  distanceToSupportPct?: number;  // (price - support)/price * 100
+  supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
 }
 
 interface AITradingDecision {
