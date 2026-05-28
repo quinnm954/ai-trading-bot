@@ -3424,9 +3424,14 @@ serve(async (req) => {
             (d.action === 'sell' && (fusion.direction === 'bullish' || fusion.direction === 'long'));
           if (aligned && fusion.conviction >= 70) { sentimentAdj = 15; sentimentNote = `aligned+${fusion.conviction}`; }
           else if (aligned && fusion.conviction >= 50) { sentimentAdj = 8; sentimentNote = `aligned~${fusion.conviction}`; }
-          else if (opposite && fusion.conviction >= 60) { sentimentAdj = -15; sentimentNote = `OPPOSED-${fusion.conviction}`; }
-          else if (opposite && fusion.conviction >= 40) { sentimentAdj = -8; sentimentNote = `opposed~${fusion.conviction}`; }
+          else if (opposite && fusion.conviction >= 60) { sentimentAdj = -25; sentimentNote = `OPPOSED-${fusion.conviction}`; }
+          else if (opposite && fusion.conviction >= 40) { sentimentAdj = -15; sentimentNote = `opposed~${fusion.conviction}`; }
           else { sentimentNote = `neutral-${fusion.conviction}`; }
+          // 🚫 HARD VETO: never buy into a high-conviction bearish fusion signal.
+          // This was the #1 driver of recent losses — fusion said bearish, bot bought anyway.
+          if (opposite && fusion.conviction >= 55) {
+            (d as any)._fusionVeto = true;
+          }
         }
         const score = Math.max(0, Math.min(100, baseScore + sentimentAdj));
         return { ...d, _score: score, _sentimentNote: sentimentNote };
