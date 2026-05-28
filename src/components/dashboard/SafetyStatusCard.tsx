@@ -62,7 +62,7 @@ export function SafetyStatusCard() {
   let statusKey: StatusKey = 'safe';
   if (!settings?.enabled) statusKey = 'paused';
   else if (dailyLossPct >= 100) statusKey = 'daily_limit_hit';
-  else if (consecutiveLosses >= 3) statusKey = 'caution';
+  else if (dailyLossPct >= 60) statusKey = 'caution';
   else if (dailyLossPct >= 60) statusKey = 'caution';
   else if (settings.tradingMode === 'live' && !hasBroker) statusKey = 'live_disabled';
   else if (settings.tradingMode === 'paper') statusKey = 'paper_only';
