@@ -150,11 +150,12 @@ Respond with a JSON object (no markdown, just raw JSON):
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'openai/gpt-5.4',
         messages: [
           { role: 'system', content: 'You are an expert cryptocurrency trading analyst. Always respond with valid JSON only, no markdown.' },
           { role: 'user', content: analysisPrompt }
         ],
+        reasoning: { effort: 'medium' },
       }),
     });
 
