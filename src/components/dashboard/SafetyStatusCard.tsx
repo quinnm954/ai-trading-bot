@@ -50,12 +50,6 @@ export function SafetyStatusCard() {
       if (todayTrades) {
         const loss = todayTrades.reduce((s, t) => s + Math.min(0, Number(t.pnl) || 0), 0);
         setDailyLossUsed(Math.abs(loss));
-        let streak = 0;
-        for (const t of todayTrades) {
-          if ((Number(t.pnl) || 0) < 0) streak++;
-          else break;
-        }
-        setConsecutiveLosses(streak);
       }
     })();
   }, [user]);
