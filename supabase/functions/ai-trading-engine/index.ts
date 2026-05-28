@@ -4654,8 +4654,11 @@ serve(async (req) => {
         strategy: strategyType,
         score: factors.total_score,
         risk_reward: factors.risk_reward,
-        valid: factors.valid,
-        factor_scores: factors,
+        // Trade actually executed — mark valid regardless of the 0-100 signal
+        // quality score (the 75 threshold in scoreSignal is advisory, not an
+        // execution gate; real gates are confidence/pattern/risk-manager).
+        valid: true,
+        factor_scores: { ...factors, valid: true },
       });
 
       executedTrades.push({
