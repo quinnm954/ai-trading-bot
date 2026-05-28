@@ -3374,9 +3374,11 @@ serve(async (req) => {
       })
       .eq('user_id', user.id);
 
-    // 🎯 Get BEST STRATEGY for current regime BEFORE analysis
-    const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime);
-    console.log(`🎯 Selected strategy for ${regime}: ${bestStrategy}`);
+    // 🎯 Regime-aware strategy selection — picks scalp / grid / rsi / trend_breakout / volatility_breakout
+    // based on the detected market profile instead of forcing scalp every cycle.
+    const bestStrategy = await getBestStrategyForRegime(supabase, user.id, regime, regimeReport);
+    console.log(`🎯 Selected strategy for regime=${regime}/${regimeReport.profile}: ${bestStrategy}`);
+
 
     // 🤖 FULL AUTONOMY — AI self-tunes risk params per cycle based on regime, fusion, and today's P&L.
     // User can opt out by setting ai_settings.ai_autonomous_mode = false (defaults to true).
