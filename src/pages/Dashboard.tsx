@@ -430,6 +430,7 @@ export default function Dashboard() {
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
           <AIDecisionsBreakdownCard />
+          <DailyAuditCard />
         </div>
         <div className="space-y-6">
           <AIStatusCard />
