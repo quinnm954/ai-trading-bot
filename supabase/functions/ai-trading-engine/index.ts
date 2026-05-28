@@ -2948,6 +2948,29 @@ serve(async (req) => {
 
     console.log(`🤖 Processing user: ${user.id}`);
 
+    // 🔭 Load Alpaca credentials for this cycle's RESEARCH layer (signals only).
+    // Live trade execution always remains on Coinbase — Alpaca is never sent orders here.
+    try {
+      const { data: alpacaCred } = await supabase
+        .from('broker_credentials')
+        .select('api_key_encrypted, secret_key_encrypted')
+        .eq('user_id', userId)
+        .eq('provider', 'alpaca')
+        .maybeSingle();
+      if (alpacaCred?.api_key_encrypted && alpacaCred?.secret_key_encrypted) {
+        setAlpacaResearchCreds({
+          apiKey: alpacaCred.api_key_encrypted,
+          secretKey: alpacaCred.secret_key_encrypted,
+        });
+      } else {
+        setAlpacaResearchCreds(null);
+        console.log('🔭 No Alpaca creds — research falls back to Coinbase candles');
+      }
+    } catch (e) {
+      setAlpacaResearchCreds(null);
+      console.log('🔭 Alpaca creds lookup failed, using Coinbase research:', (e as Error).message);
+    }
+
     // Fetch user's AI settings
     const { data: settings, error: settingsError } = await supabase
       .from('ai_settings')
