@@ -4021,12 +4021,23 @@ serve(async (req) => {
 
       // Last-moment live momentum confirmation before sizing/risk/execution.
       if (side === 'buy') {
-        const freshMomentum = coinData.productId ? await fetchShortWindowMomentum(coinData.productId) : null;
+        const freshMomentum = coinData.productId ? await fetchCandleTechnicals(coinData.productId) : null;
         const liveMomentumCoin = {
           ...coinData,
           change5m: freshMomentum?.change5m ?? coinData.change5m,
           change1h: freshMomentum?.change15m ?? coinData.change1h ?? 0,
+          rsi14: freshMomentum?.rsi14 ?? coinData.rsi14,
+          percentB: freshMomentum?.percentB ?? coinData.percentB,
         };
+        // Final technical guard at the moment of execution
+        if (liveMomentumCoin.rsi14 !== undefined && liveMomentumCoin.rsi14 > 75) {
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: RSI ${liveMomentumCoin.rsi14.toFixed(0)} overbought at execution`);
+          continue;
+        }
+        if (liveMomentumCoin.percentB !== undefined && liveMomentumCoin.percentB > 1.0) {
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price above upper BB (%B ${liveMomentumCoin.percentB.toFixed(2)})`);
+          continue;
+        }
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
         if (!momentumStatus.ok) {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%)`);
