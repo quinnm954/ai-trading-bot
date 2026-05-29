@@ -1,7 +1,6 @@
 import { 
   Wallet, 
   TrendingUp, 
-  Target, 
   Activity,
   Banknote,
   RefreshCw,
