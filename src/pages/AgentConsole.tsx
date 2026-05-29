@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Eye, Brain, Shield, Bot, Wrench, Play, Pause, Ban, RefreshCw, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Eye, Brain, Shield, Bot, Wrench, Play, Pause, Ban, RefreshCw, AlertTriangle, CheckCircle2, GraduationCap } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 
