@@ -260,19 +260,177 @@ async function runTrader(ctx: Ctx, riskResult: { veto: boolean; reasons: string[
   }
 }
 
-// ---------- HEALER: detects & auto-fixes safe issues ----------
-async function runHealer(ctx: Ctx) {
-  const pauseOv = await getOverride(ctx, "healer");
-  if (pauseOv?.override_type === "pause") {
-    await setState(ctx, "healer", "paused", "Paused by user override");
-    return { skipped: true };
+// ---------- HEALER: learns from errors and applies remedies ----------
+//
+// Flow per cycle:
+//  1. Load remedy knowledge base (user-tuned overrides + global defaults).
+//  2. Verify outcome of last cycle's pending remedies (learn: success/failure).
+//  3. Detect current issues by matching conditions + recent error messages.
+//  4. For each detected issue, look up best remedy by confidence and apply it.
+//  5. Record outcome and bump confidence on the remedy row.
+
+type Remedy = {
+  id: string;
+  user_id: string | null;
+  remedy_key: string;
+  description: string;
+  match_type: string;
+  match_pattern: string;
+  action: string;
+  action_params: Record<string, any>;
+  enabled: boolean;
+  success_count: number;
+  failure_count: number;
+  confidence: number;
+  last_outcome: string | null;
+  last_applied_at: string | null;
+};
+
+async function loadRemedies(ctx: Ctx): Promise<Map<string, Remedy>> {
+  const { data } = await ctx.supabase
+    .from("healer_remedies")
+    .select("*")
+    .or(`user_id.eq.${ctx.userId},user_id.is.null`)
+    .eq("enabled", true);
+  // Prefer user-tuned over global default for same remedy_key
+  const map = new Map<string, Remedy>();
+  for (const r of (data ?? []) as Remedy[]) {
+    const existing = map.get(r.remedy_key);
+    if (!existing || (r.user_id && !existing.user_id)) map.set(r.remedy_key, r);
   }
-  await setState(ctx, "healer", "working", "Scanning for failures");
+  return map;
+}
 
-  const fixes: string[] = [];
+async function recordOutcome(ctx: Ctx, remedy: Remedy, outcome: "success" | "failure" | "pending", note?: string) {
+  const success = remedy.success_count + (outcome === "success" ? 1 : 0);
+  const failure = remedy.failure_count + (outcome === "failure" ? 1 : 0);
+  const total = success + failure;
+  const confidence = total > 0 ? Math.round((success / total) * 100 * 100) / 100 : remedy.confidence;
 
-  // 1. Expire stale pending trades > 15 min old still 'pending'
-  const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  // If global default, clone into user-scoped row to track per-user learning
+  if (!remedy.user_id) {
+    await ctx.supabase.from("healer_remedies").upsert({
+      user_id: ctx.userId,
+      remedy_key: remedy.remedy_key,
+      description: remedy.description,
+      match_type: remedy.match_type,
+      match_pattern: remedy.match_pattern,
+      action: remedy.action,
+      action_params: remedy.action_params,
+      enabled: true,
+      success_count: success,
+      failure_count: failure,
+      last_applied_at: new Date().toISOString(),
+      last_outcome: outcome,
+      confidence,
+      notes: note ?? null,
+    }, { onConflict: "user_id,remedy_key" });
+  } else {
+    await ctx.supabase.from("healer_remedies").update({
+      success_count: success,
+      failure_count: failure,
+      last_applied_at: new Date().toISOString(),
+      last_outcome: outcome,
+      confidence,
+      notes: note ?? remedy.notes,
+    }).eq("id", remedy.id);
+  }
+}
+
+// Verify last cycle's pending remedies: if the same incident type does NOT
+// reoccur within the recheck window, count as success; else failure.
+async function verifyPreviousOutcomes(ctx: Ctx, remedies: Map<string, Remedy>) {
+  const learned: string[] = [];
+  for (const remedy of remedies.values()) {
+    if (remedy.last_outcome !== "pending" || !remedy.last_applied_at) continue;
+    const appliedAt = new Date(remedy.last_applied_at).getTime();
+    const ageMin = (Date.now() - appliedAt) / 60_000;
+    if (ageMin < 5) continue; // give it time
+
+    // Look for a new incident of the same type since application
+    const { data: recur } = await ctx.supabase
+      .from("agent_incidents")
+      .select("id")
+      .eq("user_id", ctx.userId)
+      .eq("incident_type", remedy.remedy_key)
+      .gte("created_at", remedy.last_applied_at)
+      .limit(1);
+
+    const reoccurred = (recur?.length ?? 0) > 0;
+    await recordOutcome(ctx, remedy, reoccurred ? "failure" : "success",
+      reoccurred ? `recurred within ${ageMin.toFixed(0)}m` : `clear for ${ageMin.toFixed(0)}m`);
+    learned.push(`${remedy.remedy_key}=${reoccurred ? "failure" : "success"}`);
+  }
+  return learned;
+}
+
+// ---- ACTIONS ----
+async function applyAction(ctx: Ctx, remedy: Remedy, detection: any): Promise<{ ok: boolean; note: string }> {
+  try {
+    switch (remedy.action) {
+      case "expire_stale_pending_trades": {
+        const ids: string[] = detection?.ids ?? [];
+        if (ids.length === 0) return { ok: true, note: "nothing to expire" };
+        await ctx.supabase.from("pending_trades").update({ status: "expired" }).in("id", ids);
+        return { ok: true, note: `expired ${ids.length}` };
+      }
+      case "reset_stuck_agents": {
+        const ids: string[] = detection?.ids ?? [];
+        for (const id of ids) {
+          await ctx.supabase.from("agent_state")
+            .update({ status: "idle", current_task: "reset by healer (stuck)" })
+            .eq("id", id);
+        }
+        return { ok: true, note: `reset ${ids.length} agents` };
+      }
+      case "disable_ai_autonomous_mode": {
+        await ctx.supabase.from("ai_settings")
+          .update({ ai_autonomous_mode: false })
+          .eq("user_id", ctx.userId);
+        return { ok: true, note: "switched to rule-based fallback (ai_autonomous_mode=false)" };
+      }
+      case "pause_trader_temporarily": {
+        const minutes = Number(remedy.action_params?.pause_minutes ?? 15);
+        await ctx.supabase.from("agent_overrides").insert({
+          user_id: ctx.userId,
+          agent: "trader",
+          override_type: "pause",
+          reason: `Auto-paused by healer for ${minutes}m (repeated errors)`,
+          active: true,
+        });
+        return { ok: true, note: `paused trader ${minutes}m` };
+      }
+      case "alert_broker_sync": {
+        await post(ctx, "healer", "all", "incident",
+          "Broker sync failing — check Coinbase API credentials & rate limits",
+          detection ?? {}, "critical");
+        return { ok: true, note: "alerted user" };
+      }
+      case "advise_loosen_filters": {
+        await post(ctx, "healer", "all", "advisory",
+          "Extended standstill in volatile regime — consider loosening entry filters or waiting for regime shift",
+          detection ?? {}, "normal");
+        return { ok: true, note: "advisory posted" };
+      }
+      case "propose_kill_switch_release": {
+        await post(ctx, "healer", "risk", "advisory",
+          "Daily loss recovered below 50% of limit — kill switch can be safely released",
+          detection ?? {}, "high");
+        return { ok: true, note: "release proposed" };
+      }
+      default:
+        return { ok: false, note: `unknown action ${remedy.action}` };
+    }
+  } catch (e) {
+    return { ok: false, note: `action failed: ${(e as Error).message}` };
+  }
+}
+
+// ---- DETECTORS ----
+async function detectIssues(ctx: Ctx) {
+  const issues: Array<{ key: string; detection: any; description: string }> = [];
+
+  // stuck pending trades
   const { data: stale } = await ctx.supabase
     .from("pending_trades")
     .select("id")
@@ -280,46 +438,11 @@ async function runHealer(ctx: Ctx) {
     .eq("status", "pending")
     .lt("expires_at", new Date().toISOString());
   if (stale && stale.length > 0) {
-    await ctx.supabase.from("pending_trades")
-      .update({ status: "expired" })
-      .in("id", stale.map((s: any) => s.id));
-    fixes.push(`expired ${stale.length} stuck pending trades`);
-    await ctx.supabase.from("agent_incidents").insert({
-      user_id: ctx.userId,
-      incident_type: "stuck_pending_trades",
-      severity: "warning",
-      description: `Expired ${stale.length} pending trades older than 15 min`,
-      remediation: "auto-marked as expired",
-      resolved: true,
-      resolved_at: new Date().toISOString(),
-    });
+    issues.push({ key: "stuck_pending_trades", description: `${stale.length} pending trades expired`,
+      detection: { ids: stale.map((s: any) => s.id), count: stale.length } });
   }
 
-  // 2. Check recent trader errors → if AI credit error, switch ai_settings to rule-based fallback flag
-  const { data: recentTraderErr } = await ctx.supabase
-    .from("agent_messages")
-    .select("payload, created_at, subject")
-    .eq("user_id", ctx.userId)
-    .eq("from_agent", "trader")
-    .eq("message_type", "agent_error")
-    .gte("created_at", new Date(Date.now() - 10 * 60 * 1000).toISOString());
-
-  if (recentTraderErr && recentTraderErr.length >= 3) {
-    fixes.push("3+ trader errors in 10m — flagged for review");
-    await ctx.supabase.from("agent_incidents").insert({
-      user_id: ctx.userId,
-      incident_type: "repeated_trader_errors",
-      severity: "error",
-      description: `Trader reported ${recentTraderErr.length} errors in last 10 min`,
-      context: { errors: recentTraderErr },
-      remediation: "logged for user review",
-    });
-    await post(ctx, "healer", "all", "incident",
-      `Trader is failing repeatedly (${recentTraderErr.length} errors in 10m) — review needed`,
-      { count: recentTraderErr.length }, "critical");
-  }
-
-  // 3. Reset any agent stuck in 'working' for > 5 min
+  // stuck working agents > 5m
   const stuckCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { data: stuck } = await ctx.supabase
     .from("agent_state")
@@ -328,20 +451,139 @@ async function runHealer(ctx: Ctx) {
     .eq("status", "working")
     .lt("last_heartbeat", stuckCutoff);
   if (stuck && stuck.length > 0) {
-    for (const s of stuck as any[]) {
-      await ctx.supabase.from("agent_state")
-        .update({ status: "idle", current_task: "reset by healer (stuck)" })
-        .eq("id", s.id);
-      fixes.push(`reset stuck ${s.agent}`);
+    issues.push({ key: "stuck_agent_working", description: `${stuck.length} agent(s) stuck`,
+      detection: { ids: stuck.map((s: any) => s.id), agents: stuck.map((s: any) => s.agent) } });
+  }
+
+  // recent trader errors (look at messages last 10m)
+  const since10 = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: traderErr } = await ctx.supabase
+    .from("agent_messages")
+    .select("payload, subject, created_at")
+    .eq("user_id", ctx.userId)
+    .eq("from_agent", "trader")
+    .eq("message_type", "agent_error")
+    .gte("created_at", since10);
+  if (traderErr && traderErr.length >= 3) {
+    issues.push({ key: "repeated_trader_errors", description: `${traderErr.length} trader errors in 10m`,
+      detection: { count: traderErr.length, samples: traderErr.slice(0, 3) } });
+  }
+
+  // AI credits exhausted — scan recent error payloads for "payment_required" or "402"
+  const errorBlob = JSON.stringify(traderErr ?? []);
+  if (/payment_required|402|Not enough credits/i.test(errorBlob)) {
+    issues.push({ key: "ai_credits_exhausted", description: "AI Gateway out of credits",
+      detection: { evidence: "402/payment_required in recent trader errors" } });
+  }
+
+  // Volatile-regime standstill: 6 cycles, no trades_executed, regime=volatile
+  const { data: recentTrades } = await ctx.supabase
+    .from("agent_messages")
+    .select("message_type, payload, created_at")
+    .eq("user_id", ctx.userId)
+    .eq("from_agent", "trader")
+    .in("message_type", ["trades_executed", "no_trades"])
+    .order("created_at", { ascending: false })
+    .limit(6);
+  if (recentTrades && recentTrades.length >= 6) {
+    const noneExecuted = recentTrades.every((m: any) => m.message_type === "no_trades");
+    const anyVolatile = recentTrades.some((m: any) => /volatil/i.test(JSON.stringify(m.payload ?? {})));
+    if (noneExecuted && anyVolatile) {
+      issues.push({ key: "volatile_standstill", description: "6 cycles no trades in volatile regime",
+        detection: { cycles: 6 } });
     }
   }
 
-  const summary = { fixes, fixCount: fixes.length };
-  if (fixes.length > 0) {
-    await post(ctx, "healer", "all", "self_heal", `Applied ${fixes.length} fix(es): ${fixes.join("; ")}`, summary, "high");
+  // Kill switch recovery
+  const { data: settings } = await ctx.supabase
+    .from("ai_settings")
+    .select("kill_switch_active, daily_loss_today, max_daily_loss")
+    .eq("user_id", ctx.userId)
+    .maybeSingle();
+  if (settings?.kill_switch_active && settings?.max_daily_loss) {
+    const ratio = Number(settings.daily_loss_today ?? 0) / Number(settings.max_daily_loss);
+    if (ratio < 0.5) {
+      issues.push({ key: "kill_switch_auto_recovery", description: "kill switch on but loss recovered",
+        detection: { ratio: ratio.toFixed(2) } });
+    }
+  }
+
+  return issues;
+}
+
+async function runHealer(ctx: Ctx) {
+  const pauseOv = await getOverride(ctx, "healer");
+  if (pauseOv?.override_type === "pause") {
+    await setState(ctx, "healer", "paused", "Paused by user override");
+    return { skipped: true };
+  }
+  await setState(ctx, "healer", "working", "Learning from errors & applying remedies");
+
+  const remedies = await loadRemedies(ctx);
+  const learned = await verifyPreviousOutcomes(ctx, remedies);
+  // reload after outcome writes so learning is current
+  const refreshed = await loadRemedies(ctx);
+
+  const issues = await detectIssues(ctx);
+  const applied: string[] = [];
+
+  for (const issue of issues) {
+    const remedy = refreshed.get(issue.key);
+    if (!remedy) {
+      await ctx.supabase.from("agent_incidents").insert({
+        user_id: ctx.userId,
+        incident_type: issue.key,
+        severity: "warning",
+        description: issue.description,
+        context: issue.detection,
+        remediation: "no remedy registered",
+      });
+      continue;
+    }
+    // Skip remedies the healer has learned not to trust (confidence < 25 after 5+ attempts)
+    if ((remedy.success_count + remedy.failure_count) >= 5 && remedy.confidence < 25) {
+      applied.push(`skipped ${remedy.remedy_key} (low confidence ${remedy.confidence}%)`);
+      continue;
+    }
+
+    const result = await applyAction(ctx, remedy, issue.detection);
+    await ctx.supabase.from("agent_incidents").insert({
+      user_id: ctx.userId,
+      incident_type: issue.key,
+      severity: result.ok ? "info" : "error",
+      description: issue.description,
+      context: issue.detection,
+      remediation: `${remedy.action}: ${result.note}`,
+      resolved: result.ok,
+      resolved_at: result.ok ? new Date().toISOString() : null,
+    });
+
+    // Immediate-resolution remedies → record success now; others → pending (verified next cycle)
+    const immediate = ["expire_stale_pending_trades", "reset_stuck_agents", "alert_broker_sync", "advise_loosen_filters", "propose_kill_switch_release"];
+    await recordOutcome(ctx, remedy,
+      result.ok ? (immediate.includes(remedy.action) ? "success" : "pending") : "failure",
+      result.note);
+
+    applied.push(`${remedy.remedy_key}→${remedy.action} (${result.note}, conf ${remedy.confidence}%)`);
+  }
+
+  const summary = {
+    detected: issues.length,
+    applied: applied.length,
+    learned,
+    actions: applied,
+  };
+
+  if (applied.length > 0) {
+    await post(ctx, "healer", "all", "self_heal",
+      `Applied ${applied.length} learned remedy(ies): ${applied.join("; ")}`, summary, "high");
+  } else if (learned.length > 0) {
+    await post(ctx, "healer", "all", "health_check",
+      `No issues; updated knowledge: ${learned.join(", ")}`, summary, "low");
   } else {
     await post(ctx, "healer", "all", "health_check", "All agents healthy", summary, "low");
   }
+
   await setState(ctx, "healer", "idle", null, summary);
   return summary;
 }
