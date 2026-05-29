@@ -373,8 +373,6 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Scalping Performance Stats */}
-      <ScalpingStatsRow />
 
 
 
