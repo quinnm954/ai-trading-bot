@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronRight,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
@@ -28,6 +29,7 @@ import { Button } from '@/components/ui/button';
 
 const primaryNav = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/agents', icon: Users, label: 'Agents' },
   { path: '/fusion', icon: Brain, label: 'Titan Fusion' },
   { path: '/crypto-signals', icon: TrendingUp, label: 'Signals' },
   { path: '/ai-trader', icon: Bot, label: 'Scalper' },
