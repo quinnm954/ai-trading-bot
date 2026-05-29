@@ -972,6 +972,66 @@ export type Database = {
         }
         Relationships: []
       }
+      healer_remedies: {
+        Row: {
+          action: string
+          action_params: Json
+          confidence: number
+          created_at: string
+          description: string
+          enabled: boolean
+          failure_count: number
+          id: string
+          last_applied_at: string | null
+          last_outcome: string | null
+          match_pattern: string
+          match_type: string
+          notes: string | null
+          remedy_key: string
+          success_count: number
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          action_params?: Json
+          confidence?: number
+          created_at?: string
+          description: string
+          enabled?: boolean
+          failure_count?: number
+          id?: string
+          last_applied_at?: string | null
+          last_outcome?: string | null
+          match_pattern: string
+          match_type?: string
+          notes?: string | null
+          remedy_key: string
+          success_count?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          action_params?: Json
+          confidence?: number
+          created_at?: string
+          description?: string
+          enabled?: boolean
+          failure_count?: number
+          id?: string
+          last_applied_at?: string | null
+          last_outcome?: string | null
+          match_pattern?: string
+          match_type?: string
+          notes?: string | null
+          remedy_key?: string
+          success_count?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       invite_codes: {
         Row: {
           code: string
