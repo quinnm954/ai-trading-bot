@@ -236,10 +236,8 @@ export default function Dashboard() {
     <>
       <PaperTradingOnboarding />
       <div className="space-y-4 lg:space-y-6 animate-fade-in">
-      <AICreditsMeter />
-      {/* Header with Refresh */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
+        {/* Header with Refresh */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-xl lg:text-2xl font-bold text-foreground">Dashboard</h1>
             {lastUpdated && (
@@ -248,8 +246,6 @@ export default function Dashboard() {
               </p>
             )}
           </div>
-          {/* TrialDaysIndicator hidden — subscriptions disabled during testing */}
-        </div>
         <div className="flex gap-2">
           {!isLiveMode && (
             <Button
