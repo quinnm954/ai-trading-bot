@@ -1,7 +1,6 @@
 import { 
   Wallet, 
   TrendingUp, 
-  Target, 
   Activity,
   Banknote,
   RefreshCw,
@@ -20,13 +19,10 @@ import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
 import { DailyAuditCard } from '@/components/dashboard/DailyAuditCard';
-import { AICreditsMeter } from '@/components/dashboard/AICreditsMeter';
 import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
-import { AggressiveGrowthModeCard } from '@/components/dashboard/AggressiveGrowthModeCard';
 import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
-import { TrialDaysIndicator } from '@/components/dashboard/TrialDaysIndicator';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import {
@@ -240,10 +236,8 @@ export default function Dashboard() {
     <>
       <PaperTradingOnboarding />
       <div className="space-y-4 lg:space-y-6 animate-fade-in">
-      <AICreditsMeter />
-      {/* Header with Refresh */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
+        {/* Header with Refresh */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-xl lg:text-2xl font-bold text-foreground">Dashboard</h1>
             {lastUpdated && (
@@ -252,8 +246,6 @@ export default function Dashboard() {
               </p>
             )}
           </div>
-          {/* TrialDaysIndicator hidden — subscriptions disabled during testing */}
-        </div>
         <div className="flex gap-2">
           {!isLiveMode && (
             <Button
@@ -386,11 +378,9 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Aggressive Growth Mode preset */}
-      <AggressiveGrowthModeCard />
-
-      {/* Scalping Performance Stats (6 cards) */}
+      {/* Scalping Performance Stats */}
       <ScalpingStatsRow />
+
 
 
 
