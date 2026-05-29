@@ -27,6 +27,7 @@ import Auth from "./pages/Auth";
 import Pricing from "./pages/Pricing";
 import Landing from "./pages/Landing";
 import AdminDashboard from "./pages/AdminDashboard";
+import AgentConsole from "./pages/AgentConsole";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -60,6 +61,7 @@ const App = () => (
               <Route path="/trades" element={<Trades />} />
               <Route path="/api-keys" element={<ApiKeys />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/agents" element={<AgentConsole />} />
               <Route path="/admin" element={<AdminDashboard />} />
             </Route>
           </Route>

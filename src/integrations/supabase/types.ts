@@ -14,6 +14,171 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_incidents: {
+        Row: {
+          context: Json
+          created_at: string
+          description: string
+          detected_by: string
+          id: string
+          incident_type: string
+          remediation: string | null
+          resolved: boolean
+          resolved_at: string | null
+          severity: string
+          user_id: string
+        }
+        Insert: {
+          context?: Json
+          created_at?: string
+          description: string
+          detected_by?: string
+          id?: string
+          incident_type: string
+          remediation?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
+          user_id: string
+        }
+        Update: {
+          context?: Json
+          created_at?: string
+          description?: string
+          detected_by?: string
+          id?: string
+          incident_type?: string
+          remediation?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_messages: {
+        Row: {
+          created_at: string
+          from_agent: string
+          id: string
+          in_reply_to: string | null
+          message_type: string
+          payload: Json
+          priority: string
+          status: string
+          subject: string | null
+          to_agent: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_agent: string
+          id?: string
+          in_reply_to?: string | null
+          message_type: string
+          payload?: Json
+          priority?: string
+          status?: string
+          subject?: string | null
+          to_agent: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          from_agent?: string
+          id?: string
+          in_reply_to?: string | null
+          message_type?: string
+          payload?: Json
+          priority?: string
+          status?: string
+          subject?: string | null
+          to_agent?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_overrides: {
+        Row: {
+          active: boolean
+          agent: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          override_type: string
+          payload: Json
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          agent: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          override_type: string
+          payload?: Json
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          agent?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          override_type?: string
+          payload?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_state: {
+        Row: {
+          agent: string
+          created_at: string
+          current_task: string | null
+          cycle_count: number
+          error_count: number
+          id: string
+          last_cycle_at: string | null
+          last_heartbeat: string
+          metadata: Json
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent: string
+          created_at?: string
+          current_task?: string | null
+          cycle_count?: number
+          error_count?: number
+          id?: string
+          last_cycle_at?: string | null
+          last_heartbeat?: string
+          metadata?: Json
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent?: string
+          created_at?: string
+          current_task?: string | null
+          cycle_count?: number
+          error_count?: number
+          id?: string
+          last_cycle_at?: string | null
+          last_heartbeat?: string
+          metadata?: Json
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_credit_balances: {
         Row: {
           credits: number
