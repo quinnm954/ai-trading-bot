@@ -257,8 +257,13 @@ export default function RiskManagement() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <MarketRegimeCard />
+            <SafetyStatusCard />
+          </div>
           <RiskStatusCard />
         </TabsContent>
+
 
         {/* Replay Tab */}
         <TabsContent value="replay" className="space-y-4">
