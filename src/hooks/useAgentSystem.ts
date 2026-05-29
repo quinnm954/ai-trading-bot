@@ -93,7 +93,7 @@ export function useAgentSystem() {
       return;
     }
     await supabase.from("agent_overrides").insert([{
-      user_id: user.id, agent, override_type, payload, active: true,
+      user_id: user.id, agent, override_type, payload: payload as never, active: true,
     }]);
     await refresh();
   }, [user, refresh]);
