@@ -114,6 +114,12 @@ export default function Trades() {
         </div>
       </div>
 
+      {/* Scalping Performance Stats (moved from dashboard) */}
+      <ScalpingStatsRow />
+
+      {/* Daily Trade Audit (moved from dashboard) */}
+      <DailyAuditCard />
+
       {/* Stats Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="glass-panel p-4">
