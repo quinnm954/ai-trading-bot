@@ -646,6 +646,9 @@ export default function AITrader() {
           </div>
         </div>
       </div>
+
+      {/* AI Decisions Breakdown (moved from dashboard) */}
+      <AIDecisionsBreakdownCard />
     </div>
     </FeatureGate>
   );
