@@ -19,7 +19,7 @@ export interface Trade {
   aiReasoning: string | null;
 }
 
-export function useRecentTrades(isPaper: boolean = true, limit: number = 4) {
+export function useRecentTrades(isPaper: boolean = true, limit: number = 4, sinceHours: number = 24) {
   const { user } = useAuth();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,12 +28,14 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4) {
     if (!user) return;
 
     try {
+      const sinceIso = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('trades')
         .select('*')
         .eq('user_id', user.id)
         .eq('is_paper', isPaper)
         .eq('status', 'closed')
+        .gte('closed_at', sinceIso)
         .order('closed_at', { ascending: false })
         .limit(limit);
 
@@ -62,7 +64,7 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4) {
     } finally {
       setIsLoading(false);
     }
-  }, [user, isPaper, limit]);
+  }, [user, isPaper, limit, sinceHours]);
 
   useEffect(() => {
     fetchTrades();

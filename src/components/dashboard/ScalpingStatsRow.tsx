@@ -39,11 +39,13 @@ export function ScalpingStatsRow() {
         .select('current_regime, current_drawdown, max_drawdown, trading_mode')
         .eq('user_id', user.id).maybeSingle();
       const currentRegime = aiSettingsRes.data?.current_regime ?? 'ranging';
+      const isPaper = (aiSettingsRes.data?.trading_mode ?? 'paper') === 'paper';
 
-      const [paperRes, tradesRes, posRes, sigRes, perfRes] = await Promise.all([
+      const [paperRes, liveRes, tradesRes, posRes, sigRes, perfRes] = await Promise.all([
         supabase.from('paper_account').select('balance').eq('user_id', user.id).maybeSingle(),
-        supabase.from('trades').select('pnl').eq('user_id', user.id).eq('status', 'closed').limit(500),
-        supabase.from('positions').select('quantity, current_price, avg_entry_price').eq('user_id', user.id),
+        supabase.from('live_account').select('balance, equity').eq('user_id', user.id),
+        supabase.from('trades').select('pnl').eq('user_id', user.id).eq('status', 'closed').eq('is_paper', isPaper).limit(500),
+        supabase.from('positions').select('quantity, current_price, avg_entry_price').eq('user_id', user.id).eq('is_paper', isPaper),
         supabase.from('signal_scores').select('total_score, symbol, created_at')
           .eq('user_id', user.id).order('created_at', { ascending: false }).limit(1),
         supabase.from('strategy_performance').select('strategy, score, enabled, market_regime')
@@ -61,8 +63,14 @@ export function ScalpingStatsRow() {
       const positionsValue = positions.reduce(
         (sum, p) => sum + Number(p.quantity) * Number(p.current_price || p.avg_entry_price), 0
       );
-      const cash = Number(paperRes.data?.balance ?? 0);
-      const equity = cash + positionsValue;
+      let equity = 0;
+      if (isPaper) {
+        equity = Number(paperRes.data?.balance ?? 0) + positionsValue;
+      } else {
+        const liveEquity = (liveRes.data ?? []).reduce((sum, a) => sum + Number(a.equity || 0), 0);
+        const liveCash = (liveRes.data ?? []).reduce((sum, a) => sum + Number(a.balance || 0), 0);
+        equity = liveEquity > 0 ? liveEquity : liveCash + positionsValue;
+      }
       const riskExposurePct = equity > 0 ? (positionsValue / equity) * 100 : 0;
 
       const lastSig = sigRes.data?.[0];
