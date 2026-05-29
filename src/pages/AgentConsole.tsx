@@ -31,7 +31,7 @@ const PRIORITY_BORDER: Record<string, string> = {
 };
 
 export default function AgentConsole() {
-  const { states, messages, incidents, runCycle, setOverride } = useAgentSystem();
+  const { states, messages, incidents, remedies, runCycle, setOverride } = useAgentSystem();
   const [running, setRunning] = useState(false);
 
   const triggerCycle = async () => {
