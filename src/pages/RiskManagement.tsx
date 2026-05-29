@@ -19,6 +19,8 @@ import {
 import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
 import { RiskSettingsPanel } from '@/components/risk/RiskSettingsPanel';
 import { ScalpingReplayPanel } from '@/components/risk/ScalpingReplayPanel';
+import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
+import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { useRiskManager, RiskEvent } from '@/hooks/useRiskManager';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -255,8 +257,13 @@ export default function RiskManagement() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <MarketRegimeCard />
+            <SafetyStatusCard />
+          </div>
           <RiskStatusCard />
         </TabsContent>
+
 
         {/* Replay Tab */}
         <TabsContent value="replay" className="space-y-4">

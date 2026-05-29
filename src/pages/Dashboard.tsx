@@ -15,12 +15,7 @@ import { PositionsTable } from '@/components/dashboard/PositionsTable';
 import { AIStatusCard } from '@/components/dashboard/AIStatusCard';
 import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
-import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
-import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
-import { DailyAuditCard } from '@/components/dashboard/DailyAuditCard';
-import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
-import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -378,8 +373,6 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Scalping Performance Stats */}
-      <ScalpingStatsRow />
 
 
 
@@ -415,20 +408,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Market Regime & Safety Status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <MarketRegimeCard />
-        <SafetyStatusCard />
-      </div>
-
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <MilestoneProgressCard />
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
-          <AIDecisionsBreakdownCard />
-          <DailyAuditCard />
         </div>
         <div className="space-y-6">
           <AIStatusCard />

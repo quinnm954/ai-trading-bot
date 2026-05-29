@@ -32,6 +32,7 @@ import { ExecutionModeToggle } from '@/components/trading/ExecutionModeToggle';
 import { PendingTradesPanel } from '@/components/trading/PendingTradesPanel';
 import { StockMarketIndicator } from '@/components/trading/StockMarketIndicator';
 import { PDTWarning } from '@/components/trading/PDTWarning';
+import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 
 export default function AITrader() {
   const navigate = useNavigate();
@@ -645,6 +646,9 @@ export default function AITrader() {
           </div>
         </div>
       </div>
+
+      {/* AI Decisions Breakdown (moved from dashboard) */}
+      <AIDecisionsBreakdownCard />
     </div>
     </FeatureGate>
   );
