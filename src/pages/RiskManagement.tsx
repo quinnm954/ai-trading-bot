@@ -19,6 +19,8 @@ import {
 import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
 import { RiskSettingsPanel } from '@/components/risk/RiskSettingsPanel';
 import { ScalpingReplayPanel } from '@/components/risk/ScalpingReplayPanel';
+import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
+import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
 import { useRiskManager, RiskEvent } from '@/hooks/useRiskManager';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
