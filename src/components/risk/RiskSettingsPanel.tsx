@@ -1,17 +1,13 @@
-import { useState, useEffect } from 'react';
-import {
-  Shield,
-  AlertTriangle,
-  Save,
-  Loader2,
-  Info,
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Shield, AlertTriangle, Save, Loader2, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import { useRiskManager } from '@/hooks/useRiskManager';
+import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Tooltip,
   TooltipContent,
@@ -20,77 +16,75 @@ import {
 } from '@/components/ui/tooltip';
 
 // =============================================================================
-// Risk Settings Panel - Configure risk management parameters
+// Risk Settings Panel — single unified adjustment list
+// Manages both ai_settings (risk limits) and scalp_settings (engine tuning).
 // =============================================================================
-
-// Preset configurations for each risk tolerance level
-const RISK_PRESETS = {
-  conservative: {
-    maxPositionSize: 5,
-    maxDailyLoss: 3,
-    weeklyLossLimit: 10,
-    maxDrawdown: 20,
-    maxConcurrentTrades: 5,
-    maxCapitalUsage: 50,
-    maxLeverage: 1,
-  },
-  moderate: {
-    maxPositionSize: 10,
-    maxDailyLoss: 5,
-    weeklyLossLimit: 12,
-    maxDrawdown: 25,
-    maxConcurrentTrades: 8,
-    maxCapitalUsage: 70,
-    maxLeverage: 1,
-  },
-  aggressive: {
-    maxPositionSize: 20,
-    maxDailyLoss: 8,
-    weeklyLossLimit: 18,
-    maxDrawdown: 30,
-    maxConcurrentTrades: 12,
-    maxCapitalUsage: 85,
-    maxLeverage: 2,
-  },
-  ultra_aggressive: {
-    maxPositionSize: 30,
-    maxDailyLoss: 10,
-    weeklyLossLimit: 25,
-    maxDrawdown: 40,
-    maxConcurrentTrades: 20,
-    maxCapitalUsage: 95,
-    maxLeverage: 3,
-  },
-};
-
-// Warning thresholds for unsafe settings
-const UNSAFE_THRESHOLDS = {
-  maxPositionSize: 25,     // > 25% per position is very risky
-  maxDailyLoss: 10,        // > 10% daily loss is aggressive
-  maxDrawdown: 30,         // > 30% max drawdown is risky
-  maxCapitalUsage: 90,     // > 90% capital usage leaves no reserve
-  maxLeverage: 2,          // > 2x leverage is risky
-};
 
 type RiskTolerance = 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
 
+const RISK_PRESETS: Record<RiskTolerance, Record<string, number>> = {
+  conservative:   { maxPositionSize: 5,  maxDailyLoss: 3,  weeklyLossLimit: 10, maxDrawdown: 20, maxConcurrentTrades: 5,  maxCapitalUsage: 50, maxLeverage: 1,
+                    take_profit_pct: 1.5, trailing_drop_pct: 1.0, hard_stop_loss_pct: 2.0,
+                    entry_min_5m_pct: 0.5, entry_min_1h_pct: 0.5, entry_min_24h_pct: 0.5 },
+  moderate:       { maxPositionSize: 10, maxDailyLoss: 5,  weeklyLossLimit: 12, maxDrawdown: 25, maxConcurrentTrades: 8,  maxCapitalUsage: 70, maxLeverage: 1,
+                    take_profit_pct: 1.0, trailing_drop_pct: 1.5, hard_stop_loss_pct: 3.0,
+                    entry_min_5m_pct: 0.3, entry_min_1h_pct: 0.3, entry_min_24h_pct: 0.3 },
+  aggressive:     { maxPositionSize: 20, maxDailyLoss: 8,  weeklyLossLimit: 18, maxDrawdown: 30, maxConcurrentTrades: 12, maxCapitalUsage: 85, maxLeverage: 2,
+                    take_profit_pct: 0.8, trailing_drop_pct: 1.8, hard_stop_loss_pct: 3.5,
+                    entry_min_5m_pct: 0.2, entry_min_1h_pct: 0.2, entry_min_24h_pct: 0.2 },
+  ultra_aggressive:{ maxPositionSize: 30, maxDailyLoss: 10, weeklyLossLimit: 25, maxDrawdown: 40, maxConcurrentTrades: 20, maxCapitalUsage: 95, maxLeverage: 3,
+                    take_profit_pct: 0.6, trailing_drop_pct: 2.0, hard_stop_loss_pct: 4.0,
+                    entry_min_5m_pct: 0.15, entry_min_1h_pct: 0.15, entry_min_24h_pct: 0.15 },
+};
+
+// Keys that belong to ai_settings (via useRiskManager.updateRiskSettings)
+const AI_KEYS = new Set([
+  'maxPositionSize', 'maxDailyLoss', 'weeklyLossLimit', 'maxDrawdown',
+  'maxConcurrentTrades', 'maxCapitalUsage', 'maxLeverage', 'riskTolerance',
+]);
+
+// Defaults for scalp_settings fields
+const SCALP_DEFAULTS = {
+  entry_min_5m_pct: 0.3,
+  entry_min_1h_pct: 0.3,
+  entry_min_24h_pct: 0.3,
+  take_profit_pct: 1.0,
+  trailing_drop_pct: 1.5,
+  hard_stop_loss_pct: 3.0,
+  loss_rotation_enabled: true,
+  loss_rotation_max_loss_pct: -2.0,
+  target_position_size_usd: 50,
+};
+
+type ScalpRow = typeof SCALP_DEFAULTS;
+
 export function RiskSettingsPanel() {
+  const { user } = useAuth();
   const { riskStatus, updateRiskSettings, isLoading } = useRiskManager();
   const { toast } = useToast();
-  const [isSaving, setIsSaving] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
-  const [hasManualChanges, setHasManualChanges] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState<RiskTolerance | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Initialize selected preset from current settings
+  const [scalp, setScalp] = useState<ScalpRow>(SCALP_DEFAULTS);
+  const [scalpLoaded, setScalpLoaded] = useState(false);
+  const [pending, setPending] = useState<Record<string, any>>({});
+  const [selectedPreset, setSelectedPreset] = useState<RiskTolerance | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load scalp settings
   useEffect(() => {
-    if (riskStatus?.settings?.riskTolerance) {
-      setSelectedPreset(riskStatus.settings.riskTolerance);
-    }
+    if (!user) return;
+    (async () => {
+      const { data } = await supabase
+        .from('scalp_settings').select('*').eq('user_id', user.id).maybeSingle();
+      if (data) setScalp(prev => ({ ...prev, ...data } as ScalpRow));
+      setScalpLoaded(true);
+    })();
+  }, [user]);
+
+  useEffect(() => {
+    if (riskStatus?.settings?.riskTolerance) setSelectedPreset(riskStatus.settings.riskTolerance);
   }, [riskStatus?.settings?.riskTolerance]);
 
-  if (isLoading || !riskStatus) {
+  if (isLoading || !riskStatus || !scalpLoaded) {
     return (
       <div className="glass-panel p-6">
         <div className="flex items-center justify-center h-48">
@@ -100,128 +94,97 @@ export function RiskSettingsPanel() {
     );
   }
 
-  const { settings } = riskStatus;
-
   const getValue = (key: string): any => {
-    if (pendingChanges[key] !== undefined) return pendingChanges[key];
-    return (settings as any)[key] ?? (key === 'riskTolerance' ? 'moderate' : 0);
+    if (pending[key] !== undefined) return pending[key];
+    if (AI_KEYS.has(key)) {
+      return (riskStatus.settings as any)[key] ?? (key === 'riskTolerance' ? 'moderate' : 0);
+    }
+    return (scalp as any)[key];
   };
 
-  const handlePresetSelect = (preset: RiskTolerance) => {
+  const setValue = (key: string, value: any) => {
+    setPending(prev => ({ ...prev, [key]: value }));
+  };
+
+  const applyPreset = (preset: RiskTolerance) => {
     setSelectedPreset(preset);
-    setHasManualChanges(false);
-    const presetValues = RISK_PRESETS[preset];
-    setPendingChanges({
-      ...presetValues,
-      riskTolerance: preset,
-    });
+    setPending({ ...RISK_PRESETS[preset], riskTolerance: preset });
   };
 
-  const handleManualChange = (key: string, value: any) => {
-    // Check if this change deviates from the current preset
-    if (selectedPreset && key !== 'riskTolerance') {
-      const presetValue = (RISK_PRESETS[selectedPreset] as any)[key];
-      if (presetValue !== undefined && presetValue !== value) {
-        setHasManualChanges(true);
-      }
-    }
-    setPendingChanges(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleSave = async () => {
-    if (Object.keys(pendingChanges).length === 0) return;
-
+  const save = async () => {
+    if (Object.keys(pending).length === 0 || !user) return;
     setIsSaving(true);
-    const success = await updateRiskSettings(pendingChanges);
-    setIsSaving(false);
 
-    if (success) {
-      toast({
-        title: 'Settings Saved',
-        description: 'Your risk settings have been updated.',
-      });
-      setPendingChanges({});
-      setHasManualChanges(false);
+    const aiUpdate: Record<string, any> = {};
+    const scalpUpdate: Record<string, any> = {};
+    for (const [k, v] of Object.entries(pending)) {
+      if (AI_KEYS.has(k)) aiUpdate[k] = v;
+      else scalpUpdate[k] = v;
+    }
+
+    let ok = true;
+    if (Object.keys(aiUpdate).length) {
+      ok = await updateRiskSettings(aiUpdate as any);
+    }
+    if (ok && Object.keys(scalpUpdate).length) {
+      const { error } = await supabase.from('scalp_settings').upsert(
+        { user_id: user.id, ...scalp, ...scalpUpdate, updated_at: new Date().toISOString() } as never,
+        { onConflict: 'user_id' }
+      );
+      if (error) ok = false;
+      else setScalp(prev => ({ ...prev, ...scalpUpdate }));
+    }
+
+    setIsSaving(false);
+    if (ok) {
+      toast({ title: 'Settings saved', description: 'Engine will use these on the next run.' });
+      setPending({});
     } else {
-      toast({
-        title: 'Error',
-        description: 'Failed to save risk settings.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Save failed', description: 'Could not update settings.', variant: 'destructive' });
     }
   };
 
-  const hasUnsafeSettings = 
-    getValue('maxPositionSize') > UNSAFE_THRESHOLDS.maxPositionSize ||
-    getValue('maxDailyLoss') > UNSAFE_THRESHOLDS.maxDailyLoss ||
-    getValue('maxDrawdown') > UNSAFE_THRESHOLDS.maxDrawdown ||
-    getValue('maxCapitalUsage') > UNSAFE_THRESHOLDS.maxCapitalUsage ||
-    getValue('maxLeverage') > UNSAFE_THRESHOLDS.maxLeverage;
+  const hasChanges = Object.keys(pending).length > 0;
 
-  const hasChanges = Object.keys(pendingChanges).length > 0;
-
-  const SettingRow = ({ 
-    label, 
-    description, 
-    settingKey, 
-    min, 
-    max, 
-    step = 1,
-    unit = '%',
-    warningThreshold,
+  const Row = ({
+    label, description, settingKey, min, max, step = 1, unit = '%', warn,
   }: {
-    label: string;
-    description: string;
-    settingKey: string;
-    min: number;
-    max: number;
-    step?: number;
-    unit?: string;
-    warningThreshold?: number;
+    label: string; description: string; settingKey: string;
+    min: number; max: number; step?: number; unit?: string; warn?: number;
   }) => {
     const value = getValue(settingKey);
-    const isUnsafe = warningThreshold !== undefined && value > warningThreshold;
-
+    const isUnsafe = warn !== undefined && value > warn;
+    const dirty = pending[settingKey] !== undefined;
     return (
-      <div className="space-y-3">
+      <div className="space-y-2 py-3 border-b border-border/40 last:border-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground">{label}</span>
             <TooltipProvider>
               <Tooltip>
-                <TooltipTrigger>
-                  <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                <TooltipTrigger asChild>
+                  <button type="button"><Info className="w-3.5 h-3.5 text-muted-foreground" /></button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p className="max-w-xs text-xs">{description}</p>
-                </TooltipContent>
+                <TooltipContent><p className="max-w-xs text-xs">{description}</p></TooltipContent>
               </Tooltip>
             </TooltipProvider>
             {isUnsafe && (
               <span className="flex items-center gap-1 text-xs text-warning">
-                <AlertTriangle className="w-3 h-3" />
-                High risk
+                <AlertTriangle className="w-3 h-3" /> High risk
               </span>
             )}
           </div>
           <span className={cn(
             'font-mono font-medium text-sm',
             isUnsafe ? 'text-warning' : 'text-foreground',
-            pendingChanges[settingKey] !== undefined && 'text-primary'
-          )}>
-            {value}{unit}
-          </span>
+            dirty && 'text-primary',
+          )}>{value}{unit}</span>
         </div>
         <Slider
           value={[value]}
-          onValueChange={([v]) => handleManualChange(settingKey, v)}
-          min={min}
-          max={max}
-          step={step}
-          className={cn(
-            'w-full',
-            isUnsafe && '[&>span>span]:bg-warning'
-          )}
+          onValueChange={([v]) => setValue(settingKey, v)}
+          min={min} max={max} step={step}
+          className={cn('w-full', isUnsafe && '[&>span>span]:bg-warning')}
         />
       </div>
     );
@@ -235,228 +198,92 @@ export function RiskSettingsPanel() {
             <Shield className="w-6 h-6 text-primary" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Risk Settings</h3>
-            <p className="text-sm text-muted-foreground">Configure your risk management limits</p>
+            <h3 className="text-lg font-semibold text-foreground">Risk & Engine Settings</h3>
+            <p className="text-sm text-muted-foreground">Every parameter that shapes how the bots trade.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowAdvanced((v) => !v)}
-          >
-            {showAdvanced ? 'Simple view' : 'Advanced view'}
+        {hasChanges && (
+          <Button onClick={save} disabled={isSaving} className="gap-2">
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save changes
           </Button>
-          {hasChanges && (
-            <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
-              Save Changes
-            </Button>
-          )}
-        </div>
-      </div>
-
-
-      {/* Manual Changes Warning */}
-      {hasManualChanges && (
-        <Alert className="mb-6 border-warning/50 bg-warning/10">
-          <AlertTriangle className="h-4 w-4 text-warning" />
-          <AlertDescription className="text-warning">
-            <strong>Custom configuration:</strong> You've manually adjusted settings that deviate from the selected preset. These values may not align with standard risk tolerance profiles. Proceed with caution.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Unsafe Settings Warning */}
-      {hasUnsafeSettings && !hasManualChanges && (
-        <div className="mb-6 p-4 rounded-lg bg-warning/10 border border-warning/30">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-warning mt-0.5" />
-            <div>
-              <p className="font-medium text-warning">Aggressive Settings Detected</p>
-              <p className="text-sm text-warning/80 mt-1">
-                Some of your risk settings are higher than recommended. This increases your risk of significant losses.
-                Consider using more conservative values.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-6">
-        {/* Trading Goal Info */}
-        <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-          <div className="flex items-start gap-3">
-            <Shield className="w-5 h-5 text-primary mt-0.5" />
-            <div>
-              <p className="font-medium text-foreground">Goal: Maximize Profit, Minimize Loss</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                The AI will automatically optimize trading to maximize returns while respecting your risk limits below.
-                Connect your brokerage, configure these settings, and let it run.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Risk Tolerance Presets */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">Risk Tolerance Profile</span>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="w-3.5 h-3.5 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="max-w-xs text-xs">Select a preset to automatically configure all settings below. Manual adjustments will show a warning.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {(['conservative', 'moderate', 'aggressive', 'ultra_aggressive'] as RiskTolerance[]).map((level) => (
-              <button
-                key={level}
-                onClick={() => handlePresetSelect(level)}
-                className={cn(
-                  'px-3 py-2 rounded-lg text-xs font-medium transition-all capitalize',
-                  selectedPreset === level && !hasManualChanges
-                    ? level === 'conservative' ? 'bg-success/20 text-success border border-success/30'
-                    : level === 'moderate' ? 'bg-primary/20 text-primary border border-primary/30'
-                    : level === 'aggressive' ? 'bg-warning/20 text-warning border border-warning/30'
-                    : 'bg-destructive/20 text-destructive border border-destructive/30'
-                    : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-                )}
-              >
-                {level.replace('_', ' ')}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {selectedPreset === 'conservative' && 'Smaller positions, tighter stops, fewer trades. Best for capital preservation.'}
-            {selectedPreset === 'moderate' && 'Balanced approach between growth and safety.'}
-            {selectedPreset === 'aggressive' && 'Larger positions, wider stops, more trades. Higher growth potential with more risk.'}
-            {selectedPreset === 'ultra_aggressive' && 'Maximum position sizes and leverage. Highest potential returns but significant risk.'}
-            {!selectedPreset && 'Select a profile to auto-configure all settings below.'}
-          </p>
-        </div>
-
-        {/* Divider */}
-        <div className="border-t border-border" />
-
-        {!showAdvanced ? (
-          /* Simple view: 3 most important numbers, read-only summary */
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-lg bg-secondary/30">
-              <p className="text-xs text-muted-foreground mb-1">Max Position Size</p>
-              <p className="text-2xl font-bold text-foreground">
-                {getValue('maxPositionSize')}%
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">per single trade</p>
-            </div>
-            <div className="p-4 rounded-lg bg-secondary/30">
-              <p className="text-xs text-muted-foreground mb-1">Daily Loss Limit</p>
-              <p className="text-2xl font-bold text-foreground">
-                {getValue('maxDailyLoss')}%
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">trading pauses if hit</p>
-            </div>
-            <div className="p-4 rounded-lg bg-secondary/30">
-              <p className="text-xs text-muted-foreground mb-1">Max Concurrent Trades</p>
-              <p className="text-2xl font-bold text-foreground">
-                {getValue('maxConcurrentTrades')}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">open positions at once</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Position Size */}
-            <SettingRow
-              label="Max Position Size"
-              description="Maximum percentage of your equity that can be allocated to a single position. Lower values reduce concentration risk."
-              settingKey="maxPositionSize"
-              min={1}
-              max={50}
-              warningThreshold={UNSAFE_THRESHOLDS.maxPositionSize}
-            />
-
-            {/* Daily Loss */}
-            <SettingRow
-              label="Max Daily Loss"
-              description="Trading stops automatically if daily losses reach this percentage. Protects against bad trading days."
-              settingKey="maxDailyLoss"
-              min={1}
-              max={20}
-              warningThreshold={UNSAFE_THRESHOLDS.maxDailyLoss}
-            />
-
-            {/* Weekly Loss */}
-            <SettingRow
-              label="Max Weekly Loss"
-              description="Trading stops for the week if weekly losses reach this percentage. Prevents prolonged losing streaks."
-              settingKey="weeklyLossLimit"
-              min={3}
-              max={30}
-              warningThreshold={15}
-            />
-
-            {/* Max Drawdown */}
-            <SettingRow
-              label="Max Drawdown (Kill Switch)"
-              description="If drawdown from peak equity exceeds this percentage, the kill switch triggers and all trading stops until manually reset."
-              settingKey="maxDrawdown"
-              min={5}
-              max={50}
-              warningThreshold={UNSAFE_THRESHOLDS.maxDrawdown}
-            />
-
-            {/* Capital Usage */}
-            <SettingRow
-              label="Max Capital Usage"
-              description="Maximum percentage of total capital that can be deployed across all positions. Keeps reserve for opportunities and margin."
-              settingKey="maxCapitalUsage"
-              min={10}
-              max={100}
-              step={5}
-              warningThreshold={UNSAFE_THRESHOLDS.maxCapitalUsage}
-            />
-
-            {/* Concurrent Trades */}
-            <SettingRow
-              label="Max Concurrent Trades"
-              description="Maximum number of positions that can be open simultaneously. Lower values concentrate focus, higher values diversify."
-              settingKey="maxConcurrentTrades"
-              min={1}
-              max={20}
-              unit=""
-            />
-
-            {/* Leverage */}
-            <SettingRow
-              label="Max Leverage"
-              description="Maximum leverage allowed. Default is 1x (no leverage). Higher leverage amplifies both gains AND losses."
-              settingKey="maxLeverage"
-              min={1}
-              max={10}
-              unit="x"
-              warningThreshold={UNSAFE_THRESHOLDS.maxLeverage}
-            />
-          </>
         )}
       </div>
 
-      {/* Conservative Defaults Info */}
+      {/* Presets */}
+      <div className="space-y-2 mb-2">
+        <span className="text-sm font-medium text-foreground">Risk tolerance preset</span>
+        <div className="grid grid-cols-4 gap-2">
+          {(['conservative', 'moderate', 'aggressive', 'ultra_aggressive'] as RiskTolerance[]).map((level) => (
+            <button
+              key={level}
+              onClick={() => applyPreset(level)}
+              className={cn(
+                'px-3 py-2 rounded-lg text-xs font-medium transition-all capitalize',
+                selectedPreset === level
+                  ? level === 'conservative' ? 'bg-success/20 text-success border border-success/30'
+                  : level === 'moderate' ? 'bg-primary/20 text-primary border border-primary/30'
+                  : level === 'aggressive' ? 'bg-warning/20 text-warning border border-warning/30'
+                  : 'bg-destructive/20 text-destructive border border-destructive/30'
+                  : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+              )}
+            >
+              {level.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Picking a preset fills every slider below. Adjust any value to fine-tune.
+        </p>
+      </div>
+
+      {/* Single unified adjustment list */}
+      <div className="mt-4">
+        <Row label="Max position size" description="Maximum percentage of equity allocated to a single position." settingKey="maxPositionSize" min={1} max={50} warn={25} />
+        <Row label="Max daily loss" description="Trading stops for the day if losses reach this percentage." settingKey="maxDailyLoss" min={1} max={20} warn={10} />
+        <Row label="Max weekly loss" description="Trading stops for the week at this loss percentage." settingKey="weeklyLossLimit" min={3} max={30} warn={15} />
+        <Row label="Max drawdown (kill switch)" description="Kill switch trips when drawdown from peak equity hits this." settingKey="maxDrawdown" min={5} max={50} warn={30} />
+        <Row label="Max capital usage" description="Total deployable capital across all open positions." settingKey="maxCapitalUsage" min={10} max={100} step={5} warn={90} />
+        <Row label="Max concurrent trades" description="Maximum simultaneous open AI positions." settingKey="maxConcurrentTrades" min={1} max={20} unit="" />
+        <Row label="Max leverage" description="Maximum leverage. 1x is spot. Amplifies gains and losses." settingKey="maxLeverage" min={1} max={10} unit="x" warn={2} />
+
+        <Row label="Take-profit (arms trailing)" description="Profit % at which the trailing stop activates." settingKey="take_profit_pct" min={0.2} max={5} step={0.1} />
+        <Row label="Trailing drop from peak" description="Once armed, exit when price drops this % from peak." settingKey="trailing_drop_pct" min={0.2} max={5} step={0.1} />
+        <Row label="Hard stop-loss" description="Emergency exit if loss exceeds this %." settingKey="hard_stop_loss_pct" min={0.5} max={10} step={0.1} warn={5} />
+
+        <Row label="Min 5m momentum to enter" description="Skip entries with weaker 5-minute momentum." settingKey="entry_min_5m_pct" min={0} max={2} step={0.05} />
+        <Row label="Min 1h momentum to enter" description="Skip entries with weaker 1-hour momentum." settingKey="entry_min_1h_pct" min={0} max={2} step={0.05} />
+        <Row label="Min 24h momentum to enter" description="Skip entries with weaker 24-hour momentum." settingKey="entry_min_24h_pct" min={0} max={5} step={0.1} />
+
+        <Row label="Target scalp position size" description="Default scalp position size in USD." settingKey="target_position_size_usd" min={10} max={1000} step={10} unit=" USD" />
+
+        {/* Loss rotation toggle + threshold */}
+        <div className="flex items-center justify-between py-3 border-b border-border/40">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground">Loss rotation</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button"><Info className="w-3.5 h-3.5 text-muted-foreground" /></button>
+                </TooltipTrigger>
+                <TooltipContent><p className="max-w-xs text-xs">Swap losing positions for stronger momentum opportunities.</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <Switch
+            checked={getValue('loss_rotation_enabled')}
+            onCheckedChange={(v) => setValue('loss_rotation_enabled', v)}
+          />
+        </div>
+        {getValue('loss_rotation_enabled') && (
+          <Row label="Max realized loss per swap" description="Maximum acceptable realized loss when rotating out of a position." settingKey="loss_rotation_max_loss_pct" min={-10} max={0} step={0.25} />
+        )}
+      </div>
+
       <div className="mt-6 p-4 rounded-lg bg-muted/50">
         <p className="text-xs text-muted-foreground">
-          <strong>Recommended:</strong> Start with Conservative or Moderate profiles until you're comfortable with the system. 
-          Higher risk profiles can lead to larger gains but also significant losses.
+          <strong>Tip:</strong> Start with Conservative or Moderate until you trust the system on paper.
+          Higher profiles raise both upside and drawdown.
         </p>
       </div>
     </div>
