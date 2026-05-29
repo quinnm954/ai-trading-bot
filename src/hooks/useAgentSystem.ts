@@ -135,5 +135,5 @@ export function useAgentSystem() {
     };
   });
 
-  return { states: allAgents, messages, incidents, refresh, runCycle, setOverride };
+  return { states: allAgents, messages, incidents, remedies, refresh, runCycle, setOverride };
 }
