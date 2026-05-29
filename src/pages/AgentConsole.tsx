@@ -170,6 +170,51 @@ export default function AgentConsole() {
           </ScrollArea>
         </Card>
       </div>
+
+      {/* Healer knowledge base */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <GraduationCap className="w-4 h-4 text-rose-400" />
+            <h2 className="font-semibold">Healer learned remedies</h2>
+          </div>
+          <Badge variant="outline" className="text-[10px]">
+            {remedies.length} known patterns
+          </Badge>
+        </div>
+        <div className="text-xs text-muted-foreground mb-3">
+          The Healer matches each error to a remedy, applies it, then watches whether the issue recurs to update confidence.
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          {remedies.map((r) => {
+            const total = r.success_count + r.failure_count;
+            const tone = r.confidence >= 70 ? "text-emerald-400" : r.confidence >= 40 ? "text-amber-400" : "text-rose-400";
+            return (
+              <div key={r.remedy_key} className="border border-border rounded p-2 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-xs">{r.remedy_key}</span>
+                  <span className={`text-[10px] font-mono ${tone}`}>{r.confidence.toFixed(0)}%</span>
+                </div>
+                <div className="text-[11px] text-muted-foreground line-clamp-2">{r.description}</div>
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>action: <span className="font-mono">{r.action}</span></span>
+                  <span>{r.success_count}✓ / {r.failure_count}✗</span>
+                </div>
+                {r.last_outcome && r.last_applied_at && (
+                  <div className="text-[10px] text-muted-foreground">
+                    last: {r.last_outcome} • {formatDistanceToNow(new Date(r.last_applied_at), { addSuffix: true })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {remedies.length === 0 && (
+            <div className="col-span-full text-sm text-muted-foreground py-6 text-center">
+              No remedies registered yet.
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
