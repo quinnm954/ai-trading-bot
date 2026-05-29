@@ -93,6 +93,7 @@ export function useAgentSystem() {
       .on("postgres_changes", { event: "*", schema: "public", table: "agent_state" }, () => refresh())
       .on("postgres_changes", { event: "*", schema: "public", table: "agent_messages" }, () => refresh())
       .on("postgres_changes", { event: "*", schema: "public", table: "agent_incidents" }, () => refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "healer_remedies" }, () => refresh())
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
