@@ -38,6 +38,21 @@ export interface AgentIncidentRow {
   created_at: string;
 }
 
+export interface HealerRemedyRow {
+  id: string;
+  user_id: string | null;
+  remedy_key: string;
+  description: string;
+  action: string;
+  enabled: boolean;
+  success_count: number;
+  failure_count: number;
+  confidence: number;
+  last_outcome: string | null;
+  last_applied_at: string | null;
+  notes: string | null;
+}
+
 const AGENTS: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
 
 export function useAgentSystem() {
@@ -45,17 +60,28 @@ export function useAgentSystem() {
   const [states, setStates] = useState<AgentStateRow[]>([]);
   const [messages, setMessages] = useState<AgentMessageRow[]>([]);
   const [incidents, setIncidents] = useState<AgentIncidentRow[]>([]);
+  const [remedies, setRemedies] = useState<HealerRemedyRow[]>([]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    const [s, m, i] = await Promise.all([
+    const [s, m, i, r] = await Promise.all([
       supabase.from("agent_state").select("*").eq("user_id", user.id),
       supabase.from("agent_messages").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(100),
       supabase.from("agent_incidents").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("healer_remedies").select("*").or(`user_id.eq.${user.id},user_id.is.null`).order("confidence", { ascending: false }),
     ]);
     if (s.data) setStates(s.data as AgentStateRow[]);
     if (m.data) setMessages(m.data as AgentMessageRow[]);
     if (i.data) setIncidents(i.data as AgentIncidentRow[]);
+    if (r.data) {
+      // Prefer user-tuned over global default for same remedy_key
+      const map = new Map<string, HealerRemedyRow>();
+      for (const row of r.data as HealerRemedyRow[]) {
+        const ex = map.get(row.remedy_key);
+        if (!ex || (row.user_id && !ex.user_id)) map.set(row.remedy_key, row);
+      }
+      setRemedies(Array.from(map.values()).sort((a, b) => b.confidence - a.confidence));
+    }
   }, [user]);
 
   useEffect(() => {
