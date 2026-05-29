@@ -64,7 +64,7 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4, sinc
     } finally {
       setIsLoading(false);
     }
-  }, [user, isPaper, limit]);
+  }, [user, isPaper, limit, sinceHours]);
 
   useEffect(() => {
     fetchTrades();
