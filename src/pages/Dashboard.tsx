@@ -408,20 +408,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Market Regime & Safety Status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <MarketRegimeCard />
-        <SafetyStatusCard />
-      </div>
-
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <MilestoneProgressCard />
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
-          <AIDecisionsBreakdownCard />
-          <DailyAuditCard />
         </div>
         <div className="space-y-6">
           <AIStatusCard />
