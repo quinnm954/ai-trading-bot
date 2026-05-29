@@ -34,14 +34,15 @@ export function MilestoneProgressCard() {
 
     const fetchData = async () => {
       try {
-        // Get AI settings to determine trading mode
+        // Get AI settings to determine trading mode + live starting investment
         const { data: aiSettings } = await supabase
           .from('ai_settings')
-          .select('trading_mode')
+          .select('trading_mode, live_initial_investment')
           .eq('user_id', user.id)
           .maybeSingle();
         
         const isLiveMode = aiSettings?.trading_mode === 'live';
+        const liveStart = Number(aiSettings?.live_initial_investment ?? LIVE_STARTING_EQUITY_FALLBACK);
         
         let cashBalance = 0;
         let liveEquity = 0;
@@ -58,7 +59,7 @@ export function MilestoneProgressCard() {
           
           cashBalance = Number(liveAccount?.balance || 0);
           liveEquity = Number(liveAccount?.equity || 0);
-          startingBalance = LIVE_STARTING_EQUITY;
+          startingBalance = liveStart;
           tradingStartTime = liveAccount?.created_at ? new Date(liveAccount.created_at) : null;
         } else {
           // Get paper account balance
