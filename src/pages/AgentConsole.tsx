@@ -34,8 +34,8 @@ const PRIORITY_BORDER: Record<string, string> = {
   critical: "border-l-destructive",
 };
 
-const AGENT_ORDER: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer", "supervisor"];
-const ALL_AGENTS: (AgentName | "all")[] = ["watcher", "analyst", "risk", "trader", "healer", "supervisor"];
+const AGENT_ORDER: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
+const ALL_AGENTS: (AgentName | "all")[] = ["watcher", "analyst", "risk", "trader", "healer"];
 
 // Group messages into "cycles". A cycle = burst with no gap > 25s.
 function groupCycles(messages: AgentMessageRow[]) {
