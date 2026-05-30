@@ -187,7 +187,7 @@ export default function Trades() {
               <SelectItem value="loss">Losses</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={modeFilter} onValueChange={setModeFilter}>
+          <Select value={modeFilter} onValueChange={(v) => { setModeFilterTouched(true); setModeFilter(v); }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Paper + Live</SelectItem>
