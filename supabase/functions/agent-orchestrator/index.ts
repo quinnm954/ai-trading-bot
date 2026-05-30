@@ -411,6 +411,42 @@ async function applyAction(ctx: Ctx, remedy: Remedy, detection: any): Promise<{ 
           "Daily loss recovered — kill switch can be safely released", detection ?? {}, "high");
         return { ok: true, note: "release proposed" };
       }
+      case "reconcile_orphan_trades": {
+        const ids: string[] = detection?.sample_ids ?? [];
+        if (ids.length === 0) return { ok: true, note: "nothing to reconcile" };
+        await ctx.supabase.from("trades")
+          .update({ status: "cancelled", closed_at: new Date().toISOString(), exit_reason: "healer_orphan_reconcile" })
+          .in("id", ids);
+        return { ok: true, note: `reconciled ${ids.length} orphan trades` };
+      }
+      case "release_kill_switch": {
+        await ctx.supabase.from("ai_settings")
+          .update({ kill_switch_active: false, kill_switch_triggered_at: null })
+          .eq("user_id", ctx.userId);
+        return { ok: true, note: "kill switch released" };
+      }
+      case "alert_schema_drift": {
+        await post(ctx, "healer", "all", "incident",
+          "Code references a missing column/table — schema drift detected. Review recent migrations.",
+          detection ?? {}, "critical");
+        return { ok: true, note: "schema drift alert posted" };
+      }
+      case "alert_rls_error": {
+        await post(ctx, "healer", "all", "incident",
+          "RLS / permission denial detected — verify policies & GRANTs for affected tables.",
+          detection ?? {}, "critical");
+        return { ok: true, note: "rls alert posted" };
+      }
+      case "bootstrap_missing_agents": {
+        const missing: string[] = detection?.missing ?? [];
+        for (const agent of missing) {
+          await ctx.supabase.from("agent_state").insert({
+            user_id: ctx.userId, agent, status: "idle",
+            current_task: "bootstrapped by healer", last_heartbeat: new Date().toISOString(),
+          });
+        }
+        return { ok: true, note: `bootstrapped ${missing.length} agent rows` };
+      }
       default: return { ok: false, note: `unknown action ${remedy.action}` };
     }
   } catch (e) {
