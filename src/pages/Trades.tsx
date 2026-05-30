@@ -22,16 +22,23 @@ type TabType = 'history' | 'open';
 
 export default function Trades() {
   const [activeTab, setActiveTab] = useState<TabType>('history');
-  const { trades, positions, isLoading, tradingMode, stats } = useTradesData();
+  const { trades, positions, isLoading, tradingMode } = useTradesData();
 
   const [symbolFilter, setSymbolFilter] = useState('');
   const [strategyFilter, setStrategyFilter] = useState('all');
   const [resultFilter, setResultFilter] = useState('all');
-  const [modeFilter, setModeFilter] = useState('all');
+  
+  const [modeFilter, setModeFilter] = useState<string>(tradingMode);
+  const [modeFilterTouched, setModeFilterTouched] = useState(false);
   const [minScore, setMinScore] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // all | open | closed | cancelled
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // Sync mode filter with current trading mode until the user changes it themselves.
+  if (!modeFilterTouched && modeFilter !== tradingMode) {
+    setModeFilter(tradingMode);
+  }
 
   const visibleTrades = useMemo(() => {
     if (statusFilter === 'all') return trades;
@@ -47,8 +54,9 @@ export default function Trades() {
     return visibleTrades.filter((t) => {
       if (symbolFilter && !t.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) return false;
       if (strategyFilter !== 'all' && t.strategy !== strategyFilter) return false;
-      if (resultFilter === 'win' && (t.pnl ?? 0) <= 0) return false;
-      if (resultFilter === 'loss' && (t.pnl ?? 0) >= 0) return false;
+      // Win/Loss filter only meaningful on closed trades — exclude open/cancelled when filtering.
+      if (resultFilter === 'win' && !(t.status === 'closed' && (t.pnl ?? 0) > 0)) return false;
+      if (resultFilter === 'loss' && !(t.status === 'closed' && (t.pnl ?? 0) < 0)) return false;
       if (modeFilter === 'paper' && !t.isPaper) return false;
       if (modeFilter === 'live' && t.isPaper) return false;
       if (minScore && (t.score ?? 0) < Number(minScore)) return false;
@@ -58,6 +66,23 @@ export default function Trades() {
       return true;
     });
   }, [visibleTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
+
+  // Stats reflect the CURRENT FILTERS so header numbers match the table below.
+  const scopedStats = useMemo(() => {
+    const closed = filtered.filter((t) => t.status === 'closed');
+    const wins = closed.filter((t) => (t.pnl ?? 0) > 0);
+    const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
+    const openCount = (modeFilter === 'all'
+      ? positions
+      : positions.filter((p) => (modeFilter === 'paper' ? p.isPaper : !p.isPaper))
+    ).length;
+    return {
+      totalTrades: closed.length,
+      winRate: closed.length ? (wins.length / closed.length) * 100 : 0,
+      totalPnl,
+      openPositions: openCount,
+    };
+  }, [filtered, positions, modeFilter]);
 
 
   const exportCsv = () => {
@@ -122,21 +147,21 @@ export default function Trades() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Total Trades</p>
-          <p className="text-2xl font-bold text-foreground">{stats.totalTrades}</p>
+          <p className="text-2xl font-bold text-foreground">{scopedStats.totalTrades}</p>
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
-          <p className="text-2xl font-bold text-foreground">{stats.winRate.toFixed(1)}%</p>
+          <p className="text-2xl font-bold text-foreground">{scopedStats.winRate.toFixed(1)}%</p>
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Total P&L</p>
-          <p className={cn('text-2xl font-bold', stats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
-            {stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          <p className={cn('text-2xl font-bold', scopedStats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
+            {scopedStats.totalPnl >= 0 ? '+' : ''}${scopedStats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Open Positions</p>
-          <p className="text-2xl font-bold text-foreground">{stats.openPositions}</p>
+          <p className="text-2xl font-bold text-foreground">{scopedStats.openPositions}</p>
         </div>
       </div>
 
@@ -162,7 +187,7 @@ export default function Trades() {
               <SelectItem value="loss">Losses</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={modeFilter} onValueChange={setModeFilter}>
+          <Select value={modeFilter} onValueChange={(v) => { setModeFilterTouched(true); setModeFilter(v); }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Paper + Live</SelectItem>
