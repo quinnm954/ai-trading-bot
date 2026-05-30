@@ -53,7 +53,7 @@ export interface HealerRemedyRow {
   notes: string | null;
 }
 
-const AGENTS: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer", "supervisor"];
+const AGENTS: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
 
 export function useAgentSystem() {
   const { user } = useAuth();
