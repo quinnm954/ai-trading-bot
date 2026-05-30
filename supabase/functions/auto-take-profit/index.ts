@@ -1278,6 +1278,21 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
                 is_paper: isPaperMode,
                 unrealized_pnl: 0,
               });
+
+              // Record the swap's BUY leg in the trade journal so swaps are fully tracked
+              await supabase.from('trades').insert({
+                user_id: userId,
+                symbol: bestTarget.symbol,
+                side: 'buy',
+                quantity: receivedQuantity,
+                entry_price: bestTarget.price,
+                status: 'open',
+                market_type: 'crypto',
+                strategy: 'swap',
+                is_paper: isPaperMode,
+                ai_reasoning: `🔄 Swap from ${position.symbol} → ${bestTarget.symbol} (+${bestTarget.change24h.toFixed(2)}% 24h momentum)`,
+                entry_reasoning: `Direct swap rotation from ${position.symbol}`,
+              });
               console.log(`📊 New ${isPaperMode ? 'paper ' : ''}position: ${receivedQuantity} ${bestTarget.symbol}`);
             }
           } else {

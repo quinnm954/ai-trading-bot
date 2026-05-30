@@ -58,6 +58,8 @@ export function useTradesData() {
     volatility_breakout: 'Volatility Breakout',
     grid: 'Grid Bot',
     dca: 'DCA Bot',
+    swap: 'Swap / Rotation',
+    scalp: 'Scalp',
     custom: 'Custom Strategy',
   };
 
