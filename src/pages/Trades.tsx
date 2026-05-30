@@ -155,7 +155,7 @@ export default function Trades() {
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Total P&L</p>
-          <p className={cn('text-2xl font-bold', stats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
+          <p className={cn('text-2xl font-bold', scopedStats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
             {scopedStats.totalPnl >= 0 ? '+' : ''}${scopedStats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
         </div>
