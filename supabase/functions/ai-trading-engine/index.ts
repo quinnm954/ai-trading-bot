@@ -3858,13 +3858,20 @@ serve(async (req) => {
     }
 
 
-    // 🤖 FULL AUTONOMY — AI self-tunes risk params per cycle based on regime, fusion, and today's P&L.
-    // User can opt out by setting ai_settings.ai_autonomous_mode = false (defaults to true).
     const autonomous = (settings as any).ai_autonomous_mode !== false;
-    let riskTolerance = settings.risk_tolerance || 'moderate';
-    let leverage = settings.max_leverage || 3;
-    let dynMaxPositionSize = settings.max_position_size || 10;
-    let dynMaxConcurrent = settings.max_concurrent_trades || 5;
+
+    // 🔒 USER-DEFINED HARD CAPS — these come straight from the Risk Settings page
+    // and act as absolute ceilings. Autonomous tuning can lower them but NEVER raise them.
+    // Use ?? so explicit 0 / 1 from the user is respected (was `||` which treated 0 as unset).
+    const userRiskTolerance = (settings.risk_tolerance as any) ?? 'moderate';
+    const userMaxLeverage = settings.max_leverage ?? 3;
+    const userMaxPositionSize = settings.max_position_size ?? 10;
+    const userMaxConcurrent = settings.max_concurrent_trades ?? 5;
+
+    let riskTolerance = userRiskTolerance;
+    let leverage = userMaxLeverage;
+    let dynMaxPositionSize = userMaxPositionSize;
+    let dynMaxConcurrent = userMaxConcurrent;
 
     if (autonomous) {
       // Highest fusion conviction in pool (if any)
@@ -3879,16 +3886,19 @@ serve(async (req) => {
       const behindPace = pacingGap > 0.15;
       const aheadOfPace = pacingGap < -0.15;
 
-      // Risk tolerance: bullish regime + high conviction → aggressive; downtrend/volatile → conservative
-      if (regime === 'trending' && topConviction >= 65) riskTolerance = 'aggressive';
+      // Risk tolerance: only auto-escalate to 'aggressive' when the USER opted in to aggressive
+      // or higher. A user who picked 'conservative' or 'moderate' stays at their choice.
+      const userAllowsAggressive = userRiskTolerance === 'aggressive' || userRiskTolerance === 'ultra_aggressive';
+      if (regime === 'trending' && topConviction >= 65 && userAllowsAggressive) riskTolerance = 'aggressive';
       else if (regime === 'high_volatility') riskTolerance = 'conservative';
-      else if (regime === 'ranging') riskTolerance = 'moderate';
+      else if (regime === 'ranging') riskTolerance = userRiskTolerance === 'aggressive' ? 'moderate' : userRiskTolerance;
 
-      // 🚀 BEHIND PACE → lean in (only if day isn't red and regime isn't actively bearish)
-      if (behindPace && todaysNetPnL >= 0 && regimeReport.profile !== 'trending_down') {
+      // 🚀 BEHIND PACE → lean in (only if day isn't red, regime isn't bearish, AND user allows aggression)
+      if (behindPace && todaysNetPnL >= 0 && regimeReport.profile !== 'trending_down' && userAllowsAggressive) {
         riskTolerance = topConviction >= 55 ? 'aggressive' : 'moderate';
-        dynMaxPositionSize = Math.min(Math.max(dynMaxPositionSize, 8), settings.max_position_size || 10);
-        dynMaxConcurrent = Math.min(dynMaxConcurrent + 1, settings.max_concurrent_trades || 5);
+        // Stay within the user's caps — never exceed userMaxPositionSize / userMaxConcurrent.
+        dynMaxPositionSize = Math.min(userMaxPositionSize, Math.max(dynMaxPositionSize, Math.min(8, userMaxPositionSize)));
+        dynMaxConcurrent = Math.min(userMaxConcurrent, dynMaxConcurrent + 1);
       }
 
       // De-risk only once target is essentially hit (≥85%) — don't choke off the run too early
@@ -3907,7 +3917,8 @@ serve(async (req) => {
       const balanceSlots = balance < 200 ? 2 : balance < 1000 ? 4 : balance < 5000 ? 6 : 8;
       dynMaxConcurrent = Math.min(dynMaxConcurrent, balanceSlots);
 
-      // 🧭 REGIME-DRIVEN OVERLAY — adapt to detected market profile
+      // 🧭 REGIME-DRIVEN OVERLAY — adapt to detected market profile.
+      // Multipliers can only SHRINK the user's caps, never grow past them.
       const sizeBefore = dynMaxPositionSize;
       const slotsBefore = dynMaxConcurrent;
       dynMaxPositionSize = Math.max(1, Math.round(dynMaxPositionSize * regimePolicy.sizeMultiplier));
@@ -3918,8 +3929,17 @@ serve(async (req) => {
       console.log(`🤖 AUTO-TUNE → risk=${riskTolerance} | posSize=${dynMaxPositionSize}% | slots=${dynMaxConcurrent} | regime=${regime}/${regimeReport.profile} | topConv=${topConviction} | dayPnL=$${todaysNetPnL.toFixed(2)}/$${DAILY_PROFIT_TARGET}`);
     }
 
-    const optimalLeverage = calculateOptimalLeverage(leverage, riskTolerance);
-    console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance}, Balance: $${balance.toFixed(2)}`);
+    // 🔒 FINAL HARD-CLAMP — no matter what autonomous tuning did, the user's risk-settings
+    // caps are absolute. This is the last line of defense before sizing decisions are made.
+    dynMaxPositionSize = Math.min(dynMaxPositionSize, userMaxPositionSize);
+    dynMaxConcurrent = Math.min(dynMaxConcurrent, userMaxConcurrent);
+    leverage = Math.min(leverage, userMaxLeverage);
+    if (dynMaxPositionSize !== userMaxPositionSize || dynMaxConcurrent !== userMaxConcurrent || leverage !== userMaxLeverage) {
+      console.log(`🔒 User-cap clamp → posSize≤${userMaxPositionSize}% | slots≤${userMaxConcurrent} | leverage≤${userMaxLeverage}x → final: size=${dynMaxPositionSize}% slots=${dynMaxConcurrent} lev=${leverage}x`);
+    }
+
+    const optimalLeverage = Math.min(calculateOptimalLeverage(leverage, riskTolerance), userMaxLeverage);
+    console.log(`🚀 AI Trading: ${optimalLeverage}x leverage, Risk: ${riskTolerance} (user picked: ${userRiskTolerance}), Balance: $${balance.toFixed(2)}`);
     let decisions = await analyzeWithAI(prioritizedTradeable, balance, dynMaxPositionSize, trendAnalysis, bestStrategy, regime, optimalLeverage, riskTolerance, fusionMap);
 
     // 🛡️ LOSS-PROTECTION STAND-DOWN
