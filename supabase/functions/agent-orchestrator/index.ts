@@ -624,102 +624,6 @@ async function runHealer(ctx: Ctx) {
   return summary;
 }
 
-// ---------- SUPERVISOR: audits the other 5 agents ----------
-async function runSupervisor(ctx: Ctx, cycle: any) {
-  const pauseOv = await getOverride(ctx, "supervisor");
-  if (pauseOv?.override_type === "pause") {
-    await setState(ctx, "supervisor", "paused", "Paused by user override");
-    return { skipped: true };
-  }
-  await setState(ctx, "supervisor", "working", "Auditing all agents");
-
-  const { data: states } = await ctx.supabase
-    .from("agent_state").select("agent, status, last_heartbeat, last_cycle_at, error_count, cycle_count")
-    .eq("user_id", ctx.userId);
-  const { data: settings } = await ctx.supabase
-    .from("ai_settings").select("enabled, trading_mode").eq("user_id", ctx.userId).maybeSingle();
-  const botEnabled = !!settings?.enabled;
-
-  const REQUIRED: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
-  const findings: string[] = [];
-  const issues: Array<{ key: string; description: string; detection: any }> = [];
-  const now = Date.now();
-
-  // 1. Every required agent must exist
-  const present = new Set((states ?? []).map((s: any) => s.agent));
-  const missing = REQUIRED.filter((a) => !present.has(a));
-  if (missing.length > 0) {
-    findings.push(`missing agents: ${missing.join(", ")}`);
-    issues.push({ key: "supervisor_cycle_incomplete", description: `Missing agent rows: ${missing.join(", ")}`, detection: { missing } });
-  }
-
-  // 2. Heartbeats fresh when bot enabled
-  if (botEnabled) {
-    const stale = (states ?? []).filter((s: any) => {
-      const age = (now - new Date(s.last_heartbeat).getTime()) / 60_000;
-      return age > 15 && s.agent !== "supervisor";
-    });
-    if (stale.length > 0) {
-      findings.push(`stale heartbeats: ${stale.map((s: any) => `${s.agent}(${((now - new Date(s.last_heartbeat).getTime()) / 60_000).toFixed(0)}m)`).join(", ")}`);
-      issues.push({ key: "supervisor_stale_agent", description: `${stale.length} agent(s) heartbeat >15m old`,
-        detection: { ids: stale.map((s: any) => (s as any).id), agents: stale.map((s: any) => s.agent) } });
-    }
-  }
-
-  // 3. Trader silent (no cycle activity in 30m while enabled and not paused)
-  if (botEnabled) {
-    const trader = (states ?? []).find((s: any) => s.agent === "trader");
-    if (trader && trader.status !== "paused") {
-      const lastCycle = trader.last_cycle_at ? new Date(trader.last_cycle_at).getTime() : 0;
-      const ageMin = (now - lastCycle) / 60_000;
-      if (ageMin > 30) {
-        findings.push(`trader silent ${ageMin.toFixed(0)}m`);
-        issues.push({ key: "supervisor_trader_silent", description: `Trader has not cycled for ${ageMin.toFixed(0)}m`,
-          detection: { ageMin } });
-      }
-    }
-  }
-
-  // 4. Cycle completeness — did this current cycle hit every phase?
-  const phasesRan = {
-    watcher: !cycle?.observation?.skipped,
-    analyst: !cycle?.analysis?.skipped,
-    risk: cycle?.risk !== undefined,
-    trader: cycle?.trade !== undefined,
-    healer: !cycle?.heal?.skipped,
-  };
-  const skipped = Object.entries(phasesRan).filter(([_, ran]) => !ran).map(([n]) => n);
-  if (skipped.length > 0 && botEnabled) {
-    findings.push(`cycle skipped: ${skipped.join(", ")}`);
-  }
-
-  // 5. Auto-record supervisor incidents for the healer to resolve next cycle
-  for (const issue of issues) {
-    await ctx.supabase.from("agent_incidents").insert({
-      user_id: ctx.userId, incident_type: issue.key, severity: "warning",
-      description: issue.description, context: issue.detection,
-      detected_by: "supervisor",
-    });
-  }
-
-  const summary = {
-    bot_enabled: botEnabled,
-    agents_checked: (states ?? []).length,
-    findings,
-    issues_raised: issues.length,
-    cycle_phases: phasesRan,
-  };
-
-  const subject = findings.length === 0
-    ? `All ${REQUIRED.length} agents healthy & cycle complete`
-    : `${findings.length} finding(s): ${findings.slice(0, 2).join("; ")}${findings.length > 2 ? "…" : ""}`;
-  await post(ctx, "supervisor", "all", findings.length === 0 ? "supervisor_ok" : "supervisor_alert",
-    subject, summary, findings.length === 0 ? "low" : "high");
-
-  await setState(ctx, "supervisor", "idle", null, summary);
-  return summary;
-}
-
 // ---------- ONE CYCLE ----------
 async function runOneCycle(ctx: Ctx) {
   const observation = await runWatcher(ctx);
@@ -727,9 +631,7 @@ async function runOneCycle(ctx: Ctx) {
   const risk = await runRisk(ctx, analysis as any, observation);
   const trade = await runTrader(ctx, risk as any);
   const heal = await runHealer(ctx);
-  const cycle = { observation, analysis, risk, trade, heal };
-  const supervise = await runSupervisor(ctx, cycle);
-  return { ...cycle, supervise };
+  return { observation, analysis, risk, trade, heal };
 }
 
 // ---------- main ----------
