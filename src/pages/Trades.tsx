@@ -27,7 +27,7 @@ export default function Trades() {
   const [symbolFilter, setSymbolFilter] = useState('');
   const [strategyFilter, setStrategyFilter] = useState('all');
   const [resultFilter, setResultFilter] = useState('all');
-  const [resultFilterTouched, setResultFilterTouched] = useState(false);
+  
   const [modeFilter, setModeFilter] = useState<string>(tradingMode);
   const [modeFilterTouched, setModeFilterTouched] = useState(false);
   const [minScore, setMinScore] = useState('');
