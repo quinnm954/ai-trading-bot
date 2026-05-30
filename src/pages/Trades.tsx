@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils';
 import { useTradesData } from '@/hooks/useTradesData';
 import { ScalpingStatsRow } from '@/components/dashboard/ScalpingStatsRow';
-import { DailyAuditCard } from '@/components/dashboard/DailyAuditCard';
+
 
 type TabType = 'history' | 'open';
 
@@ -117,8 +117,6 @@ export default function Trades() {
       {/* Scalping Performance Stats (moved from dashboard) */}
       <ScalpingStatsRow />
 
-      {/* Daily Trade Audit (moved from dashboard) */}
-      <DailyAuditCard />
 
       {/* Stats Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

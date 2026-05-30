@@ -6,17 +6,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import {
   Eye, Brain, Shield, Bot, Wrench, Play, Pause, Ban, RefreshCw,
-  AlertTriangle, CheckCircle2, GraduationCap, Radio, Search, X, ChevronDown, ChevronRight,
+  AlertTriangle, CheckCircle2, GraduationCap, Radio, Search, X, ChevronDown, ChevronRight, ClipboardCheck,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const AGENT_META: Record<AgentName, { label: string; icon: any; color: string; bg: string; role: string }> = {
-  watcher: { label: "Market Watcher", icon: Eye,    color: "text-blue-400",    bg: "bg-blue-400/10",    role: "Scans market, positions, regime" },
-  analyst: { label: "Analyst",        icon: Brain,  color: "text-purple-400",  bg: "bg-purple-400/10",  role: "Reviews AI decisions & signals" },
-  risk:    { label: "Risk Manager",   icon: Shield, color: "text-amber-400",   bg: "bg-amber-400/10",   role: "Validates limits, can veto" },
-  trader:  { label: "Trader",         icon: Bot,    color: "text-emerald-400", bg: "bg-emerald-400/10", role: "Executes approved trades" },
-  healer:  { label: "Healer",         icon: Wrench, color: "text-rose-400",    bg: "bg-rose-400/10",    role: "Detects failures, self-heals" },
+  watcher:    { label: "Market Watcher", icon: Eye,            color: "text-blue-400",    bg: "bg-blue-400/10",    role: "Scans market, positions, regime" },
+  analyst:    { label: "Analyst",        icon: Brain,          color: "text-purple-400",  bg: "bg-purple-400/10",  role: "Reviews signals & runs daily audit" },
+  risk:       { label: "Risk Manager",   icon: Shield,         color: "text-amber-400",   bg: "bg-amber-400/10",   role: "Validates limits, can veto" },
+  trader:     { label: "Trader",         icon: Bot,            color: "text-emerald-400", bg: "bg-emerald-400/10", role: "Executes approved trades" },
+  healer:     { label: "Healer",         icon: Wrench,         color: "text-rose-400",    bg: "bg-rose-400/10",    role: "Detects failures, self-heals" },
+  supervisor: { label: "Supervisor",     icon: ClipboardCheck, color: "text-cyan-400",    bg: "bg-cyan-400/10",    role: "Audits all agents, ensures cycle health" },
 };
 
 const STATUS_VARIANT: Record<string, string> = {
@@ -34,8 +35,8 @@ const PRIORITY_BORDER: Record<string, string> = {
   critical: "border-l-destructive",
 };
 
-const AGENT_ORDER: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
-const ALL_AGENTS: (AgentName | "all")[] = ["watcher", "analyst", "risk", "trader", "healer"];
+const AGENT_ORDER: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer", "supervisor"];
+const ALL_AGENTS: (AgentName | "all")[] = ["watcher", "analyst", "risk", "trader", "healer", "supervisor"];
 
 // Group messages into "cycles". A cycle = burst with no gap > 25s.
 function groupCycles(messages: AgentMessageRow[]) {
@@ -200,7 +201,7 @@ export default function AgentConsole() {
       </div>
 
       {/* Agent grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         {states.map((s) => {
           const meta = AGENT_META[s.agent as AgentName];
           if (!meta) return null;
