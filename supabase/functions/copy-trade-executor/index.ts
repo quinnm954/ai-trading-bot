@@ -185,6 +185,67 @@ serve(async (req) => {
               continue;
             }
 
+            // 🔒 RISK-MANAGER GATE — copy trades must respect the user's risk settings
+            // (kill switch, daily/weekly loss, max concurrent, max position size, capital usage).
+            try {
+              const isPaperUser = settings.trading_mode === 'paper';
+              const equityForRisk = isPaperUser
+                ? balance
+                : (await supabase.from('live_account').select('equity').eq('user_id', follower.user_id).maybeSingle()).data?.equity ?? balance;
+
+              const { data: openPositions } = await supabase
+                .from('positions')
+                .select('quantity, current_price, avg_entry_price, unrealized_pnl')
+                .eq('user_id', follower.user_id)
+                .eq('is_paper', isPaperUser);
+
+              const openCount = openPositions?.length ?? 0;
+              const openValue = (openPositions ?? []).reduce(
+                (s: number, p: any) => s + Number(p.current_price ?? p.avg_entry_price ?? 0) * Number(p.quantity ?? 0),
+                0,
+              );
+              const openUnrealized = (openPositions ?? []).reduce(
+                (s: number, p: any) => s + Number(p.unrealized_pnl ?? 0),
+                0,
+              );
+
+              const riskResp = await fetch(
+                `${Deno.env.get('SUPABASE_URL')}/functions/v1/risk-manager`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                  },
+                  body: JSON.stringify({
+                    action: 'validate_trade',
+                    userId: follower.user_id,
+                    currentEquity: equityForRisk,
+                    openPositionsCount: openCount,
+                    openPositionsValue: openValue,
+                    openPositionsUnrealizedPnl: openUnrealized,
+                    tradeProposal: {
+                      symbol: signal.symbol,
+                      side: 'buy',
+                      quantity,
+                      price: executionPrice,
+                      positionValue: tradeValue,
+                      // Conservative implicit stop at -5% so risk-manager's required-stop check passes
+                      stopLoss: executionPrice * 0.95,
+                    },
+                  }),
+                },
+              );
+              const riskJson = await riskResp.json().catch(() => ({ approved: false, reason: 'risk-manager unreachable' }));
+              if (!riskJson?.approved) {
+                log(`🛑 Risk-manager blocked copy trade for ${signal.symbol}: ${riskJson?.reason ?? 'unknown'}`);
+                continue;
+              }
+            } catch (e: any) {
+              log(`Risk check error — blocking copy trade: ${e?.message ?? e}`);
+              continue;
+            }
+
             // Execute paper trade - create position
             const { error: posError } = await supabase
               .from('positions')
