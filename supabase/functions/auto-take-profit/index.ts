@@ -1767,13 +1767,15 @@ serve(async (req) => {
       totalStopLoss += result.stopLossCount;
       totalConversions += result.conversions || 0;
 
-      // 🔁 AUTO-RESTART: if the bot is currently stopped (kill-switch or disabled)
-      // and all positions for this mode are now closed, bring it back online so
-      // the next trading-engine cycle resumes scanning. Runs every cycle (not
-      // only when we just closed something) so a bot that was disabled while
-      // already flat still gets re-armed.
-      const stopped = settings?.kill_switch_active === true || settings?.enabled === false;
-      if (stopped) {
+      // 🔁 AUTO-RESTART (kill-switch only)
+      // If the bot was stopped by the KILL SWITCH (automatic safety trip) and all
+      // positions for this mode are now closed, bring it back online so the next
+      // trading-engine cycle resumes scanning.
+      //
+      // ⚠️ A user who manually pressed "Stop Trading" (enabled=false, no kill switch)
+      // is NOT auto-restarted — they must press Start again themselves.
+      const stoppedByKillSwitch = settings?.kill_switch_active === true;
+      if (stoppedByKillSwitch) {
         const { count: openCount } = await supabase
           .from('positions')
           .select('id', { count: 'exact', head: true })
@@ -1793,16 +1795,18 @@ serve(async (req) => {
             user_id: userId,
             event_type: 'bot_auto_restart',
             severity: 'info',
-            message: 'Bot auto-restarted (flat + stopped)',
+            message: 'Bot auto-restarted (kill switch cleared, flat)',
             details: {
-              trigger: settings?.kill_switch_active ? 'kill_switch_cleared' : 'bot_re_enabled',
+              trigger: 'kill_switch_cleared',
               mode: isPaperMode ? 'paper' : 'live',
             },
           });
 
           autoRestarts += 1;
-          console.log(`🔁 Auto-restart: bot re-enabled for user ${userId} (all ${isPaperMode ? 'paper' : 'live'} positions closed)`);
+          console.log(`🔁 Auto-restart: kill switch cleared, bot re-enabled for user ${userId} (all ${isPaperMode ? 'paper' : 'live'} positions closed)`);
         }
+      } else if (settings?.enabled === false) {
+        console.log(`⏸️ User manually stopped bot for ${userId} — leaving disabled until they press Start.`);
       }
     }
 
