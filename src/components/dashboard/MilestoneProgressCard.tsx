@@ -271,7 +271,7 @@ export function MilestoneProgressCard() {
             <span className="text-xs">Total P&L</span>
           </div>
           <p className={`font-bold ${totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-            {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
       </div>
