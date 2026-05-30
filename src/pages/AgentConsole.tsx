@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import {
   Eye, Brain, Shield, Bot, Wrench, Play, Pause, Ban, RefreshCw,
-  AlertTriangle, CheckCircle2, GraduationCap, Radio, Search, X, ChevronDown, ChevronRight, ClipboardCheck,
+  AlertTriangle, CheckCircle2, GraduationCap, Radio, Search, X, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useEffect, useMemo, useRef, useState } from "react";
