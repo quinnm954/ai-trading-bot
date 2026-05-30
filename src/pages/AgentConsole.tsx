@@ -16,8 +16,7 @@ const AGENT_META: Record<AgentName, { label: string; icon: any; color: string; b
   analyst:    { label: "Analyst",        icon: Brain,          color: "text-purple-400",  bg: "bg-purple-400/10",  role: "Reviews signals & runs daily audit" },
   risk:       { label: "Risk Manager",   icon: Shield,         color: "text-amber-400",   bg: "bg-amber-400/10",   role: "Validates limits, can veto" },
   trader:     { label: "Trader",         icon: Bot,            color: "text-emerald-400", bg: "bg-emerald-400/10", role: "Executes approved trades" },
-  healer:     { label: "Healer",         icon: Wrench,         color: "text-rose-400",    bg: "bg-rose-400/10",    role: "Detects failures, self-heals" },
-  supervisor: { label: "Supervisor",     icon: ClipboardCheck, color: "text-cyan-400",    bg: "bg-cyan-400/10",    role: "Audits all agents, ensures cycle health" },
+  healer:     { label: "Healer",         icon: Wrench,         color: "text-rose-400",    bg: "bg-rose-400/10",    role: "Detects failures across the app, audits agents, self-heals" },
 };
 
 const STATUS_VARIANT: Record<string, string> = {
