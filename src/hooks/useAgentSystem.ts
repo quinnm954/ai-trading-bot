@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
-export type AgentName = "trader" | "analyst" | "watcher" | "risk" | "healer";
+export type AgentName = "trader" | "analyst" | "watcher" | "risk" | "healer" | "supervisor";
 
 export interface AgentStateRow {
   id: string;
@@ -53,7 +53,7 @@ export interface HealerRemedyRow {
   notes: string | null;
 }
 
-const AGENTS: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
+const AGENTS: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer", "supervisor"];
 
 export function useAgentSystem() {
   const { user } = useAuth();
