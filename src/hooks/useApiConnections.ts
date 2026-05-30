@@ -229,6 +229,20 @@ export function useApiConnections() {
 
       if (error) throw error;
 
+      // Remove stored broker credentials so backend sync stops
+      await supabase
+        .from('broker_credentials')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('provider', provider);
+
+      // Remove live_account row for this provider so stale balance disappears
+      await supabase
+        .from('live_account')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('provider', provider);
+
       await fetchConnections();
       toast.success(`${provider} disconnected`);
       return true;
