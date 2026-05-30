@@ -280,11 +280,11 @@ export function MilestoneProgressCard() {
       <div className="pt-2 border-t border-border/50">
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Cash Balance</span>
-          <span className="text-foreground">${data.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          <span className="text-foreground">${data.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div className="flex justify-between text-sm mt-1">
           <span className="text-muted-foreground">Positions Value</span>
-          <span className="text-foreground">${data.positionsValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          <span className="text-foreground">${data.positionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>
     </div>
