@@ -1,12 +1,14 @@
-// Multi-agent orchestrator: runs one cycle of 6 specialized agents that
+// Multi-agent orchestrator: runs one cycle of 5 specialized agents that
 // communicate through the agent_messages bus.
 //
 //  watcher    → posts market observations
 //  analyst    → reads signals + runs daily trade-audit/learning when due
 //  risk       → validates the cycle against risk limits, may veto
 //  trader     → if not vetoed, delegates execution to ai-trading-engine
-//  healer     → scans recent errors/state, auto-remediates safe issues
-//  supervisor → audits the other 5, ensures each is doing its job
+//  healer     → audits the whole app (agents, edge functions, broker sync,
+//               data integrity, RLS errors) and auto-remediates safe issues.
+//               Absorbs former supervisor responsibilities + has expanded
+//               code-aware diagnostic abilities.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -21,7 +23,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-type AgentName = "trader" | "analyst" | "watcher" | "risk" | "healer" | "supervisor";
+type AgentName = "trader" | "analyst" | "watcher" | "risk" | "healer";
 
 interface Ctx {
   supabase: ReturnType<typeof createClient>;
@@ -409,6 +411,42 @@ async function applyAction(ctx: Ctx, remedy: Remedy, detection: any): Promise<{ 
           "Daily loss recovered — kill switch can be safely released", detection ?? {}, "high");
         return { ok: true, note: "release proposed" };
       }
+      case "reconcile_orphan_trades": {
+        const ids: string[] = detection?.sample_ids ?? [];
+        if (ids.length === 0) return { ok: true, note: "nothing to reconcile" };
+        await ctx.supabase.from("trades")
+          .update({ status: "cancelled", closed_at: new Date().toISOString(), exit_reason: "healer_orphan_reconcile" })
+          .in("id", ids);
+        return { ok: true, note: `reconciled ${ids.length} orphan trades` };
+      }
+      case "release_kill_switch": {
+        await ctx.supabase.from("ai_settings")
+          .update({ kill_switch_active: false, kill_switch_triggered_at: null })
+          .eq("user_id", ctx.userId);
+        return { ok: true, note: "kill switch released" };
+      }
+      case "alert_schema_drift": {
+        await post(ctx, "healer", "all", "incident",
+          "Code references a missing column/table — schema drift detected. Review recent migrations.",
+          detection ?? {}, "critical");
+        return { ok: true, note: "schema drift alert posted" };
+      }
+      case "alert_rls_error": {
+        await post(ctx, "healer", "all", "incident",
+          "RLS / permission denial detected — verify policies & GRANTs for affected tables.",
+          detection ?? {}, "critical");
+        return { ok: true, note: "rls alert posted" };
+      }
+      case "bootstrap_missing_agents": {
+        const missing: string[] = detection?.missing ?? [];
+        for (const agent of missing) {
+          await ctx.supabase.from("agent_state").insert({
+            user_id: ctx.userId, agent, status: "idle",
+            current_task: "bootstrapped by healer", last_heartbeat: new Date().toISOString(),
+          });
+        }
+        return { ok: true, note: `bootstrapped ${missing.length} agent rows` };
+      }
       default: return { ok: false, note: `unknown action ${remedy.action}` };
     }
   } catch (e) {
@@ -418,6 +456,9 @@ async function applyAction(ctx: Ctx, remedy: Remedy, detection: any): Promise<{ 
 
 async function detectIssues(ctx: Ctx) {
   const issues: Array<{ key: string; detection: any; description: string }> = [];
+  const now = Date.now();
+
+  // ----- A. Trade lifecycle ----------------------------------------------
   const { data: stale } = await ctx.supabase.from("pending_trades")
     .select("id").eq("user_id", ctx.userId).eq("status", "pending")
     .lt("expires_at", new Date().toISOString());
@@ -425,7 +466,9 @@ async function detectIssues(ctx: Ctx) {
     issues.push({ key: "stuck_pending_trades", description: `${stale.length} pending trades expired`,
       detection: { ids: stale.map((s: any) => s.id), count: stale.length } });
   }
-  const stuckCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  // ----- B. Agent health (was supervisor) --------------------------------
+  const stuckCutoff = new Date(now - 5 * 60 * 1000).toISOString();
   const { data: stuck } = await ctx.supabase.from("agent_state")
     .select("id, agent, last_heartbeat")
     .eq("user_id", ctx.userId).eq("status", "working").lt("last_heartbeat", stuckCutoff);
@@ -433,19 +476,101 @@ async function detectIssues(ctx: Ctx) {
     issues.push({ key: "stuck_agent_working", description: `${stuck.length} agent(s) stuck`,
       detection: { ids: stuck.map((s: any) => s.id), agents: stuck.map((s: any) => s.agent) } });
   }
-  const since10 = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  const { data: states } = await ctx.supabase.from("agent_state")
+    .select("id, agent, status, last_heartbeat, last_cycle_at")
+    .eq("user_id", ctx.userId);
+  const { data: settings } = await ctx.supabase
+    .from("ai_settings").select("enabled, trading_mode, kill_switch_active, daily_loss_today, peak_equity")
+    .eq("user_id", ctx.userId).maybeSingle();
+  const botEnabled = !!settings?.enabled;
+
+  const REQUIRED: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
+  const present = new Set((states ?? []).map((s: any) => s.agent));
+  const missing = REQUIRED.filter((a) => !present.has(a));
+  if (missing.length > 0) {
+    issues.push({ key: "missing_agent_rows", description: `Missing agent rows: ${missing.join(", ")}`,
+      detection: { missing } });
+  }
+
+  if (botEnabled) {
+    const staleAgents = (states ?? []).filter((s: any) => {
+      const age = (now - new Date(s.last_heartbeat).getTime()) / 60_000;
+      return age > 35; // > one cycle interval
+    });
+    if (staleAgents.length > 0) {
+      issues.push({ key: "supervisor_stale_agent", description: `${staleAgents.length} agent(s) heartbeat >35m old`,
+        detection: { ids: staleAgents.map((s: any) => s.id), agents: staleAgents.map((s: any) => s.agent) } });
+    }
+    const trader = (states ?? []).find((s: any) => s.agent === "trader");
+    if (trader && trader.status !== "paused") {
+      const lastCycle = trader.last_cycle_at ? new Date(trader.last_cycle_at).getTime() : 0;
+      const ageMin = (now - lastCycle) / 60_000;
+      if (ageMin > 90) {
+        issues.push({ key: "supervisor_trader_silent", description: `Trader has not cycled for ${ageMin.toFixed(0)}m`,
+          detection: { ageMin } });
+      }
+    }
+  }
+
+  // ----- C. Repeated errors / AI budget ----------------------------------
+  const since30 = new Date(now - 30 * 60 * 1000).toISOString();
   const { data: traderErr } = await ctx.supabase.from("agent_messages")
     .select("payload, subject, created_at")
     .eq("user_id", ctx.userId).eq("from_agent", "trader").eq("message_type", "agent_error")
-    .gte("created_at", since10);
+    .gte("created_at", since30);
   if (traderErr && traderErr.length >= 3) {
-    issues.push({ key: "repeated_trader_errors", description: `${traderErr.length} trader errors in 10m`,
+    issues.push({ key: "repeated_trader_errors", description: `${traderErr.length} trader errors in 30m`,
       detection: { count: traderErr.length, samples: traderErr.slice(0, 3) } });
   }
-  if (/payment_required|402|Not enough credits/i.test(JSON.stringify(traderErr ?? []))) {
+  const errBlob = JSON.stringify(traderErr ?? []);
+  if (/payment_required|402|Not enough credits/i.test(errBlob)) {
     issues.push({ key: "ai_credits_exhausted", description: "AI Gateway out of credits",
       detection: { evidence: "402/payment_required" } });
   }
+  // Code-aware: detect RLS denials / permission errors surfacing in agent messages
+  if (/row-level security|permission denied|RLS|42501/i.test(errBlob)) {
+    issues.push({ key: "rls_or_permission_error", description: "RLS / permission denials detected in trader errors",
+      detection: { samples: (traderErr ?? []).slice(0, 3) } });
+  }
+  // Code-aware: detect schema / column-missing errors
+  if (/column .* does not exist|relation .* does not exist|42P01|42703/i.test(errBlob)) {
+    issues.push({ key: "schema_drift_detected", description: "Schema drift: missing column or relation referenced in code",
+      detection: { samples: (traderErr ?? []).slice(0, 3) } });
+  }
+
+  // ----- D. Broker / live-mode connectivity ------------------------------
+  if (settings?.trading_mode === "live") {
+    const { data: live } = await ctx.supabase.from("live_account")
+      .select("last_synced_at").eq("user_id", ctx.userId).maybeSingle();
+    if (live?.last_synced_at) {
+      const ageMin = (now - new Date(live.last_synced_at).getTime()) / 60_000;
+      if (ageMin > 60) {
+        issues.push({ key: "broker_sync_stale", description: `Live account not synced for ${ageMin.toFixed(0)}m`,
+          detection: { ageMin } });
+      }
+    } else {
+      issues.push({ key: "broker_sync_stale", description: "Live mode enabled but live_account never synced",
+        detection: { ageMin: null } });
+    }
+  }
+
+  // ----- E. Data integrity: orphan positions / drifted paper balance ----
+  const { data: orphans } = await ctx.supabase.from("trades")
+    .select("id").eq("user_id", ctx.userId).eq("status", "open")
+    .lt("created_at", new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString())
+    .limit(50);
+  if (orphans && orphans.length > 10) {
+    issues.push({ key: "orphan_open_trades", description: `${orphans.length}+ trades stuck "open" >7 days`,
+      detection: { count: orphans.length, sample_ids: orphans.slice(0, 10).map((o: any) => o.id) } });
+  }
+
+  // ----- F. Kill-switch sanity ------------------------------------------
+  if (settings?.kill_switch_active && Number(settings?.daily_loss_today ?? 0) <= 0) {
+    issues.push({ key: "kill_switch_stuck", description: "Kill switch active but daily loss is zero/positive",
+      detection: { daily_loss_today: settings?.daily_loss_today } });
+  }
+
   return issues;
 }
 
@@ -499,102 +624,6 @@ async function runHealer(ctx: Ctx) {
   return summary;
 }
 
-// ---------- SUPERVISOR: audits the other 5 agents ----------
-async function runSupervisor(ctx: Ctx, cycle: any) {
-  const pauseOv = await getOverride(ctx, "supervisor");
-  if (pauseOv?.override_type === "pause") {
-    await setState(ctx, "supervisor", "paused", "Paused by user override");
-    return { skipped: true };
-  }
-  await setState(ctx, "supervisor", "working", "Auditing all agents");
-
-  const { data: states } = await ctx.supabase
-    .from("agent_state").select("agent, status, last_heartbeat, last_cycle_at, error_count, cycle_count")
-    .eq("user_id", ctx.userId);
-  const { data: settings } = await ctx.supabase
-    .from("ai_settings").select("enabled, trading_mode").eq("user_id", ctx.userId).maybeSingle();
-  const botEnabled = !!settings?.enabled;
-
-  const REQUIRED: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
-  const findings: string[] = [];
-  const issues: Array<{ key: string; description: string; detection: any }> = [];
-  const now = Date.now();
-
-  // 1. Every required agent must exist
-  const present = new Set((states ?? []).map((s: any) => s.agent));
-  const missing = REQUIRED.filter((a) => !present.has(a));
-  if (missing.length > 0) {
-    findings.push(`missing agents: ${missing.join(", ")}`);
-    issues.push({ key: "supervisor_cycle_incomplete", description: `Missing agent rows: ${missing.join(", ")}`, detection: { missing } });
-  }
-
-  // 2. Heartbeats fresh when bot enabled
-  if (botEnabled) {
-    const stale = (states ?? []).filter((s: any) => {
-      const age = (now - new Date(s.last_heartbeat).getTime()) / 60_000;
-      return age > 15 && s.agent !== "supervisor";
-    });
-    if (stale.length > 0) {
-      findings.push(`stale heartbeats: ${stale.map((s: any) => `${s.agent}(${((now - new Date(s.last_heartbeat).getTime()) / 60_000).toFixed(0)}m)`).join(", ")}`);
-      issues.push({ key: "supervisor_stale_agent", description: `${stale.length} agent(s) heartbeat >15m old`,
-        detection: { ids: stale.map((s: any) => (s as any).id), agents: stale.map((s: any) => s.agent) } });
-    }
-  }
-
-  // 3. Trader silent (no cycle activity in 30m while enabled and not paused)
-  if (botEnabled) {
-    const trader = (states ?? []).find((s: any) => s.agent === "trader");
-    if (trader && trader.status !== "paused") {
-      const lastCycle = trader.last_cycle_at ? new Date(trader.last_cycle_at).getTime() : 0;
-      const ageMin = (now - lastCycle) / 60_000;
-      if (ageMin > 30) {
-        findings.push(`trader silent ${ageMin.toFixed(0)}m`);
-        issues.push({ key: "supervisor_trader_silent", description: `Trader has not cycled for ${ageMin.toFixed(0)}m`,
-          detection: { ageMin } });
-      }
-    }
-  }
-
-  // 4. Cycle completeness — did this current cycle hit every phase?
-  const phasesRan = {
-    watcher: !cycle?.observation?.skipped,
-    analyst: !cycle?.analysis?.skipped,
-    risk: cycle?.risk !== undefined,
-    trader: cycle?.trade !== undefined,
-    healer: !cycle?.heal?.skipped,
-  };
-  const skipped = Object.entries(phasesRan).filter(([_, ran]) => !ran).map(([n]) => n);
-  if (skipped.length > 0 && botEnabled) {
-    findings.push(`cycle skipped: ${skipped.join(", ")}`);
-  }
-
-  // 5. Auto-record supervisor incidents for the healer to resolve next cycle
-  for (const issue of issues) {
-    await ctx.supabase.from("agent_incidents").insert({
-      user_id: ctx.userId, incident_type: issue.key, severity: "warning",
-      description: issue.description, context: issue.detection,
-      detected_by: "supervisor",
-    });
-  }
-
-  const summary = {
-    bot_enabled: botEnabled,
-    agents_checked: (states ?? []).length,
-    findings,
-    issues_raised: issues.length,
-    cycle_phases: phasesRan,
-  };
-
-  const subject = findings.length === 0
-    ? `All ${REQUIRED.length} agents healthy & cycle complete`
-    : `${findings.length} finding(s): ${findings.slice(0, 2).join("; ")}${findings.length > 2 ? "…" : ""}`;
-  await post(ctx, "supervisor", "all", findings.length === 0 ? "supervisor_ok" : "supervisor_alert",
-    subject, summary, findings.length === 0 ? "low" : "high");
-
-  await setState(ctx, "supervisor", "idle", null, summary);
-  return summary;
-}
-
 // ---------- ONE CYCLE ----------
 async function runOneCycle(ctx: Ctx) {
   const observation = await runWatcher(ctx);
@@ -602,9 +631,7 @@ async function runOneCycle(ctx: Ctx) {
   const risk = await runRisk(ctx, analysis as any, observation);
   const trade = await runTrader(ctx, risk as any);
   const heal = await runHealer(ctx);
-  const cycle = { observation, analysis, risk, trade, heal };
-  const supervise = await runSupervisor(ctx, cycle);
-  return { ...cycle, supervise };
+  return { observation, analysis, risk, trade, heal };
 }
 
 // ---------- main ----------
