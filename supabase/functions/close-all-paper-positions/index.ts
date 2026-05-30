@@ -155,10 +155,11 @@ serve(async (req) => {
       reasoning: `Manually closed ${closed.length} paper positions at market. Proceeds: $${totalProceeds.toFixed(2)}, realized P&L: $${totalPnl.toFixed(2)}. New balance: $${newBalance.toFixed(2)}.`,
     });
 
-    // 🔁 AUTO-RESTART: after a full close-out, bring the bot back online and
-    // clear any kill-switch so the next ai-trading-engine tick resumes scanning.
+    // 🔁 CLEAR KILL-SWITCH ONLY — after a full close-out we clear the kill switch
+    // so the user can press Start again, but we do NOT silently re-enable the bot.
+    // The user pressed "close all" which implies they want to be in control of
+    // when trading resumes. They must press Start Trading to come back online.
     await supabase.from('ai_settings').update({
-      enabled: true,
       kill_switch_active: false,
       kill_switch_triggered_at: null,
       bot_status: 'idle',
@@ -167,9 +168,9 @@ serve(async (req) => {
 
     await supabase.from('risk_events').insert({
       user_id: userId,
-      event_type: 'bot_auto_restart',
+      event_type: 'manual_close_all',
       severity: 'info',
-      message: 'Bot auto-restarted after manual close-all',
+      message: 'All paper positions closed manually — bot left stopped, awaiting user Start',
       details: { trigger: 'manual_close_all_paper', closed: closed.length },
     });
 
