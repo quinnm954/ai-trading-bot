@@ -420,6 +420,9 @@ async function applyAction(ctx: Ctx, remedy: Remedy, detection: any): Promise<{ 
 
 async function detectIssues(ctx: Ctx) {
   const issues: Array<{ key: string; detection: any; description: string }> = [];
+  const now = Date.now();
+
+  // ----- A. Trade lifecycle ----------------------------------------------
   const { data: stale } = await ctx.supabase.from("pending_trades")
     .select("id").eq("user_id", ctx.userId).eq("status", "pending")
     .lt("expires_at", new Date().toISOString());
@@ -427,7 +430,9 @@ async function detectIssues(ctx: Ctx) {
     issues.push({ key: "stuck_pending_trades", description: `${stale.length} pending trades expired`,
       detection: { ids: stale.map((s: any) => s.id), count: stale.length } });
   }
-  const stuckCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  // ----- B. Agent health (was supervisor) --------------------------------
+  const stuckCutoff = new Date(now - 5 * 60 * 1000).toISOString();
   const { data: stuck } = await ctx.supabase.from("agent_state")
     .select("id, agent, last_heartbeat")
     .eq("user_id", ctx.userId).eq("status", "working").lt("last_heartbeat", stuckCutoff);
@@ -435,19 +440,101 @@ async function detectIssues(ctx: Ctx) {
     issues.push({ key: "stuck_agent_working", description: `${stuck.length} agent(s) stuck`,
       detection: { ids: stuck.map((s: any) => s.id), agents: stuck.map((s: any) => s.agent) } });
   }
-  const since10 = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  const { data: states } = await ctx.supabase.from("agent_state")
+    .select("id, agent, status, last_heartbeat, last_cycle_at")
+    .eq("user_id", ctx.userId);
+  const { data: settings } = await ctx.supabase
+    .from("ai_settings").select("enabled, trading_mode, kill_switch_active, daily_loss_today, peak_equity")
+    .eq("user_id", ctx.userId).maybeSingle();
+  const botEnabled = !!settings?.enabled;
+
+  const REQUIRED: AgentName[] = ["watcher", "analyst", "risk", "trader", "healer"];
+  const present = new Set((states ?? []).map((s: any) => s.agent));
+  const missing = REQUIRED.filter((a) => !present.has(a));
+  if (missing.length > 0) {
+    issues.push({ key: "missing_agent_rows", description: `Missing agent rows: ${missing.join(", ")}`,
+      detection: { missing } });
+  }
+
+  if (botEnabled) {
+    const staleAgents = (states ?? []).filter((s: any) => {
+      const age = (now - new Date(s.last_heartbeat).getTime()) / 60_000;
+      return age > 35; // > one cycle interval
+    });
+    if (staleAgents.length > 0) {
+      issues.push({ key: "supervisor_stale_agent", description: `${staleAgents.length} agent(s) heartbeat >35m old`,
+        detection: { ids: staleAgents.map((s: any) => s.id), agents: staleAgents.map((s: any) => s.agent) } });
+    }
+    const trader = (states ?? []).find((s: any) => s.agent === "trader");
+    if (trader && trader.status !== "paused") {
+      const lastCycle = trader.last_cycle_at ? new Date(trader.last_cycle_at).getTime() : 0;
+      const ageMin = (now - lastCycle) / 60_000;
+      if (ageMin > 90) {
+        issues.push({ key: "supervisor_trader_silent", description: `Trader has not cycled for ${ageMin.toFixed(0)}m`,
+          detection: { ageMin } });
+      }
+    }
+  }
+
+  // ----- C. Repeated errors / AI budget ----------------------------------
+  const since30 = new Date(now - 30 * 60 * 1000).toISOString();
   const { data: traderErr } = await ctx.supabase.from("agent_messages")
     .select("payload, subject, created_at")
     .eq("user_id", ctx.userId).eq("from_agent", "trader").eq("message_type", "agent_error")
-    .gte("created_at", since10);
+    .gte("created_at", since30);
   if (traderErr && traderErr.length >= 3) {
-    issues.push({ key: "repeated_trader_errors", description: `${traderErr.length} trader errors in 10m`,
+    issues.push({ key: "repeated_trader_errors", description: `${traderErr.length} trader errors in 30m`,
       detection: { count: traderErr.length, samples: traderErr.slice(0, 3) } });
   }
-  if (/payment_required|402|Not enough credits/i.test(JSON.stringify(traderErr ?? []))) {
+  const errBlob = JSON.stringify(traderErr ?? []);
+  if (/payment_required|402|Not enough credits/i.test(errBlob)) {
     issues.push({ key: "ai_credits_exhausted", description: "AI Gateway out of credits",
       detection: { evidence: "402/payment_required" } });
   }
+  // Code-aware: detect RLS denials / permission errors surfacing in agent messages
+  if (/row-level security|permission denied|RLS|42501/i.test(errBlob)) {
+    issues.push({ key: "rls_or_permission_error", description: "RLS / permission denials detected in trader errors",
+      detection: { samples: (traderErr ?? []).slice(0, 3) } });
+  }
+  // Code-aware: detect schema / column-missing errors
+  if (/column .* does not exist|relation .* does not exist|42P01|42703/i.test(errBlob)) {
+    issues.push({ key: "schema_drift_detected", description: "Schema drift: missing column or relation referenced in code",
+      detection: { samples: (traderErr ?? []).slice(0, 3) } });
+  }
+
+  // ----- D. Broker / live-mode connectivity ------------------------------
+  if (settings?.trading_mode === "live") {
+    const { data: live } = await ctx.supabase.from("live_account")
+      .select("last_synced_at").eq("user_id", ctx.userId).maybeSingle();
+    if (live?.last_synced_at) {
+      const ageMin = (now - new Date(live.last_synced_at).getTime()) / 60_000;
+      if (ageMin > 60) {
+        issues.push({ key: "broker_sync_stale", description: `Live account not synced for ${ageMin.toFixed(0)}m`,
+          detection: { ageMin } });
+      }
+    } else {
+      issues.push({ key: "broker_sync_stale", description: "Live mode enabled but live_account never synced",
+        detection: { ageMin: null } });
+    }
+  }
+
+  // ----- E. Data integrity: orphan positions / drifted paper balance ----
+  const { data: orphans } = await ctx.supabase.from("trades")
+    .select("id").eq("user_id", ctx.userId).eq("status", "open")
+    .lt("created_at", new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString())
+    .limit(50);
+  if (orphans && orphans.length > 10) {
+    issues.push({ key: "orphan_open_trades", description: `${orphans.length}+ trades stuck "open" >7 days`,
+      detection: { count: orphans.length, sample_ids: orphans.slice(0, 10).map((o: any) => o.id) } });
+  }
+
+  // ----- F. Kill-switch sanity ------------------------------------------
+  if (settings?.kill_switch_active && Number(settings?.daily_loss_today ?? 0) <= 0) {
+    issues.push({ key: "kill_switch_stuck", description: "Kill switch active but daily loss is zero/positive",
+      detection: { daily_loss_today: settings?.daily_loss_today } });
+  }
+
   return issues;
 }
 
