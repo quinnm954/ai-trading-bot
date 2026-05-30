@@ -236,10 +236,16 @@ export function useApiConnections() {
         .eq('user_id', user.id)
         .eq('provider', provider);
 
-      // Remove live_account row for this provider so stale balance disappears
+      // Zero out live_account for this provider so stale balance disappears
+      // (RLS forbids deleting live_account rows)
       await supabase
         .from('live_account')
-        .delete()
+        .update({
+          balance: 0,
+          buying_power: 0,
+          equity: 0,
+          last_synced_at: new Date().toISOString(),
+        })
         .eq('user_id', user.id)
         .eq('provider', provider);
 
