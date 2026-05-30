@@ -1,12 +1,14 @@
-// Multi-agent orchestrator: runs one cycle of 6 specialized agents that
+// Multi-agent orchestrator: runs one cycle of 5 specialized agents that
 // communicate through the agent_messages bus.
 //
 //  watcher    → posts market observations
 //  analyst    → reads signals + runs daily trade-audit/learning when due
 //  risk       → validates the cycle against risk limits, may veto
 //  trader     → if not vetoed, delegates execution to ai-trading-engine
-//  healer     → scans recent errors/state, auto-remediates safe issues
-//  supervisor → audits the other 5, ensures each is doing its job
+//  healer     → audits the whole app (agents, edge functions, broker sync,
+//               data integrity, RLS errors) and auto-remediates safe issues.
+//               Absorbs former supervisor responsibilities + has expanded
+//               code-aware diagnostic abilities.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -21,7 +23,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-type AgentName = "trader" | "analyst" | "watcher" | "risk" | "healer" | "supervisor";
+type AgentName = "trader" | "analyst" | "watcher" | "risk" | "healer";
 
 interface Ctx {
   supabase: ReturnType<typeof createClient>;
