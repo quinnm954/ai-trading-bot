@@ -213,7 +213,7 @@ export function MilestoneProgressCard() {
       <div className="text-center py-4">
         <p className="text-sm text-muted-foreground mb-1">Current Equity</p>
         <p className="text-4xl font-bold text-foreground">
-          ${data.currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          ${data.currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </p>
         <p className={`text-sm font-medium ${totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
           {totalPnl >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}% from start
@@ -271,7 +271,7 @@ export function MilestoneProgressCard() {
             <span className="text-xs">Total P&L</span>
           </div>
           <p className={`font-bold ${totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-            {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
       </div>
@@ -280,11 +280,11 @@ export function MilestoneProgressCard() {
       <div className="pt-2 border-t border-border/50">
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Cash Balance</span>
-          <span className="text-foreground">${data.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          <span className="text-foreground">${data.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div className="flex justify-between text-sm mt-1">
           <span className="text-muted-foreground">Positions Value</span>
-          <span className="text-foreground">${data.positionsValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          <span className="text-foreground">${data.positionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>
     </div>
