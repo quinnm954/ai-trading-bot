@@ -614,32 +614,29 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
-    const isServiceRoleCall = token === SERVICE_ROLE;
 
-    // Service-role admin client (used for cron mode + cross-table writes)
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE);
 
     let userIds: string[] = [];
     let bodyJson: any = {};
     try { bodyJson = await req.json(); } catch { /* ignore */ }
 
-    if (isServiceRoleCall) {
-      if (bodyJson?.user_id) {
-        userIds = [bodyJson.user_id];
-      } else {
-        // Cron tick: run for every user with bot enabled
-        const { data } = await adminClient.from("ai_settings").select("user_id").eq("enabled", true);
-        userIds = (data ?? []).map((r: any) => r.user_id).filter(Boolean);
-      }
-    } else {
-      // User-initiated (manual "Run cycle now")
+    // Try user JWT first; fall back to cron mode (anon or service-role caller)
+    let userMode = false;
+    if (token && token !== SERVICE_ROLE && token !== ANON_KEY) {
       const userClient = createClient(SUPABASE_URL, ANON_KEY, {
         global: { headers: { Authorization: `Bearer ${token}` } },
       });
       const { data: { user } } = await userClient.auth.getUser(token);
-      if (!user) return new Response(JSON.stringify({ error: "invalid user" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      userIds = [user.id];
+      if (user) { userIds = [user.id]; userMode = true; }
+    }
+    if (!userMode) {
+      if (bodyJson?.user_id) {
+        userIds = [bodyJson.user_id];
+      } else {
+        const { data } = await adminClient.from("ai_settings").select("user_id").eq("enabled", true);
+        userIds = (data ?? []).map((r: any) => r.user_id).filter(Boolean);
+      }
     }
 
     const results: Record<string, any> = {};
@@ -656,7 +653,7 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({
-      ok: true, mode: isServiceRoleCall ? "cron" : "manual",
+      ok: true, mode: userMode ? "manual" : "cron",
       users: userIds.length, results,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
