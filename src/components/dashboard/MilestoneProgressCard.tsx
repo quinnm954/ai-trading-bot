@@ -213,7 +213,7 @@ export function MilestoneProgressCard() {
       <div className="text-center py-4">
         <p className="text-sm text-muted-foreground mb-1">Current Equity</p>
         <p className="text-4xl font-bold text-foreground">
-          ${data.currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          ${data.currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </p>
         <p className={`text-sm font-medium ${totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
           {totalPnl >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}% from start
