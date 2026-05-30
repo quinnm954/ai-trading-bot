@@ -625,14 +625,19 @@ async function runHealer(ctx: Ctx) {
 }
 
 // ---------- ONE CYCLE ----------
-async function runOneCycle(ctx: Ctx) {
-  const observation = await runWatcher(ctx);
-  const analysis = await runAnalyst(ctx, observation as any);
-  const risk = await runRisk(ctx, analysis as any, observation);
-  const trade = await runTrader(ctx, risk as any);
-  const heal = await runHealer(ctx);
-  return { observation, analysis, risk, trade, heal };
+async function runOneCycle(ctx: Ctx, agents?: AgentName[]) {
+  const run = (a: AgentName) => !agents || agents.includes(a);
+  const out: Record<string, any> = {};
+  const observation = run("watcher") ? await runWatcher(ctx) : null;
+  if (observation) out.observation = observation;
+  const analysis = run("analyst") ? await runAnalyst(ctx, observation as any) : null;
+  if (analysis) out.analysis = analysis;
+  if (run("risk")) out.risk = await runRisk(ctx, analysis as any, observation);
+  if (run("trader")) out.trade = await runTrader(ctx, (out.risk ?? null) as any);
+  if (run("healer")) out.heal = await runHealer(ctx);
+  return out;
 }
+
 
 // ---------- main ----------
 serve(async (req) => {
@@ -672,8 +677,12 @@ serve(async (req) => {
         // Use service-role client for DB; trader still calls ai-trading-engine with the
         // service-role token so RLS-bypass + per-user routing works in cron mode.
         const ctx: Ctx = { supabase: adminClient, userId: uid, authToken: SERVICE_ROLE, log: {} };
-        results[uid] = await runOneCycle(ctx);
+        const agentsFilter: AgentName[] | undefined = Array.isArray(bodyJson?.agents) && bodyJson.agents.length > 0
+          ? bodyJson.agents.filter((a: any) => ["watcher","analyst","risk","trader","healer"].includes(a))
+          : undefined;
+        results[uid] = await runOneCycle(ctx, agentsFilter);
       } catch (e) {
+
         console.error(`cycle failed for ${uid}`, e);
         results[uid] = { error: (e as Error).message };
       }

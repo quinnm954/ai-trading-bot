@@ -1,30 +1,30 @@
-# Raise scalp position cap from 5% → 15%
+## Tiered agent cadence
 
-## Change
+Replace the current single "run all 5 agents every 30 min" cron with three cron jobs, each invoking the orchestrator with a filter for which agents to run.
 
-In `supabase/functions/ai-trading-engine/index.ts` line 19:
+### Schedule
 
-```ts
-const SCALP_MAX_POSITION_PCT = 15; // was 5
-```
-
-## Effect
-
-Per-scalp notional cap as % of equity:
-
-| Equity | Old cap (5%) | New cap (15%) |
+| Tier | Agents | Frequency |
 |---|---|---|
-| $20k | $1,000 | $3,000 |
-| $100k | $5,000 | $15,000 |
+| Fast | Watcher, Risk, Trader | every 5 min |
+| Medium | Analyst | every 15 min |
+| Slow | Healer | every 30 min |
 
-Combined with the notional-based logic just shipped:
-- **1x spot:** margin up to 15% of equity per trade
-- **5x leveraged:** notional up to 15% of equity → margin up to 3% of equity
+### Changes
 
-The Risk panel's `Max Position Size` (default 10%, aggressive 15%) is still the AI's sizing ceiling. Aggressive Growth Mode users will now actually get the full 15% they ask for instead of being silently clipped to 5%.
+**1. `supabase/functions/agent-orchestrator/index.ts`**
+- Accept an optional `agents: AgentName[]` field in the request body.
+- If provided, `runOneCycle` runs only those agents (in canonical order: watcher → analyst → risk → trader → healer). Otherwise runs all 5 (preserves current behavior + manual triggers).
 
-## Risk note
+**2. Cron jobs (via `supabase--insert`, not migration, since URL+anon key are environment-specific)**
+- Unschedule existing `agent-orchestrator-every-30-min`.
+- Schedule three new jobs:
+  - `agent-orchestrator-fast` — `*/5 * * * *` → body `{ "agents": ["watcher","risk","trader"] }`
+  - `agent-orchestrator-medium` — `*/15 * * * *` → body `{ "agents": ["analyst"] }`
+  - `agent-orchestrator-slow` — `*/30 * * * *` → body `{ "agents": ["healer"] }`
 
-This triples per-trade exposure. Daily-loss kill switch (default 8% in aggressive mode) still backstops the account, but drawdowns on bad days will be ~3× louder. Worth running in paper for a few sessions before live.
-
-No DB migration, no UI change.
+### Notes
+- Healer's auto-reconciliation and code/schema audits remain on the 30-min cadence (matches what was just built).
+- Risk's kill-switch is now checked every 5 min instead of every 30 — much tighter capital protection.
+- Manual orchestrator invocations from the UI still run the full cycle (no `agents` filter sent).
+- No DB schema changes; no UI changes.
