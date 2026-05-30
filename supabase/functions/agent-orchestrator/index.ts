@@ -677,8 +677,12 @@ serve(async (req) => {
         // Use service-role client for DB; trader still calls ai-trading-engine with the
         // service-role token so RLS-bypass + per-user routing works in cron mode.
         const ctx: Ctx = { supabase: adminClient, userId: uid, authToken: SERVICE_ROLE, log: {} };
-        results[uid] = await runOneCycle(ctx);
+        const agentsFilter: AgentName[] | undefined = Array.isArray(bodyJson?.agents) && bodyJson.agents.length > 0
+          ? bodyJson.agents.filter((a: any) => ["watcher","analyst","risk","trader","healer"].includes(a))
+          : undefined;
+        results[uid] = await runOneCycle(ctx, agentsFilter);
       } catch (e) {
+
         console.error(`cycle failed for ${uid}`, e);
         results[uid] = { error: (e as Error).message };
       }
