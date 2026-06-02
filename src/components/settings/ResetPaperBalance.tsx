@@ -215,6 +215,36 @@ export function ResetPaperBalance() {
           </AlertDialog>
         </div>
 
+        <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
+          <div className="flex items-center gap-2">
+            <Pencil className="w-4 h-4 text-primary" />
+            <p className="font-medium text-foreground">Set Custom Paper Balance (Testing)</p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Override your paper balance to any amount. Useful for testing strategies at different equity levels.
+            {currentBalance !== null && (
+              <> Current: <span className="text-foreground font-medium">${currentBalance.toLocaleString()}</span></>
+            )}
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="customBalance" className="text-xs text-muted-foreground">New balance (USD)</Label>
+            <div className="flex gap-2">
+              <Input
+                id="customBalance"
+                type="number"
+                min="0"
+                step="0.01"
+                value={customBalance}
+                onChange={(e) => setCustomBalance(e.target.value)}
+                placeholder="100000"
+              />
+              <Button onClick={handleSetCustomBalance} disabled={isSaving} className="shrink-0">
+                {isSaving ? 'Saving…' : 'Set Balance'}
+              </Button>
+            </div>
+          </div>
+        </div>
+
         <p className="text-xs text-muted-foreground text-center">
           This only affects paper trading. Live accounts are not modified.
         </p>
