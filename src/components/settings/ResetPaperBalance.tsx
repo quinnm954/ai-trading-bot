@@ -22,6 +22,65 @@ export function ResetPaperBalance() {
   const [isResetting, setIsResetting] = useState(false);
   const [clearHistory, setClearHistory] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [currentBalance, setCurrentBalance] = useState<number | null>(null);
+  const [customBalance, setCustomBalance] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('paper_account')
+        .select('balance')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (data) {
+        setCurrentBalance(Number(data.balance));
+        setCustomBalance(String(Number(data.balance)));
+      }
+    })();
+  }, []);
+
+  const handleSetCustomBalance = async () => {
+    const value = parseFloat(customBalance);
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error('Enter a valid non-negative number');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Not authenticated');
+        return;
+      }
+      const { error } = await supabase
+        .from('paper_account')
+        .update({ balance: value })
+        .eq('user_id', user.id);
+      if (error) throw error;
+
+      // Keep peak_equity in sync so drawdown math doesn't go negative
+      await supabase
+        .from('ai_settings')
+        .update({ peak_equity: value })
+        .eq('user_id', user.id)
+        .gt('peak_equity', value);
+
+      await supabase
+        .from('equity_history')
+        .insert({ user_id: user.id, equity: value });
+
+      setCurrentBalance(value);
+      toast.success(`Paper balance set to $${value.toLocaleString()}`);
+    } catch (e) {
+      console.error('Set balance error:', e);
+      toast.error('Failed to update paper balance');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleReset = async () => {
     setIsResetting(true);
