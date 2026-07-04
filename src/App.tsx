@@ -28,6 +28,7 @@ import Pricing from "./pages/Pricing";
 import Landing from "./pages/Landing";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentConsole from "./pages/AgentConsole";
+import OAuthConsent from "./pages/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
           <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
           {/* Pricing route disabled during testing */}
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
