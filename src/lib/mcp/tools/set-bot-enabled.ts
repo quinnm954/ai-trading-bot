@@ -17,7 +17,6 @@ export default defineTool({
     enabled: z.boolean().describe("true to start the bot, false to stop it."),
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-  needsApproval: true,
   handler: async ({ enabled }, ctx) => {
     if (!ctx.isAuthenticated()) {
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
