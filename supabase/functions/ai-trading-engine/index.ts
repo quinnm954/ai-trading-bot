@@ -4469,7 +4469,9 @@ serve(async (req) => {
       }
       const maxCapitalUsage = Number(settings.max_capital_usage || 80);
       const maxPositionSize = Number(settings.max_position_size || 10);
-      const availableCapital = balance * (maxCapitalUsage / 100);
+      // Sized off the capital basis (initial deposit unless the user opted into reinvesting).
+      const availableCapital = capitalBasis * (maxCapitalUsage / 100);
+
 
       // Dynamic sizing: use AI-suggested size within maxPositionSize cap.
       // target_position_size_usd is intentionally ignored — no fixed dollar target.
