@@ -30,7 +30,7 @@ interface SimTrade {
   exit: number;
   pnlPct: number;
   holdMinutes: number;
-  reason: 'trailing_stop' | 'hard_stop' | 'end_of_window';
+  reason: 'trailing_stop' | 'hard_stop' | 'hard_tp' | 'end_of_window';
 }
 
 interface SkipRecord {
@@ -38,14 +38,18 @@ interface SkipRecord {
   reason: string;
 }
 
-// Same constants as the live scalping logic.
-const PEAK_GAIN_TRIGGER = 0.01;   // 1% — arms trailing stop
-const TRAIL_DROP_FROM_PEAK = 0.015; // 1.5% drop from peak triggers exit
-const HARD_STOP_LOSS = 0.02;      // 2% hard stop
+// Same expectancy-first geometry as auto-take-profit / ai-trading-engine.
+// Any divergence here would make the replay a fantasy simulator.
+const HARD_TAKE_PROFIT = 0.014;      // 1.4% gross target (clears the 0.8% round trip)
+const HARD_STOP_LOSS = 0.008;        // 0.8% max risk → 1.75:1 reward:risk
+const TRAIL_ARM_PNL = 0.010;         // arm the trail once past fees + buffer
+const TRAIL_GIVEBACK_FRACTION = 0.4; // trail at 40% of the peak gain
+const TRAIL_MIN_DROP = 0.0035;       // absolute floor on giveback
 const MIN_MOMENTUM = 0.005;       // 0.5% — entry trigger over short window
 const ENTRY_LOOKBACK_BARS = 5;    // momentum measured over last 5 mins
-const FEE_ROUND_TRIP = 0.002;     // 0.2% round-trip fee assumption
+const FEE_ROUND_TRIP = 0.008;     // 0.4% maker in + 0.4% maker out
 const COOLDOWN_BARS = 6;          // 6-min cooldown after exit
+
 
 // Multi-confirmation gates (mirror live ai-trading-engine scalp case)
 const VOL_WINDOW_BARS = 1440;       // 24h rolling window for daily range/volume
@@ -209,14 +213,21 @@ function simulate(bars: Kline[], strict: boolean): {
       exitPrice = entryPrice * (1 - HARD_STOP_LOSS);
       reason = 'hard_stop';
     }
-    // Trailing stop: peak gain reached trigger AND current price dropped 1.5% from peak
-    else if (peakPnl >= PEAK_GAIN_TRIGGER) {
-      const trailExitPnl = peakPnl - TRAIL_DROP_FROM_PEAK;
+    // Hard take-profit: lock the target in as soon as it trades through
+    else if (highPnl >= HARD_TAKE_PROFIT) {
+      exitPrice = entryPrice * (1 + HARD_TAKE_PROFIT);
+      reason = 'hard_tp';
+    }
+    // Proportional trailing stop: arms past fees, then gives back 40% of the peak gain
+    else if (peakPnl >= TRAIL_ARM_PNL) {
+      const giveback = Math.max(TRAIL_MIN_DROP, peakPnl * TRAIL_GIVEBACK_FRACTION);
+      const trailExitPnl = peakPnl - giveback;
       if (lowPnl <= trailExitPnl) {
         exitPrice = entryPrice * (1 + trailExitPnl);
         reason = 'trailing_stop';
       }
     }
+
 
     if (exitPrice !== null && reason !== null) {
       const grossPnlPct = (exitPrice - entryPrice) / entryPrice;

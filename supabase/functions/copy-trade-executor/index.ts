@@ -10,6 +10,11 @@ const log = (step: string, details?: any) => {
   console.log(`[COPY-TRADE] ${step}`, details ? JSON.stringify(details) : '');
 };
 
+// Expectancy-first exit geometry — identical to ai-trading-engine / auto-take-profit.
+const COPY_MAX_RISK_PCT = 0.8;
+const COPY_TAKE_PROFIT_PCT = 1.4;
+
+
 // CoinGecko ID map for live-price validation (prevents stale-price copy trades)
 const COINGECKO_IDS: Record<string, string> = {
   BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'ripple', ADA: 'cardano',
@@ -230,8 +235,11 @@ serve(async (req) => {
                       quantity,
                       price: executionPrice,
                       positionValue: tradeValue,
-                      // Conservative implicit stop at -5% so risk-manager's required-stop check passes
-                      stopLoss: executionPrice * 0.95,
+                      // Copy trades use the same expectancy-first geometry as the engine:
+                      // 0.8% max risk, 1.4% target (1.75:1 after the 0.8% fee round trip).
+                      stopLoss: executionPrice * (1 - COPY_MAX_RISK_PCT / 100),
+                      takeProfit: executionPrice * (1 + COPY_TAKE_PROFIT_PCT / 100),
+
                     },
                   }),
                 },

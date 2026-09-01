@@ -8,6 +8,13 @@
       "when": 1788280395568,
       "tag": "0000_strategy_expectancy",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788280799751,
+      "tag": "0001_add_reinvest_profits_flag",
+      "breakpoints": true
     }
   ]
 }

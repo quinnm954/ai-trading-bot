@@ -19,6 +19,21 @@ const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window trigge
 const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
 
+// ── Expectancy-first exit geometry (must match auto-take-profit / risk-manager) ──
+// Every loser has to cost less than every winner earns, after the 0.8% maker round trip.
+// These bounds apply identically to paper and live — no mode gets looser math.
+const MIN_REWARD_RISK = 1.6;      // minimum reward:risk on any scalp
+const TP_FLOOR_GROSS_PCT = 1.4;   // gross TP floor; clears the 0.8% round trip with edge left
+const MAX_RISK_PCT = 0.8;         // hard cap on how far a single trade may lose
+const ROUND_TRIP_FEE_PCT = 0.8;   // 0.4% maker in + 0.4% maker out
+
+// Clamp any take-profit/stop pair into profitable geometry.
+function enforceExitGeometry(rawTp: number, rawStop: number) {
+  const stop = Math.min(Math.abs(rawStop) > 0 ? Math.abs(rawStop) : MAX_RISK_PCT, MAX_RISK_PCT);
+  const tp = Math.max(Number(rawTp) || 0, TP_FLOOR_GROSS_PCT, stop * MIN_REWARD_RISK);
+  return { take_profit_pct: tp, hard_stop_loss_pct: stop };
+}
+
 // Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
 const SCALP_CFG_DEFAULTS = {
   entry_min_5m_pct: 0.3,
@@ -27,12 +42,12 @@ const SCALP_CFG_DEFAULTS = {
   entry_min_24h_pct: 0.3,
   reentry_breakout_pct: 0.25,
   chase_guard_minutes: 120,
-  take_profit_pct: 1.0,
-  trailing_drop_pct: 1.5,
-  hard_stop_loss_pct: 3.0,
+  take_profit_pct: TP_FLOOR_GROSS_PCT,
+  trailing_drop_pct: 0.35,
+  hard_stop_loss_pct: MAX_RISK_PCT,
   momentum_rotation_min_pct: 0.5,
   loss_rotation_enabled: true,
-  loss_rotation_max_loss_pct: -2.0,
+  loss_rotation_max_loss_pct: -MAX_RISK_PCT,
   loss_rotation_momentum_edge_pct: 0.5,
   loss_rotation_min_age_sec: 300,
   loss_rotation_cooldown_sec: 60,
@@ -52,12 +67,21 @@ async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
         if (data[k] !== null && data[k] !== undefined) (cfg as any)[k] = data[k];
       }
     }
+    // Saved rows may predate the geometry rules — correct them on read so a stale
+    // config can never hand the engine a negative-expectancy target/stop pair.
+    const geo = enforceExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
+    if (geo.take_profit_pct !== cfg.take_profit_pct || geo.hard_stop_loss_pct !== Math.abs(cfg.hard_stop_loss_pct)) {
+      console.log(`🔧 Geometry corrected: TP ${cfg.take_profit_pct}%→${geo.take_profit_pct.toFixed(2)}%, Stop ${cfg.hard_stop_loss_pct}%→${geo.hard_stop_loss_pct.toFixed(2)}%`);
+    }
+    cfg.take_profit_pct = geo.take_profit_pct;
+    cfg.hard_stop_loss_pct = geo.hard_stop_loss_pct;
     return cfg;
   } catch (e) {
     console.warn('loadScalpCfg fallback to defaults:', e);
     return { ...SCALP_CFG_DEFAULTS };
   }
 }
+
 
 // Legacy aliases so callers without a cfg fall back to defaults
 const ENTRY_CONFIRM_MIN_5M_PCT = SCALP_CFG_DEFAULTS.entry_min_5m_pct;
@@ -321,6 +345,8 @@ async function validateTradeWithRiskManager(
     price: number;
     positionValue: number;
     stopLoss?: number;
+    takeProfit?: number;
+
   },
   currentEquity: number,
   openPositionsCount: number,
@@ -2957,26 +2983,32 @@ async function adaptParametersFromRecentTrades(
 
     const next: Record<string, number> = {};
 
-    // 1) Take profit — capture more when winners run, take less when they barely tag
+    // 1) Take profit — capture more when winners run, but never below the fee-clearing floor
     let tp = Number(ss.take_profit_pct);
-    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, 0.6, 4.0);
-    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, 0.6, 4.0);
-    if (Math.abs(tp - Number(ss.take_profit_pct)) >= 0.05) next.take_profit_pct = round2(tp);
+    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, TP_FLOOR_GROSS_PCT, 4.0);
+    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, TP_FLOOR_GROSS_PCT, 4.0);
 
     // 2) Trailing drop — tighten in hot streaks, loosen in cold
     let td = Number(ss.trailing_drop_pct);
-    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.6, 3.0);
-    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.6, 3.0);
+    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.3, 1.5);
+    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.3, 1.5);
     if (Math.abs(td - Number(ss.trailing_drop_pct)) >= 0.05) next.trailing_drop_pct = round2(td);
 
-    // 3) Hard stop loss — pull in to the realized avg loss with safety buffer
-    let sl = Number(ss.hard_stop_loss_pct);
+    // 3) Hard stop loss — may only tighten. Widening it past MAX_RISK_PCT is what made
+    //    the average loss 2.3x the average win, so the tuner can no longer do that.
+    let sl = Math.min(Math.abs(Number(ss.hard_stop_loss_pct)), MAX_RISK_PCT);
     if (avgLoss > 0 && losses.length >= 3) {
-      const target = clamp(avgLoss * 1.25, 1.0, 4.0); // 25% buffer beyond avg realized loss
-      // ease toward target so we don't whipsaw
-      sl = clamp(sl * 0.6 + target * 0.4, 1.0, 4.0);
+      const target = clamp(avgLoss * 1.25, 0.3, MAX_RISK_PCT);
+      sl = clamp(sl * 0.6 + target * 0.4, 0.3, MAX_RISK_PCT);
     }
-    if (Math.abs(sl - Number(ss.hard_stop_loss_pct)) >= 0.05) next.hard_stop_loss_pct = round2(sl);
+
+    // Geometry guard: re-assert on the tuned pair before persisting anything.
+    const tunedGeo = enforceExitGeometry(tp, sl);
+    tp = tunedGeo.take_profit_pct;
+    sl = tunedGeo.hard_stop_loss_pct;
+    if (Math.abs(tp - Number(ss.take_profit_pct)) >= 0.05) next.take_profit_pct = round2(tp);
+    if (Math.abs(sl - Math.abs(Number(ss.hard_stop_loss_pct))) >= 0.05) next.hard_stop_loss_pct = round2(sl);
+
 
     // 4) Entry thresholds — be pickier after a losing streak, more permissive after wins
     let e5 = Number(ss.entry_min_5m_pct);
@@ -3357,9 +3389,33 @@ serve(async (req) => {
         .eq('user_id', user.id);
     }
 
+    // 💵 CAPITAL BASIS — profits are NOT reinvested unless the user opts in.
+    // Sizing is based on the initial deposit, so realized gains accumulate as idle cash
+    // instead of compounding risk. reinvest_profits = true restores equity-based sizing.
+    const reinvestProfits = settings.reinvest_profits === true;
+    let initialDeposit = 0;
+    if (isPaperMode) {
+      const { data: paperInit } = await supabase
+        .from('paper_account')
+        .select('initial_balance')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      initialDeposit = Number(paperInit?.initial_balance) || 0;
+    } else {
+      initialDeposit = Number(settings.live_initial_investment) || 0;
+    }
+
+    // Cash-equivalent basis the engine may deploy. Never larger than the cash on hand.
+    const capitalBasis = reinvestProfits || initialDeposit <= 0
+      ? balance
+      : Math.min(balance, initialDeposit);
+
+    console.log(`💵 Capital basis: $${capitalBasis.toFixed(2)} (cash $${balance.toFixed(2)}, initial deposit $${initialDeposit.toFixed(2)}, reinvest profits: ${reinvestProfits ? 'ON' : 'OFF — profits held aside'})`);
+
     // 📋 LOG ALL USER PARAMETERS BEING USED
     console.log(`⚙️ YOUR AI TRADER SETTINGS:`);
     console.log(`   Max Capital Usage: ${settings.max_capital_usage || 80}%`);
+
     console.log(`   Max Position Size: ${settings.max_position_size || 10}%`);
     console.log(`   Max Daily Loss: ${settings.max_daily_loss || 5}%`);
     console.log(`   Max Concurrent Trades: ${settings.max_concurrent_trades || 5}`);
@@ -4128,7 +4184,8 @@ serve(async (req) => {
         
         // Calculate position value
         const maxCapitalUsage = settings.max_capital_usage || 80;
-        const availableCapital = balance * (maxCapitalUsage / 100);
+        const availableCapital = capitalBasis * (maxCapitalUsage / 100);
+
         const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
         const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 1);
         const quantity = tradeValue / coinData.price;
@@ -4444,7 +4501,9 @@ serve(async (req) => {
       }
       const maxCapitalUsage = Number(settings.max_capital_usage || 80);
       const maxPositionSize = Number(settings.max_position_size || 10);
-      const availableCapital = balance * (maxCapitalUsage / 100);
+      // Sized off the capital basis (initial deposit unless the user opted into reinvesting).
+      const availableCapital = capitalBasis * (maxCapitalUsage / 100);
+
 
       // Dynamic sizing: use AI-suggested size within maxPositionSize cap.
       // target_position_size_usd is intentionally ignored — no fixed dollar target.
@@ -4497,8 +4556,12 @@ serve(async (req) => {
         const _openVal = (_capPositions || []).reduce(
           (s: number, p: any) => s + Number(p.quantity) * Number(p.avg_entry_price), 0
         );
-        const equity = balance + _openVal;
+        // Cap against the capital basis, not grown equity, so profits don't enlarge positions.
+        const equity = reinvestProfits || initialDeposit <= 0
+          ? balance + _openVal
+          : Math.min(balance + _openVal, initialDeposit);
         const equityCap = equity * (SCALP_MAX_POSITION_PCT / 100);
+
         const notional = tradeValue * decisionLeverage;
         if (notional > equityCap) {
           const newMargin = equityCap / Math.max(decisionLeverage, 1);
@@ -4555,13 +4618,22 @@ serve(async (req) => {
         0
       );
       
-      // 🔒 STRICT STOP-LOSS: use scalp_settings.hard_stop_loss_pct exactly (not the 1%-risk-budget calc).
-      // AI cannot widen the stop. Fallback to 2% only if config missing.
-      const strictHardStopPct = Number(scalpCfg.hard_stop_loss_pct || 2);
+      // 🔒 STRICT EXIT GEOMETRY: stop and target come from the geometry-enforced config,
+      // so the risk-manager's expectancy check sees the same numbers auto-take-profit
+      // will actually execute — identical in paper and live.
+      const strictHardStopPct = Math.min(Number(scalpCfg.hard_stop_loss_pct) || MAX_RISK_PCT, MAX_RISK_PCT);
+      const strictTakeProfitPct = Math.max(
+        Number(scalpCfg.take_profit_pct) || TP_FLOOR_GROSS_PCT,
+        TP_FLOOR_GROSS_PCT,
+        strictHardStopPct * MIN_REWARD_RISK
+      );
       const maxStopDistancePct = Math.max(0.0025, strictHardStopPct / 100);
 
       const defaultStopLoss = decision.action === 'buy'
         ? actualEntryPrice * (1 - maxStopDistancePct)
+        : undefined;
+      const defaultTakeProfit = decision.action === 'buy'
+        ? actualEntryPrice * (1 + strictTakeProfitPct / 100)
         : undefined;
       
       // currentEquity = cash + value of open positions (NOT cash alone),
@@ -4578,7 +4650,9 @@ serve(async (req) => {
           price: actualEntryPrice,
           positionValue: prePositionValue,
           stopLoss: defaultStopLoss,
+          takeProfit: defaultTakeProfit,
         },
+
         currentEquityForRisk,
         openPositionsCount,
         openPositionsValue,
@@ -4665,7 +4739,12 @@ serve(async (req) => {
         status: 'open' as const,
         strategy: strategyType,
         ai_reasoning: decision.reason,
+        // Persist the enforced geometry so the journal shows the R:R the trade was taken on
+        stop_loss_price: defaultStopLoss ?? null,
+        take_profit_price: defaultTakeProfit ?? null,
+        risk_reward: defaultStopLoss ? strictTakeProfitPct / strictHardStopPct : null,
       };
+
 
       const { data: trade, error: tradeError } = await supabase
         .from('trades')
