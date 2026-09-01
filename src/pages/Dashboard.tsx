@@ -217,22 +217,16 @@ export default function Dashboard() {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Reset Paper Trading Account?</AlertDialogTitle>
-                  <AlertDialogDescription className="space-y-4">
+                  <AlertDialogDescription className="space-y-3">
                     <p>This will reset your paper trading balance back to <strong>$100,000</strong>.</p>
-                    <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50">
-                      <Checkbox 
-                        id="clearHistoryDashboard"
-                        checked={clearHistory}
-                        onCheckedChange={(checked) => setClearHistory(checked === true)}
-                      />
-                      <label htmlFor="clearHistoryDashboard" className="text-sm cursor-pointer">
-                        <span className="font-medium text-foreground">Clear all trading history</span>
-                        <p className="text-muted-foreground mt-1">
-                          Delete all paper trades, positions, and equity history for a fresh start.
-                        </p>
-                      </label>
-                    </div>
+                    <p className="text-muted-foreground">
+                      All associated data is cleared too: paper trades and positions, equity curve,
+                      daily P&amp;L, risk events, AI decisions and signal scores, strategy performance,
+                      cooldowns, pending trades, journal notes, backtests, grids and agent logs.
+                      Live broker data is not touched.
+                    </p>
                   </AlertDialogDescription>
+
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
