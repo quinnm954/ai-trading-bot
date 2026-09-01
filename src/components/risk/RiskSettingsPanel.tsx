@@ -237,8 +237,12 @@ export function RiskSettingsPanel() {
         )}
       </div>
 
+      {/* Capital basis — profits stay out of play unless explicitly reinvested */}
+      <ReinvestProfitsToggle />
+
       {/* Presets */}
       <div className="space-y-2 mb-2">
+
         <span className="text-sm font-medium text-foreground">Risk tolerance preset</span>
         <div className="grid grid-cols-4 gap-2">
           {(['conservative', 'moderate', 'aggressive', 'ultra_aggressive'] as RiskTolerance[]).map((level) => (
