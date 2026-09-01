@@ -22,18 +22,20 @@ import {
 
 type RiskTolerance = 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
 
+// NOTE ON EXIT GEOMETRY: every preset keeps take-profit >= 1.4% and >= 1.6x the stop.
+// Anything tighter is mathematically unprofitable once the ~0.8% fee round trip is paid.
 const RISK_PRESETS: Record<RiskTolerance, Record<string, number>> = {
   conservative:   { maxPositionSize: 5,  maxDailyLoss: 3,  weeklyLossLimit: 10, maxDrawdown: 20, maxConcurrentTrades: 5,  maxCapitalUsage: 50, maxLeverage: 1,
-                    take_profit_pct: 1.5, trailing_drop_pct: 1.0, hard_stop_loss_pct: 2.0,
+                    take_profit_pct: 1.6, trailing_drop_pct: 0.5, hard_stop_loss_pct: 0.6,
                     entry_min_5m_pct: 0.5, entry_min_1h_pct: 0.5, entry_min_24h_pct: 0.5 },
   moderate:       { maxPositionSize: 10, maxDailyLoss: 5,  weeklyLossLimit: 12, maxDrawdown: 25, maxConcurrentTrades: 8,  maxCapitalUsage: 70, maxLeverage: 1,
-                    take_profit_pct: 1.0, trailing_drop_pct: 1.5, hard_stop_loss_pct: 3.0,
+                    take_profit_pct: 1.4, trailing_drop_pct: 0.5, hard_stop_loss_pct: 0.7,
                     entry_min_5m_pct: 0.3, entry_min_1h_pct: 0.3, entry_min_24h_pct: 0.3 },
   aggressive:     { maxPositionSize: 20, maxDailyLoss: 8,  weeklyLossLimit: 18, maxDrawdown: 30, maxConcurrentTrades: 12, maxCapitalUsage: 85, maxLeverage: 2,
-                    take_profit_pct: 0.8, trailing_drop_pct: 1.8, hard_stop_loss_pct: 3.5,
+                    take_profit_pct: 1.4, trailing_drop_pct: 0.45, hard_stop_loss_pct: 0.8,
                     entry_min_5m_pct: 0.2, entry_min_1h_pct: 0.2, entry_min_24h_pct: 0.2 },
   ultra_aggressive:{ maxPositionSize: 30, maxDailyLoss: 10, weeklyLossLimit: 25, maxDrawdown: 40, maxConcurrentTrades: 20, maxCapitalUsage: 95, maxLeverage: 3,
-                    take_profit_pct: 0.6, trailing_drop_pct: 2.0, hard_stop_loss_pct: 4.0,
+                    take_profit_pct: 1.5, trailing_drop_pct: 0.4, hard_stop_loss_pct: 0.8,
                     entry_min_5m_pct: 0.15, entry_min_1h_pct: 0.15, entry_min_24h_pct: 0.15 },
 };
 
@@ -48,13 +50,14 @@ const SCALP_DEFAULTS = {
   entry_min_5m_pct: 0.3,
   entry_min_1h_pct: 0.3,
   entry_min_24h_pct: 0.3,
-  take_profit_pct: 1.0,
-  trailing_drop_pct: 1.5,
-  hard_stop_loss_pct: 3.0,
+  take_profit_pct: 1.4,
+  trailing_drop_pct: 0.4,
+  hard_stop_loss_pct: 0.8,
   loss_rotation_enabled: true,
   loss_rotation_max_loss_pct: -2.0,
   target_position_size_usd: 50,
 };
+
 
 type ScalpRow = typeof SCALP_DEFAULTS;
 
