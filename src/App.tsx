@@ -23,6 +23,8 @@ import Fusion from "./pages/Fusion";
 import Trades from "./pages/Trades";
 import ApiKeys from "./pages/ApiKeys";
 import Settings from "./pages/Settings";
+import CryptoWallet from "./pages/CryptoWallet";
+import MarketDepth from "./pages/MarketDepth";
 import Auth from "./pages/Auth";
 import Pricing from "./pages/Pricing";
 import Landing from "./pages/Landing";
