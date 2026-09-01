@@ -3,15 +3,12 @@
  * BROKER/EXCHANGE API CONNECTIONS HOOK
  * =============================================================================
  * 
- * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
  * PATENT REFERENCE: No Custody of User Funds (Patent Claim 5)
  * 
- * This hook manages API connections to various brokers and exchanges.
- * The platform supports BOTH crypto exchanges AND stock brokers to enable
- * the patent's multi-asset class trading capability.
+ * This hook manages API connections to crypto exchanges. This platform trades
+ * crypto exclusively.
  * 
  * SUPPORTED PROVIDERS:
- * - alpaca: US stocks and crypto (commission-free)
  * - coinbase: Cryptocurrency trading
  * - binance, kraken, kucoin, bybit, okx, gateio, bitget: Crypto exchanges
  * 
@@ -27,8 +24,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
-// Extended to include stock brokers (Alpaca, IBKR, Tradier) for multi-asset support
-export type ExchangeProvider = 'ibkr' | 'tradier' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
+// Crypto exchanges only
+export type ExchangeProvider = 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
 
 export interface ApiConnection {
   id: string;
@@ -139,32 +136,6 @@ export function useApiConnections() {
           });
 
         if (insertError) throw insertError;
-      }
-
-      // Store encrypted credentials in broker_credentials table for stock brokers
-      // This enables backend sync without requiring global secrets
-      const stockBrokers: ExchangeProvider[] = ['ibkr', 'tradier'];
-      if (stockBrokers.includes(detectedProvider)) {
-        const { error: credError } = await supabase
-          .from('broker_credentials')
-          .upsert({
-            user_id: user.id,
-            provider: detectedProvider,
-            api_key_encrypted: credentials.apiKey,
-            secret_key_encrypted: credentials.secretKey || null,
-            passphrase_encrypted: credentials.passphrase || null,
-            access_token_encrypted: detectedProvider === 'tradier' ? credentials.apiKey : null,
-            is_paper: false,
-          }, {
-            onConflict: 'user_id,provider',
-          });
-
-        if (credError) {
-          console.error('Error storing broker credentials:', credError);
-          // Don't fail the connection, just log the error
-        } else {
-          console.log(`✅ Stored ${detectedProvider} credentials for backend sync`);
-        }
       }
 
       // Create/update live_account with synced balance

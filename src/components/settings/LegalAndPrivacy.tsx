@@ -161,7 +161,7 @@ export function LegalAndPrivacy() {
             <AccordionContent className="text-sm text-muted-foreground space-y-4 pb-4">
               <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 text-warning">
                 <p className="font-semibold">⚠️ Important Risk Warning</p>
-                <p className="mt-1">Trading cryptocurrencies and stocks involves substantial risk of loss and is not suitable for all investors.</p>
+                <p className="mt-1">Trading cryptocurrencies involves substantial risk of loss and is not suitable for all investors.</p>
               </div>
               
               <section>
@@ -199,7 +199,6 @@ export function LegalAndPrivacy() {
                 <h4 className="font-semibold text-foreground mb-2">4. Regulatory Risks</h4>
                 <ul className="list-disc list-inside ml-2 space-y-1">
                   <li>Cryptocurrency regulations vary by jurisdiction and may change</li>
-                  <li>Pattern Day Trader (PDT) rules apply to US equity accounts under $25,000</li>
                   <li>You are responsible for compliance with local laws and regulations</li>
                   <li>Tax obligations related to trading are your responsibility</li>
                 </ul>
