@@ -4616,13 +4616,22 @@ serve(async (req) => {
         0
       );
       
-      // 🔒 STRICT STOP-LOSS: use scalp_settings.hard_stop_loss_pct exactly (not the 1%-risk-budget calc).
-      // AI cannot widen the stop. Fallback to 2% only if config missing.
-      const strictHardStopPct = Number(scalpCfg.hard_stop_loss_pct || 2);
+      // 🔒 STRICT EXIT GEOMETRY: stop and target come from the geometry-enforced config,
+      // so the risk-manager's expectancy check sees the same numbers auto-take-profit
+      // will actually execute — identical in paper and live.
+      const strictHardStopPct = Math.min(Number(scalpCfg.hard_stop_loss_pct) || MAX_RISK_PCT, MAX_RISK_PCT);
+      const strictTakeProfitPct = Math.max(
+        Number(scalpCfg.take_profit_pct) || TP_FLOOR_GROSS_PCT,
+        TP_FLOOR_GROSS_PCT,
+        strictHardStopPct * MIN_REWARD_RISK
+      );
       const maxStopDistancePct = Math.max(0.0025, strictHardStopPct / 100);
 
       const defaultStopLoss = decision.action === 'buy'
         ? actualEntryPrice * (1 - maxStopDistancePct)
+        : undefined;
+      const defaultTakeProfit = decision.action === 'buy'
+        ? actualEntryPrice * (1 + strictTakeProfitPct / 100)
         : undefined;
       
       // currentEquity = cash + value of open positions (NOT cash alone),
@@ -4639,7 +4648,9 @@ serve(async (req) => {
           price: actualEntryPrice,
           positionValue: prePositionValue,
           stopLoss: defaultStopLoss,
+          takeProfit: defaultTakeProfit,
         },
+
         currentEquityForRisk,
         openPositionsCount,
         openPositionsValue,
