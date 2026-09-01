@@ -939,14 +939,28 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     .eq('user_id', userId)
     .maybeSingle();
   const rawTakeProfitPct = Number(scalpRow?.take_profit_pct) > 0 ? Number(scalpRow.take_profit_pct) : HARD_TAKE_PROFIT_PCT;
-  // 💸 LIVE FEE BUFFER: live trades pay ~0.4% maker buy + ~0.4% maker sell (worse on taker fills)
-  // plus slippage. Add a ~1.0% buffer to TP in live so a "win" actually clears fees.
-  // Paper has no fees → use raw config so paper matches user expectations.
-  const LIVE_FEE_BUFFER_PCT = 1.0;
-  const cfgTakeProfitPct = isPaperMode ? rawTakeProfitPct : (rawTakeProfitPct + LIVE_FEE_BUFFER_PCT);
+  const rawStopPct = Number(scalpRow?.hard_stop_loss_pct) > 0
+    ? Math.abs(Number(scalpRow.hard_stop_loss_pct))
+    : Math.abs(BASE_STOP_LOSS_PERCENT);
+
+  // 📐 EXIT GEOMETRY ENFORCEMENT (expectancy-first)
+  // A configuration where the stop is wider than the target is mathematically
+  // unprofitable unless the win rate is extreme. Both paper and live pay the same
+  // ~0.8% maker round trip, so the target must clear fees AND beat the stop.
+  //   stop  : capped at MAX_RISK_PCT so a loser can never cost more than a winner earns
+  //   target: at least the fee-clearing floor AND at least MIN_REWARD_RISK x stop
+  const stopPct = Math.min(rawStopPct, MAX_RISK_PCT);
+  const tpFloorFromRR = stopPct * MIN_REWARD_RISK;
+  const cfgTakeProfitPct = Math.max(rawTakeProfitPct, TP_FLOOR_GROSS_PCT, tpFloorFromRR);
+  const cfgHardStopLossPct = -stopPct;
   const cfgTrailingDropPct = Number(scalpRow?.trailing_drop_pct) > 0 ? Number(scalpRow.trailing_drop_pct) : TRAILING_STOP_DROP;
-  const cfgHardStopLossPct = Number(scalpRow?.hard_stop_loss_pct) > 0 ? -Math.abs(Number(scalpRow.hard_stop_loss_pct)) : BASE_STOP_LOSS_PERCENT;
-  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct}%${isPaperMode ? '' : ` (raw ${rawTakeProfitPct}% + ${LIVE_FEE_BUFFER_PCT}% fee buffer)`} TrailDrop=${cfgTrailingDropPct}% HardStop=${cfgHardStopLossPct}%`);
+  const geometryAdjusted = cfgTakeProfitPct > rawTakeProfitPct + 1e-9 || stopPct < rawStopPct - 1e-9;
+  const rewardRisk = cfgTakeProfitPct / stopPct;
+  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct.toFixed(2)}% Stop=-${stopPct.toFixed(2)}% R:R=${rewardRisk.toFixed(2)}:1 TrailDrop=${cfgTrailingDropPct}% (fees ${COINBASE_ROUND_TRIP_FEE}% round trip charged in ${isPaperMode ? 'paper too' : 'live'})`);
+  if (geometryAdjusted) {
+    console.log(`🔧 Geometry corrected from config (TP ${rawTakeProfitPct}% / Stop ${rawStopPct}% → R:R ${(rawTakeProfitPct / rawStopPct).toFixed(2)}:1 was below the ${MIN_REWARD_RISK}:1 floor)`);
+  }
+
 
   // Fetch ALL open positions for this user (both crypto AND stocks)
   const { data: positions, error: posError } = await supabase
