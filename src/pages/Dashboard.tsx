@@ -16,6 +16,7 @@ import { AIStatusCard } from '@/components/dashboard/AIStatusCard';
 import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
+import { StopSlippageAlert } from '@/components/dashboard/StopSlippageAlert';
 import { ExpectancyCard } from '@/components/dashboard/ExpectancyCard';
 import { SubscriptionCostCard } from '@/components/dashboard/SubscriptionCostCard';
 import { SubscriptionStatusCard } from '@/components/dashboard/SubscriptionStatusCard';
@@ -182,6 +183,8 @@ export default function Dashboard() {
     <>
       <PaperTradingOnboarding />
       <div className="space-y-4 lg:space-y-6 animate-fade-in">
+        <StopSlippageAlert />
+
         {/* Header with Refresh */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
