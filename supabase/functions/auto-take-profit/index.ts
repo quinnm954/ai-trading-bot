@@ -1093,9 +1093,22 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const trailingArmPct = COINBASE_ROUND_TRIP_FEE + TRAILING_ARM_BUFFER_PCT;
     const trailingStopActive = newPeakPnl >= trailingArmPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // Allowed giveback grows with the move: 40% of peak gain, never tighter than the floor
-    const allowedGiveback = Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION);
-    const hitTrailingStop = trailingStopActive && dropFromPeak >= allowedGiveback;
+    // 🚦 A trailing exit must still be a NET WINNER after the 0.8% round-trip fee.
+    // Previously the trail could fire at +0.50% gross, which is -0.30% net — that alone
+    // turned genuine winners into recorded losses.
+    const trailingProfitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
+    // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
+    // land below the net-profit floor.
+    const givebackCap = Math.max(0, newPeakPnl - trailingProfitFloorPct);
+    const allowedGiveback = Math.min(
+      Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
+      givebackCap
+    );
+    const hitTrailingStop =
+      trailingStopActive &&
+      givebackCap > 0 &&
+      pnlPercent >= trailingProfitFloorPct &&
+      dropFromPeak >= allowedGiveback;
 
     const hitHardTakeProfit = pnlPercent >= cfgTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
