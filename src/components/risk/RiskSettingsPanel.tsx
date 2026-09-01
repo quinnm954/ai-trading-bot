@@ -102,9 +102,33 @@ export function RiskSettingsPanel() {
     return (scalp as any)[key];
   };
 
+  // Exit-geometry floors, mirrored from the trading engine. A target below these makes
+  // the strategy mathematically unprofitable no matter how good the entries are.
+  const MIN_REWARD_RISK = 1.6;
+  const TP_FLOOR_PCT = 1.4;
+  const MAX_RISK_PCT = 0.8;
+  const ROUND_TRIP_FEE_PCT = 0.8;
+
   const setValue = (key: string, value: any) => {
-    setPending(prev => ({ ...prev, [key]: value }));
+    setPending(prev => {
+      const next = { ...prev, [key]: value };
+      // Keep take-profit and stop-loss in a profitable relationship at all times
+      if (key === 'hard_stop_loss_pct') {
+        const stop = Math.min(Number(value), MAX_RISK_PCT);
+        next.hard_stop_loss_pct = stop;
+        const tpFloor = Math.max(TP_FLOOR_PCT, stop * MIN_REWARD_RISK);
+        const currentTp = next.take_profit_pct ?? (scalp as any).take_profit_pct ?? 0;
+        if (Number(currentTp) < tpFloor) next.take_profit_pct = Number(tpFloor.toFixed(2));
+      }
+      if (key === 'take_profit_pct') {
+        const stop = Number(next.hard_stop_loss_pct ?? (scalp as any).hard_stop_loss_pct ?? MAX_RISK_PCT);
+        const tpFloor = Math.max(TP_FLOOR_PCT, Math.min(stop, MAX_RISK_PCT) * MIN_REWARD_RISK);
+        if (Number(value) < tpFloor) next.take_profit_pct = Number(tpFloor.toFixed(2));
+      }
+      return next;
+    });
   };
+
 
   const applyPreset = (preset: RiskTolerance) => {
     setSelectedPreset(preset);
