@@ -1008,336 +1008,6 @@ async function getAvailableUsdcBalance(): Promise<{ usdcBalance: number; daiConv
   }
 }
 
-// =============================================================================
-// STOCK BROKER INTEGRATIONS - Multi-Asset Trading Support
-// PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
-// =============================================================================
-
-interface StockBrokerBalance {
-  cash: number;
-  buyingPower: number;
-  equity: number;
-  broker: 'ibkr' | 'tradier';
-}
-
-interface StockTradeResult {
-  success: boolean;
-  orderId?: string;
-  quantity?: number;
-  price?: number;
-  error?: string;
-}
-
-/**
- * Check if US stock market is currently open
- */
-function isStockMarketOpen(): boolean {
-  const now = new Date();
-  const nyTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = nyTime.getDay();
-  const hour = nyTime.getHours();
-  const minute = nyTime.getMinutes();
-  const time = hour * 100 + minute;
-  if (day === 0 || day === 6) return false;
-  if (time < 930 || time >= 1600) return false;
-  return true;
-}
-
-/**
- * Get user's connected stock broker credentials from broker_credentials table
- */
-async function getConnectedStockBroker(supabase: any, userId: string): Promise<{ 
-  broker: 'ibkr' | 'tradier'; 
-  apiKey: string; 
-  secretKey: string;
-  accessToken?: string;
-  isPaper: boolean;
-} | null> {
-  try {
-    const { data: credentials, error } = await supabase
-      .from('broker_credentials')
-      .select('provider, api_key_encrypted, secret_key_encrypted, access_token_encrypted, is_paper')
-      .eq('user_id', userId)
-      .in('provider', ['ibkr', 'tradier']);
-    
-    if (error || !credentials || credentials.length === 0) {
-      console.log('No stock broker credentials found in database');
-      return null;
-    }
-    
-    for (const cred of credentials) {
-      if (cred.api_key_encrypted) {
-        console.log(`🏦 Found ${cred.provider} credentials for user`);
-        return {
-          broker: cred.provider as 'ibkr' | 'tradier',
-          apiKey: cred.api_key_encrypted,
-          secretKey: cred.secret_key_encrypted || '',
-          accessToken: cred.access_token_encrypted,
-          isPaper: cred.is_paper,
-        };
-      }
-    }
-    
-    return null;
-  } catch (err) {
-    console.error('Error fetching broker credentials:', err);
-    return null;
-  }
-}
-
-
-/**
- * Execute stock trade via Interactive Brokers
- * Uses IBKR Client Portal API
- */
-async function executeIBKRTrade(
-  accessToken: string,
-  symbol: string,
-  side: 'buy' | 'sell',
-  quantity: number
-): Promise<StockTradeResult> {
-  try {
-    console.log(`📈 IBKR ${side.toUpperCase()}: ${quantity} ${symbol}`);
-    
-    // IBKR requires account ID first
-    const accountsResponse = await fetch('https://api.ibkr.com/v1/api/portfolio/accounts', {
-      headers: { 'Authorization': `Bearer ${accessToken}` },
-    });
-    
-    if (!accountsResponse.ok) {
-      return { success: false, error: 'Failed to get IBKR accounts' };
-    }
-    
-    const accounts = await accountsResponse.json();
-    if (!accounts || accounts.length === 0) {
-      return { success: false, error: 'No IBKR accounts found' };
-    }
-    
-    const accountId = accounts[0].id || accounts[0].accountId;
-    
-    // Place order
-    const orderBody = {
-      orders: [{
-        conid: 0, // Will need to lookup conid for symbol
-        orderType: 'MKT',
-        side: side.toUpperCase(),
-        quantity: quantity,
-        tif: 'DAY',
-      }],
-    };
-    
-    // Get contract ID for symbol
-    const searchResponse = await fetch(
-      `https://api.ibkr.com/v1/api/iserver/secdef/search?symbol=${symbol}`,
-      { headers: { 'Authorization': `Bearer ${accessToken}` } }
-    );
-    
-    if (searchResponse.ok) {
-      const contracts = await searchResponse.json();
-      if (contracts && contracts.length > 0) {
-        orderBody.orders[0].conid = contracts[0].conid;
-      }
-    }
-    
-    const response = await fetch(
-      `https://api.ibkr.com/v1/api/iserver/account/${accountId}/orders`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(orderBody),
-      }
-    );
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { success: false, error: errorText };
-    }
-    
-    const result = await response.json();
-    console.log(`✅ IBKR order placed`);
-    
-    return {
-      success: true,
-      orderId: result.orderId || result[0]?.id,
-      quantity,
-    };
-  } catch (error) {
-    console.error('IBKR trade error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-}
-
-/**
- * Execute stock trade via Tradier
- * Commission-free stock and options trading
- */
-async function executeTradierTrade(
-  accessToken: string,
-  symbol: string,
-  side: 'buy' | 'sell',
-  quantity: number,
-  useSandbox: boolean = false
-): Promise<StockTradeResult> {
-  try {
-    const baseUrl = useSandbox 
-      ? 'https://sandbox.tradier.com'
-      : 'https://api.tradier.com';
-    
-    console.log(`📈 Tradier ${useSandbox ? 'SANDBOX' : 'LIVE'} ${side.toUpperCase()}: ${quantity} ${symbol}`);
-    
-    // Get account ID first
-    const accountsResponse = await fetch(`${baseUrl}/v1/user/profile`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
-      },
-    });
-    
-    if (!accountsResponse.ok) {
-      return { success: false, error: 'Failed to get Tradier profile' };
-    }
-    
-    const profile = await accountsResponse.json();
-    const accountId = profile?.profile?.account?.account_number;
-    
-    if (!accountId) {
-      return { success: false, error: 'No Tradier account found' };
-    }
-    
-    // Place order using form data (Tradier API format)
-    const formData = new URLSearchParams();
-    formData.append('class', 'equity');
-    formData.append('symbol', symbol);
-    formData.append('side', side);
-    formData.append('quantity', quantity.toString());
-    formData.append('type', 'market');
-    formData.append('duration', 'day');
-    
-    const response = await fetch(
-      `${baseUrl}/v1/accounts/${accountId}/orders`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
-      }
-    );
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Tradier order failed: ${errorText}`);
-      return { success: false, error: errorText };
-    }
-    
-    const result = await response.json();
-    console.log(`✅ Tradier order placed: ${result.order?.id}`);
-    
-    return {
-      success: true,
-      orderId: result.order?.id?.toString(),
-      quantity,
-      price: result.order?.price,
-    };
-  } catch (error) {
-    console.error('Tradier trade error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-}
-
-/**
- * Route stock trade to the appropriate broker
- */
-async function executeStockTrade(
-  supabase: any,
-  userId: string,
-  symbol: string,
-  side: 'buy' | 'sell',
-  quantity: number,
-  isPaper: boolean
-): Promise<StockTradeResult> {
-  const broker = await getConnectedStockBroker(supabase, userId);
-  
-  if (!broker) {
-    console.log('⚠️ No stock broker connected, cannot execute stock trade');
-    return { success: false, error: 'No stock broker connected' };
-  }
-  
-  console.log(`🏦 Routing stock trade to: ${broker.broker} (${broker.isPaper ? 'PAPER' : 'LIVE'} mode)`);
-  
-  switch (broker.broker) {
-    case 'ibkr':
-      return executeIBKRTrade(broker.accessToken || broker.apiKey, symbol, side, quantity);
-    case 'tradier':
-      return executeTradierTrade(broker.accessToken || broker.apiKey, symbol, side, quantity, broker.isPaper || isPaper);
-    default:
-      return { success: false, error: `Unsupported broker: ${broker.broker}` };
-  }
-}
-
-/**
- * Fetch stock market data for trading analysis
- * Uses Yahoo Finance for stock quotes
- */
-async function fetchStockMarketData(): Promise<MarketData[]> {
-  // Check if market is open
-  if (!isStockMarketOpen()) {
-    console.log('📊 Stock market closed - skipping stock data fetch');
-    return [];
-  }
-  
-  // Top stocks for trading (high liquidity, good for scalping)
-  const stocks = [
-    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'AMD', 'NFLX', 'CRM',
-    'SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLE', 'XLK', 'ARKK',
-    'PLTR', 'COIN', 'MARA', 'RIOT', 'SOFI', 'NIO', 'LCID', 'RIVN',
-    'INTC', 'MU', 'QCOM', 'AVGO', 'ORCL', 'IBM', 'CSCO',
-    'JPM', 'BAC', 'WFC', 'GS', 'MS', 'V', 'MA',
-  ];
-  
-  try {
-    // Try Yahoo Finance API (public, no key needed)
-    const stockData: MarketData[] = [];
-    
-    // Batch requests for efficiency
-    const symbolList = stocks.join(',');
-    const response = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`
-    );
-    
-    if (response.ok) {
-      const data = await response.json();
-      const quotes = data?.quoteResponse?.result || [];
-      
-      for (const quote of quotes) {
-        if (quote.regularMarketPrice) {
-          stockData.push({
-            symbol: quote.symbol,
-            price: quote.regularMarketPrice,
-            change24h: quote.regularMarketChangePercent || 0,
-            change7d: 0, // Yahoo doesn't provide 7d easily
-            volume: quote.regularMarketVolume || 0,
-            high24h: quote.regularMarketDayHigh || quote.regularMarketPrice,
-            low24h: quote.regularMarketDayLow || quote.regularMarketPrice,
-          });
-        }
-      }
-      
-      console.log(`📈 Fetched ${stockData.length} stocks from Yahoo Finance`);
-      return stockData;
-    }
-  } catch (error) {
-    console.error('Error fetching stock data:', error);
-  }
-  
-  return [];
-}
-
 interface MarketData {
   symbol: string;
   price: number;
@@ -3421,7 +3091,6 @@ serve(async (req) => {
     console.log(`   Max Concurrent Trades: ${settings.max_concurrent_trades || 5}`);
     console.log(`   Max Leverage: ${settings.max_leverage || 3}x`);
     console.log(`   Risk Tolerance: ${settings.risk_tolerance || 'moderate'}`);
-    console.log(`   Allowed Markets: ${(settings.allowed_markets || ['crypto']).join(', ')}`);
 
     // Get current open positions count
     const { count: openPositions } = await supabase
@@ -3526,50 +3195,19 @@ serve(async (req) => {
     console.log(`🎯 Daily profit progress: net $${todaysNetPnL.toFixed(2)} / target $${DAILY_PROFIT_TARGET} (${((todaysNetPnL / DAILY_PROFIT_TARGET) * 100).toFixed(1)}%)`);
 
     // ==========================================================================
-    // MULTI-ASSET MARKET DATA FETCHING
-    // PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
+    // CRYPTO MARKET DATA FETCHING (crypto is the only supported asset class)
     // ==========================================================================
-    const allowedMarkets = settings.allowed_markets || ['crypto'];
-    let marketData: MarketData[] = [];
-    let stockData: MarketData[] = [];
-    
-    // Fetch crypto data if allowed
-    if (allowedMarkets.includes('crypto')) {
-      console.log('📊 Fetching crypto market data...');
-      const cryptoData = await fetchMarketData();
-      marketData.push(...cryptoData);
-    }
-    
-    // Fetch stock data if allowed AND market is open
-    if (allowedMarkets.includes('stocks')) {
-      if (isStockMarketOpen()) {
-        console.log('📈 Fetching stock market data (market is OPEN)...');
-        stockData = await fetchStockMarketData();
-        
-        // Check if user has a stock broker connected
-        const stockBroker = await getConnectedStockBroker(supabase, user.id);
-        if (stockBroker) {
-          console.log(`🏦 Stock broker connected: ${stockBroker.broker}`);
-          marketData.push(...stockData);
-        } else {
-          console.log('⚠️ No stock broker connected - skipping stock trades');
-        }
-      } else {
-        console.log('📊 Stock market CLOSED - only trading crypto');
-      }
-    }
-    
+    console.log('📊 Fetching crypto market data...');
+    const marketData: MarketData[] = await fetchMarketData();
+
     if (marketData.length === 0) {
       return new Response(JSON.stringify({ error: 'Could not fetch market data', status: 'error' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    
-    console.log(`📊 Total tradeable assets: ${marketData.length} (Crypto: ${marketData.length - stockData.length}, Stocks: ${stockData.length})`);
-    
-    // Create a set of stock symbols for later routing
-    const stockSymbols = new Set(stockData.map(s => s.symbol));
+
+    console.log(`📊 Total tradeable crypto assets: ${marketData.length}`);
 
     // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
     const regime = detectMarketRegime(marketData);
@@ -4668,35 +4306,12 @@ serve(async (req) => {
       console.log(`✅ RISK APPROVED: ${decision.symbol} - ${riskValidation.reason}`);
 
       // ==========================================================================
-      // MULTI-ASSET TRADE EXECUTION
-      // PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
-      // Route trades to appropriate broker based on asset type
+      // CRYPTO TRADE EXECUTION via Coinbase
       // ==========================================================================
-      const isStock = stockSymbols.has(decision.symbol);
-      const marketType = isStock ? 'stocks' : 'crypto';
-      
+      const marketType = 'crypto';
+
       if (!isPaperMode && decision.action === 'buy') {
-        if (isStock) {
-          // 📈 EXECUTE STOCK TRADE via connected broker (IBKR/Tradier)
-          console.log(`📈 EXECUTING STOCK ${decision.action.toUpperCase()}: ${quantity} ${decision.symbol}`);
-          const stockResult = await executeStockTrade(
-            supabase,
-            user.id,
-            decision.symbol,
-            decision.action,
-            Math.floor(quantity), // Stocks are whole shares
-            isPaperMode
-          );
-          
-          if (stockResult.success && stockResult.quantity) {
-            quantity = stockResult.quantity;
-            if (stockResult.price) actualEntryPrice = stockResult.price;
-            console.log(`✅ STOCK TRADE EXECUTED: ${quantity} ${decision.symbol} @ $${actualEntryPrice}`);
-          } else {
-            console.error(`❌ STOCK TRADE FAILED for ${decision.symbol}: ${stockResult.error}`);
-            continue;
-          }
-        } else {
+        {
           // 💰 EXECUTE CRYPTO TRADE via Coinbase
           console.log(`💰 EXECUTING REAL COINBASE BUY: $${tradeValue.toFixed(2)} of ${decision.symbol}`);
           const coinbaseSymbol = coinData.productId ? `${coinData.productId}|${coinData.baseIncrement || '0.00000001'}` : decision.symbol;
@@ -4734,7 +4349,7 @@ serve(async (req) => {
         side: decision.action as 'buy' | 'sell',
         quantity,
         entry_price: actualEntryPrice,
-        market_type: marketType as 'crypto' | 'stocks',
+        market_type: marketType as 'crypto',
         is_paper: isPaperMode,
         status: 'open' as const,
         strategy: strategyType,
@@ -4804,7 +4419,7 @@ serve(async (req) => {
         if (positionError) {
           console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
         } else {
-          const assetIcon = isStock ? '📈' : '🪙';
+          const assetIcon = '🪙';
           console.log(`${assetIcon} Created NEW ${isPaperMode ? 'PAPER' : 'LIVE'} ${marketType.toUpperCase()} position: ${quantity} ${decision.symbol}`);
         }
       }
