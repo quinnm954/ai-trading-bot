@@ -1273,7 +1273,9 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
             if (isPaperMode) {
               // Simulate swap: USD value of position converts at bestTarget.price
               if (bestTarget.price > 0) {
-                receivedQuantity = positionValue / bestTarget.price;
+                // Charge the round-trip maker fee on paper swaps too (sell leg + buy leg)
+                receivedQuantity = (positionValue * (1 - COINBASE_ROUND_TRIP_FEE / 100)) / bestTarget.price;
+
                 didDirectConversion = true;
               }
             } else {
