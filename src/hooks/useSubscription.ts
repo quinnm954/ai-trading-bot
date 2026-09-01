@@ -1,66 +1,47 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { MONTHLY_PRICE_USD, TRIAL_DAYS } from '@/lib/pricing';
 
-export type SubscriptionTier = 'free' | 'pro' | 'unlimited';
+/**
+ * Single plan model: you either have access (paid, invited, or admin) or you don't.
+ * During the 7-day trial, paper-trading features are available.
+ */
+export type Feature =
+  | 'paper_trading'
+  | 'ai_advisor'
+  | 'basic_strategies'
+  | 'live_trading'
+  | 'single_broker'
+  | 'autonomous_trading'
+  | 'risk_management'
+  | 'unlimited_brokers'
+  | 'moonshot_scanner'
+  | 'ai_learning_engine'
+  | 'priority_support';
 
-const TRIAL_DAYS = 7;
+/** Features usable during the free trial (paper only). */
+export const TRIAL_ALLOWED_FEATURES: Feature[] = [
+  'paper_trading',
+  'ai_advisor',
+  'basic_strategies',
+];
+
+export const PRICE_USD = MONTHLY_PRICE_USD;
 
 interface SubscriptionState {
-  tier: SubscriptionTier;
   subscribed: boolean;
   subscriptionEnd: string | null;
   isFreeAccess: boolean;
   isLoading: boolean;
   error: string | null;
   cancelAtPeriodEnd: boolean;
-  // Trial state
   trialStartedAt: string | null;
   trialDaysRemaining: number;
   isTrialExpired: boolean;
   isInTrial: boolean;
 }
 
-// Cash App pricing per tier (USD, 30-day access)
-export const TIER_PRICING = {
-  pro: 49,
-  unlimited: 99,
-} as const;
-
-// Feature definitions by tier
-export const TIER_FEATURES = {
-  free: [
-    'paper_trading',
-    'ai_advisor',
-    'basic_strategies',
-  ],
-  pro: [
-    'paper_trading',
-    'ai_advisor',
-    'basic_strategies',
-    'live_trading',
-    'single_broker',
-    'autonomous_trading',
-    'risk_management',
-  ],
-  unlimited: [
-    'paper_trading',
-    'ai_advisor',
-    'basic_strategies',
-    'live_trading',
-    'single_broker',
-    'autonomous_trading',
-    'risk_management',
-    'unlimited_brokers',
-    'moonshot_scanner',
-    'ai_learning_engine',
-    'priority_support',
-  ],
-} as const;
-
-export type Feature = typeof TIER_FEATURES.unlimited[number];
-
-// Calculate days remaining from trial start
 function calculateTrialDaysRemaining(trialStartedAt: string | null): number {
   if (!trialStartedAt) return 0;
   const startDate = new Date(trialStartedAt);
@@ -72,7 +53,6 @@ function calculateTrialDaysRemaining(trialStartedAt: string | null): number {
 export function useSubscription() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [state, setState] = useState<SubscriptionState>({
-    tier: 'free',
     subscribed: false,
     subscriptionEnd: null,
     isFreeAccess: false,
@@ -87,10 +67,9 @@ export function useSubscription() {
 
   const checkSubscription = useCallback(async () => {
     if (!isAuthenticated || !user) {
-      setState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        tier: 'free', 
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
         subscribed: false,
         trialStartedAt: null,
         trialDaysRemaining: 0,
@@ -103,14 +82,12 @@ export function useSubscription() {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      // First check local database for subscription
       const { data: subData } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
 
-      // Check for free access and trial_started_at via user_roles
       const { data: roleData } = await supabase
         .from('user_roles')
         .select('role, has_free_access, trial_started_at')
@@ -122,10 +99,9 @@ export function useSubscription() {
       const isTrialExpired = trialDaysRemaining <= 0;
       const hasFreeAccess = roleData?.has_free_access || false;
 
-      // If user has free access (admin/invited), bypass everything
+      // Admin / invited users bypass billing entirely
       if (hasFreeAccess) {
         setState({
-          tier: 'unlimited',
           subscribed: true,
           subscriptionEnd: null,
           isFreeAccess: true,
@@ -140,14 +116,12 @@ export function useSubscription() {
         return;
       }
 
-      // Check for active subscription
       if (subData && subData.status === 'active') {
         const periodEnd = subData.current_period_end;
         const isActive = !periodEnd || new Date(periodEnd) > new Date();
-        
+
         if (isActive) {
           setState({
-            tier: subData.tier as SubscriptionTier,
             subscribed: true,
             subscriptionEnd: periodEnd,
             isFreeAccess: false,
@@ -163,9 +137,7 @@ export function useSubscription() {
         }
       }
 
-      // No active subscription - reflect trial status
       setState({
-        tier: 'free',
         subscribed: false,
         subscriptionEnd: null,
         isFreeAccess: false,
@@ -187,21 +159,29 @@ export function useSubscription() {
     }
   }, [isAuthenticated, user]);
 
+  // Ask the backend to reconcile with the payment provider, then refresh locally
+  const syncWithProvider = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      await supabase.functions.invoke('check-subscription');
+    } catch (error) {
+      console.error('check-subscription failed:', error);
+    }
+    await checkSubscription();
+  }, [isAuthenticated, checkSubscription]);
+
   useEffect(() => {
     if (!authLoading) {
       checkSubscription();
     }
   }, [authLoading, checkSubscription]);
 
-  // Auto-refresh subscription status every 30 seconds
   useEffect(() => {
     if (!isAuthenticated) return;
-
     const interval = setInterval(checkSubscription, 30000);
     return () => clearInterval(interval);
   }, [isAuthenticated, checkSubscription]);
 
-  // Listen for realtime subscription changes
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
@@ -226,49 +206,26 @@ export function useSubscription() {
     };
   }, [isAuthenticated, user, checkSubscription]);
 
-  // Check if user has access to a specific feature
   const canAccess = useCallback((feature: Feature): boolean => {
-    // Free access users can access everything
     if (state.isFreeAccess) return true;
-    
-    // Subscribed users get access based on tier
-    if (state.subscribed) {
-      const tierFeatures = TIER_FEATURES[state.tier] as readonly Feature[];
-      return tierFeatures.includes(feature);
-    }
-    
-    // Trial users can access free tier features only if trial is active
+    if (state.subscribed) return true;
     if (state.isInTrial && !state.isTrialExpired) {
-      const freeFeatures = TIER_FEATURES.free as readonly Feature[];
-      return freeFeatures.includes(feature);
+      return TRIAL_ALLOWED_FEATURES.includes(feature);
     }
-    
-    // Trial expired - no access to anything
     return false;
-  }, [state.tier, state.isFreeAccess, state.subscribed, state.isInTrial, state.isTrialExpired]);
+  }, [state.isFreeAccess, state.subscribed, state.isInTrial, state.isTrialExpired]);
 
-  // Get required tier for a feature
-  const getRequiredTier = useCallback((feature: Feature): SubscriptionTier => {
-    const freeFeatures: Feature[] = ['paper_trading', 'ai_advisor', 'basic_strategies'];
-    const proFeatures: Feature[] = ['live_trading', 'single_broker', 'autonomous_trading', 'risk_management'];
-    
-    if (freeFeatures.includes(feature)) return 'free';
-    if (proFeatures.includes(feature)) return 'pro';
-    return 'unlimited';
-  }, []);
-
-  // Check broker limit
-  const canAddBroker = useCallback((currentBrokerCount: number): boolean => {
-    if (state.isFreeAccess || state.tier === 'unlimited') return true;
-    if (state.tier === 'pro') return currentBrokerCount < 1;
-    return false; // Free tier can't add brokers
-  }, [state.tier, state.isFreeAccess]);
+  /** No broker limits on the single plan — subscribers get unlimited connections. */
+  const canAddBroker = useCallback((_currentBrokerCount: number): boolean => {
+    return state.isFreeAccess || state.subscribed;
+  }, [state.isFreeAccess, state.subscribed]);
 
   return {
     ...state,
+    priceUsd: MONTHLY_PRICE_USD,
     checkSubscription,
+    syncWithProvider,
     canAccess,
-    getRequiredTier,
     canAddBroker,
   };
 }
