@@ -550,36 +550,14 @@ export default function AITrader() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Allowed Markets */}
+        {/* Trading Market */}
         <div className="glass-panel p-6">
           <div className="flex items-center gap-2 mb-6">
             <Settings className="w-5 h-5 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Allowed Markets</h3>
+            <h3 className="text-lg font-semibold text-foreground">Trading Market</h3>
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center text-xl">
-                  📈
-                </div>
-                <div>
-                  <p className="font-medium text-foreground">Stocks</p>
-                  <p className="text-xs text-muted-foreground">
-                    US equities via IBKR/Tradier
-                    {(connectedBrokers.includes('ibkr') || connectedBrokers.includes('tradier')) && (
-                      <span className="ml-2 text-success">• Connected</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-              <Switch 
-                checked={aiSettings.allowedMarkets.includes('stocks')}
-                onCheckedChange={() => toggleMarket('stocks')}
-                disabled={isSaving}
-              />
-            </div>
-
             <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center text-xl">
@@ -595,14 +573,17 @@ export default function AITrader() {
                   </p>
                 </div>
               </div>
-              <Switch 
-                checked={aiSettings.allowedMarkets.includes('crypto')}
-                onCheckedChange={() => toggleMarket('crypto')}
-                disabled={isSaving}
-              />
+              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-primary/20 text-primary border border-primary/30">
+                Always on
+              </span>
             </div>
+            <p className="text-xs text-muted-foreground">
+              This platform trades crypto exclusively — markets are open 24/7, so there are no
+              session hours or day-trading restrictions to work around.
+            </p>
           </div>
         </div>
+
 
         {/* AI Behavior */}
         <div className="glass-panel p-6">
