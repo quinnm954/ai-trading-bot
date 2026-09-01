@@ -4152,7 +4152,8 @@ serve(async (req) => {
         
         // Calculate position value
         const maxCapitalUsage = settings.max_capital_usage || 80;
-        const availableCapital = balance * (maxCapitalUsage / 100);
+        const availableCapital = capitalBasis * (maxCapitalUsage / 100);
+
         const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
         const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 1);
         const quantity = tradeValue / coinData.price;
