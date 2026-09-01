@@ -311,7 +311,15 @@ async function runRisk(ctx: Ctx, analysis: Record<string, unknown>, observation:
 
   let veto = false;
   const reasons: string[] = [];
+  // No live prices this cycle → never let the trader act on stale marks.
+  if (observation && observation.live === false) {
+    veto = true; reasons.push("live price feed unavailable");
+  }
+  if (observation?.regimeProfile === "dead") {
+    veto = true; reasons.push("dead market — movement below fee round-trip");
+  }
   if (!settings?.enabled) { veto = true; reasons.push("bot disabled"); }
+
   if (settings?.kill_switch_active) { veto = true; reasons.push("kill switch active"); }
   if (settings?.max_daily_loss && Number(settings.daily_loss_today ?? 0) >= Number(settings.max_daily_loss)) {
     veto = true; reasons.push(`daily loss ${settings.daily_loss_today}% ≥ limit ${settings.max_daily_loss}%`);
