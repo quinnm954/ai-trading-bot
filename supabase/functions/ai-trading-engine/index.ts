@@ -19,6 +19,21 @@ const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window trigge
 const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
 
+// ── Expectancy-first exit geometry (must match auto-take-profit / risk-manager) ──
+// Every loser has to cost less than every winner earns, after the 0.8% maker round trip.
+// These bounds apply identically to paper and live — no mode gets looser math.
+const MIN_REWARD_RISK = 1.6;      // minimum reward:risk on any scalp
+const TP_FLOOR_GROSS_PCT = 1.4;   // gross TP floor; clears the 0.8% round trip with edge left
+const MAX_RISK_PCT = 0.8;         // hard cap on how far a single trade may lose
+const ROUND_TRIP_FEE_PCT = 0.8;   // 0.4% maker in + 0.4% maker out
+
+// Clamp any take-profit/stop pair into profitable geometry.
+function enforceExitGeometry(rawTp: number, rawStop: number) {
+  const stop = Math.min(Math.abs(rawStop) > 0 ? Math.abs(rawStop) : MAX_RISK_PCT, MAX_RISK_PCT);
+  const tp = Math.max(Number(rawTp) || 0, TP_FLOOR_GROSS_PCT, stop * MIN_REWARD_RISK);
+  return { take_profit_pct: tp, hard_stop_loss_pct: stop };
+}
+
 // Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
 const SCALP_CFG_DEFAULTS = {
   entry_min_5m_pct: 0.3,
@@ -27,12 +42,12 @@ const SCALP_CFG_DEFAULTS = {
   entry_min_24h_pct: 0.3,
   reentry_breakout_pct: 0.25,
   chase_guard_minutes: 120,
-  take_profit_pct: 1.0,
-  trailing_drop_pct: 1.5,
-  hard_stop_loss_pct: 3.0,
+  take_profit_pct: TP_FLOOR_GROSS_PCT,
+  trailing_drop_pct: 0.35,
+  hard_stop_loss_pct: MAX_RISK_PCT,
   momentum_rotation_min_pct: 0.5,
   loss_rotation_enabled: true,
-  loss_rotation_max_loss_pct: -2.0,
+  loss_rotation_max_loss_pct: -MAX_RISK_PCT,
   loss_rotation_momentum_edge_pct: 0.5,
   loss_rotation_min_age_sec: 300,
   loss_rotation_cooldown_sec: 60,
@@ -52,12 +67,21 @@ async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
         if (data[k] !== null && data[k] !== undefined) (cfg as any)[k] = data[k];
       }
     }
+    // Saved rows may predate the geometry rules — correct them on read so a stale
+    // config can never hand the engine a negative-expectancy target/stop pair.
+    const geo = enforceExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
+    if (geo.take_profit_pct !== cfg.take_profit_pct || geo.hard_stop_loss_pct !== Math.abs(cfg.hard_stop_loss_pct)) {
+      console.log(`🔧 Geometry corrected: TP ${cfg.take_profit_pct}%→${geo.take_profit_pct.toFixed(2)}%, Stop ${cfg.hard_stop_loss_pct}%→${geo.hard_stop_loss_pct.toFixed(2)}%`);
+    }
+    cfg.take_profit_pct = geo.take_profit_pct;
+    cfg.hard_stop_loss_pct = geo.hard_stop_loss_pct;
     return cfg;
   } catch (e) {
     console.warn('loadScalpCfg fallback to defaults:', e);
     return { ...SCALP_CFG_DEFAULTS };
   }
 }
+
 
 // Legacy aliases so callers without a cfg fall back to defaults
 const ENTRY_CONFIRM_MIN_5M_PCT = SCALP_CFG_DEFAULTS.entry_min_5m_pct;
