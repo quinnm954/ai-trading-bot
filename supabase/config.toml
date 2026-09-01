@@ -30,7 +30,7 @@ verify_jwt = false
 [functions.stock-data-provider]
 verify_jwt = false
 
-[functions.stripe-webhook]
+[functions.verify-crypto-payments]
 verify_jwt = false
 
 [functions.send-welcome-email]

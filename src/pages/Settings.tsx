@@ -19,6 +19,7 @@ import { SubscriptionManager } from '@/components/settings/SubscriptionManager';
 import { LegalAndPrivacy } from '@/components/settings/LegalAndPrivacy';
 import { PasswordChange } from '@/components/settings/PasswordChange';
 import { ResetPaperBalance } from '@/components/settings/ResetPaperBalance';
+import { CryptoWalletSettings } from '@/components/settings/CryptoWalletSettings';
 import { LiveInvestmentBasis } from '@/components/settings/LiveInvestmentBasis';
 
 export default function Settings() {
@@ -275,7 +276,10 @@ export default function Settings() {
 
 
           </div>
-          {/* SubscriptionManager hidden — subscriptions disabled during testing */}
+          <div className="mt-6 space-y-6">
+            <SubscriptionManager />
+            <CryptoWalletSettings />
+          </div>
 
           {/* Invite Management - Admin Only */}
           <div className="mt-6">

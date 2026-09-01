@@ -9,6 +9,12 @@ export const PLAN_NAME = 'Full Access';
 
 export const TRIAL_DAYS = 7;
 
+/** Payments settle directly to the owner's wallet — no payment processor. */
+export const PAYMENT_TOKEN = 'USDC';
+
+/** Each payment buys a fixed 30-day access window; nothing auto-charges. */
+export const ACCESS_DAYS_PER_PAYMENT = 30;
+
 /** Everything the paid plan unlocks. */
 export const PLAN_FEATURES = [
   'Live trading with real money',

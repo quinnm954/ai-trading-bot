@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { CreditCard, Crown, RefreshCw, Calendar, CheckCircle2, Settings as SettingsIcon, Loader2 } from 'lucide-react';
+import { CreditCard, Crown, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
-import { useCheckout } from '@/hooks/useCheckout';
-import { WalletCheckoutButton } from '@/components/subscription/WalletCheckoutButton';
+import { CryptoPayButton } from '@/components/subscription/CryptoPayButton';
 import { MONTHLY_PRICE_USD, PLAN_NAME, PLAN_FEATURES } from '@/lib/pricing';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -21,7 +20,6 @@ export function SubscriptionManager() {
   } = useSubscription();
 
   const { isAdmin, isLoading: isAdminLoading } = useIsAdmin();
-  const { openPortal, isOpeningPortal } = useCheckout();
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -114,28 +112,24 @@ export function SubscriptionManager() {
           </p>
         ) : !subscribed ? (
           <p className="text-sm text-muted-foreground mt-2">
-            ${MONTHLY_PRICE_USD}/month for unlimited use. Pay with Apple Pay, Google Pay, or card.
+            ${MONTHLY_PRICE_USD}/month for unlimited use, paid in USDC straight from your wallet.
           </p>
         ) : (
           <p className="text-sm text-muted-foreground mt-2">
-            ${MONTHLY_PRICE_USD}/month, billed automatically. Manage or cancel anytime.
+            ${MONTHLY_PRICE_USD} per 30 days, paid in USDC. Nothing auto-charges — pay again to extend.
           </p>
         )}
       </div>
 
       <div className="space-y-3">
-        {!subscribed && !isFreeAccess && <WalletCheckoutButton />}
+        {!subscribed && !isFreeAccess && <CryptoPayButton />}
 
         {subscribed && !isFreeAccess && (
-          <Button
+          <CryptoPayButton
             variant="outline"
-            className="w-full gap-2"
-            onClick={openPortal}
-            disabled={isOpeningPortal}
-          >
-            {isOpeningPortal ? <Loader2 className="w-4 h-4 animate-spin" /> : <SettingsIcon className="w-4 h-4" />}
-            Manage subscription
-          </Button>
+            label="Extend by another 30 days"
+            showPrice={false}
+          />
         )}
       </div>
 

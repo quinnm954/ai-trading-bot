@@ -655,6 +655,102 @@ export type Database = {
         }
         Relationships: []
       }
+      crypto_invoices: {
+        Row: {
+          amount_usdc: number
+          block_number: number | null
+          chain: string
+          confirmed_at: string | null
+          created_at: string
+          expires_at: string
+          from_address: string | null
+          id: string
+          status: string
+          token: string
+          tx_hash: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          amount_usdc: number
+          block_number?: number | null
+          chain?: string
+          confirmed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          from_address?: string | null
+          id?: string
+          status?: string
+          token?: string
+          tx_hash?: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          amount_usdc?: number
+          block_number?: number | null
+          chain?: string
+          confirmed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          from_address?: string | null
+          id?: string
+          status?: string
+          token?: string
+          tx_hash?: string | null
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      crypto_payment_config: {
+        Row: {
+          chain: string
+          enabled: boolean
+          id: boolean
+          price_usd: number
+          token: string
+          updated_at: string
+          wallet_address: string | null
+        }
+        Insert: {
+          chain?: string
+          enabled?: boolean
+          id?: boolean
+          price_usd?: number
+          token?: string
+          updated_at?: string
+          wallet_address?: string | null
+        }
+        Update: {
+          chain?: string
+          enabled?: boolean
+          id?: boolean
+          price_usd?: number
+          token?: string
+          updated_at?: string
+          wallet_address?: string | null
+        }
+        Relationships: []
+      }
+      crypto_scan_state: {
+        Row: {
+          chain: string
+          last_scanned_block: number
+          updated_at: string
+        }
+        Insert: {
+          chain: string
+          last_scanned_block?: number
+          updated_at?: string
+        }
+        Update: {
+          chain?: string
+          last_scanned_block?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       daily_pnl: {
         Row: {
           created_at: string | null
@@ -2320,6 +2416,16 @@ export type Database = {
         Args: { p_feature: string; p_user_id: string }
         Returns: boolean
       }
+      credit_crypto_invoice: {
+        Args: {
+          p_block_number: number
+          p_from_address: string
+          p_invoice_id: string
+          p_tx_hash: string
+        }
+        Returns: Json
+      }
+      expire_stale_crypto_invoices: { Args: never; Returns: number }
       get_referral_stats: {
         Args: never
         Returns: {
