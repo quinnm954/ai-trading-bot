@@ -1075,8 +1075,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     // Rotation may never fire below the fee-clearing floor, or it books losses as "wins"
     const rotationThreshold = Math.max(getAdjustedRotationThreshold(), COINBASE_ROUND_TRIP_FEE + 0.4);
-    // Per-user hard stop adjusted for execution-latency slippage (widen slightly under high latency).
-    const adjustedStopLoss = cfgHardStopLossPct - latencyTracker.slippageBuffer;
+    // EXACT stop: the hard stop fires at the configured level (default -0.8%) with NO
+    // latency widening. Widening the stop is what let losers run past -0.8% and shrink
+    // scalp expectancy below the 1.6:1 geometry.
+    const adjustedStopLoss = cfgHardStopLossPct;
+    // Price that corresponds to exactly the stop level — used as the paper fill price.
+    const stopPrice = position.side === 'buy'
+      ? entryPrice * (1 + cfgHardStopLossPct / 100)
+      : entryPrice * (1 - cfgHardStopLossPct / 100);
+
 
     // TRAILING STOP — arms only past breakeven+fees, then gives back a FRACTION of the gain
     // so winners keep running instead of being cut at a fixed tiny giveback.
