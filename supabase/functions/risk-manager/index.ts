@@ -229,7 +229,7 @@ async function validateTrade(
   // ==========================================================================
   if (proposal.stopLoss && proposal.side === 'buy') {
     const potentialLoss = (proposal.price - proposal.stopLoss) * proposal.quantity;
-    const riskPercent = (potentialLoss / currentEquity) * 100;
+    const riskPercent = (potentialLoss / capitalBase) * 100;
     if (riskPercent > settings.maxRiskPerTrade) {
       violations.push(`risk_per_trade: ${riskPercent.toFixed(2)}% exceeds limit of ${settings.maxRiskPerTrade}%`);
       approved = false;
