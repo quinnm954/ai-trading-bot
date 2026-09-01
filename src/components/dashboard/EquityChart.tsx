@@ -62,7 +62,7 @@ export function EquityChart() {
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
+            <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
@@ -73,15 +73,20 @@ export function EquityChart() {
                 dataKey="date" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                minTickGap={28}
+                tickMargin={6}
+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
               />
               <YAxis 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                width={44}
+                tickCount={5}
+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                 tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                 domain={['dataMin - 1000', 'dataMax + 1000']}
               />
+
               <Tooltip 
                 contentStyle={{
                   backgroundColor: 'hsl(var(--card))',
