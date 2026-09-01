@@ -79,12 +79,12 @@ function getAdjustedRotationThreshold(): number {
   return adjusted;
 }
 
-// Get adjusted stop-loss threshold accounting for latency slippage
+// Hard stop-loss threshold. Intentionally NOT widened for latency: the stop must fire at
+// exactly the configured level so risk per trade stays fixed.
 function getAdjustedStopLoss(): number {
-  // Widen stop-loss slightly during high latency to avoid false triggers
-  const adjusted = BASE_STOP_LOSS_PERCENT - latencyTracker.slippageBuffer;
-  return adjusted;
+  return BASE_STOP_LOSS_PERCENT;
 }
+
 
 // Milestone system - REAL PRODUCTION VALUES
 // Phase 1: Compound until $200k equity, then at each $100k milestone, keep $100k trading, withdraw rest
