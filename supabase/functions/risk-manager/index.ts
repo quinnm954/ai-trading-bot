@@ -231,6 +231,40 @@ async function validateTrade(
     severity = 'info';
   }
 
+  // ==========================================================================
+  // CHECK 11: Exit Geometry Expectancy - reject mathematically losing setups
+  // ==========================================================================
+  // A trade whose target is smaller than its stop needs an extreme win rate just
+  // to break even. Both paper and live pay ~0.8% round-trip maker fees, so the
+  // target must clear fees AND beat the stop by MIN_REWARD_RISK.
+  if (proposal.side === 'buy' && proposal.stopLoss && proposal.takeProfit) {
+    const MIN_REWARD_RISK = 1.6;
+    const ROUND_TRIP_FEE_PCT = 0.8;
+    const riskPct = ((proposal.price - proposal.stopLoss) / proposal.price) * 100;
+    const rewardPct = ((proposal.takeProfit - proposal.price) / proposal.price) * 100;
+
+    if (riskPct > 0 && rewardPct > 0) {
+      const rr = rewardPct / riskPct;
+      const netRewardPct = rewardPct - ROUND_TRIP_FEE_PCT;
+
+      if (netRewardPct <= 0) {
+        violations.push(
+          `exit_geometry: target +${rewardPct.toFixed(2)}% does not clear the ${ROUND_TRIP_FEE_PCT}% fee round trip`
+        );
+        approved = false;
+        severity = 'warning';
+      } else if (rr < MIN_REWARD_RISK) {
+        violations.push(
+          `exit_geometry: reward:risk ${rr.toFixed(2)}:1 below the ${MIN_REWARD_RISK}:1 minimum ` +
+          `(target +${rewardPct.toFixed(2)}% vs stop -${riskPct.toFixed(2)}%) — negative expectancy`
+        );
+        approved = false;
+        severity = 'warning';
+      }
+    }
+  }
+
+
   // Build result
   const result: RiskCheckResult = {
     approved,

@@ -15,13 +15,20 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
   // FAST-COMPOUND MODE: maximize trades/day. Targets clear ~0.8% maker round-trip;
   // book small wins quickly and recycle capital into the next mover.
   const ROTATION_PROFIT_THRESHOLD = 1.2; // 1.2% triggers rotation into a fresh mover
-  // Stop loss: tighter — small losers must die fast so capital can rotate
-  const BASE_STOP_LOSS_PERCENT = -1.5;
-  // Trailing stop: arm very fast, exit on tiny giveback (lock the move)
-  const TRAILING_STOP_DROP = 0.35; // Sell when current gain is 0.35% below peak gain
-  const TRAILING_STOP_MIN_PEAK = 0.6; // Activate trailing as soon as peak ≥ 0.6%
+  // ── Expectancy-first exit geometry ───────────────────────────────────────────
+  // Every loser must cost less than every winner earns, after fees.
+  const MIN_REWARD_RISK = 1.6;          // minimum reward:risk on any scalp
+  const TP_FLOOR_GROSS_PCT = 1.4;       // gross TP floor; clears the 0.8% round trip with edge left
+  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose
+  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop (tightened from -1.5)
+  // Trailing stop: only arms once the trade is past breakeven+fees, then gives back
+  // a fraction of the gain so winners can actually run.
+  const TRAILING_STOP_DROP = 0.35;      // absolute floor on giveback
+  const TRAILING_GIVEBACK_FRACTION = 0.4; // trail at 40% of the current peak gain
+  const TRAILING_ARM_BUFFER_PCT = 0.2;  // arm at fees + this buffer
   // Hard take-profit: lock in once gain hits this level regardless of peak/trail
   const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
+
   // Minimum momentum for target asset (must be rising)
   const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
   // Maximum momentum - avoid buying at the top
@@ -939,14 +946,28 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     .eq('user_id', userId)
     .maybeSingle();
   const rawTakeProfitPct = Number(scalpRow?.take_profit_pct) > 0 ? Number(scalpRow.take_profit_pct) : HARD_TAKE_PROFIT_PCT;
-  // 💸 LIVE FEE BUFFER: live trades pay ~0.4% maker buy + ~0.4% maker sell (worse on taker fills)
-  // plus slippage. Add a ~1.0% buffer to TP in live so a "win" actually clears fees.
-  // Paper has no fees → use raw config so paper matches user expectations.
-  const LIVE_FEE_BUFFER_PCT = 1.0;
-  const cfgTakeProfitPct = isPaperMode ? rawTakeProfitPct : (rawTakeProfitPct + LIVE_FEE_BUFFER_PCT);
+  const rawStopPct = Number(scalpRow?.hard_stop_loss_pct) > 0
+    ? Math.abs(Number(scalpRow.hard_stop_loss_pct))
+    : Math.abs(BASE_STOP_LOSS_PERCENT);
+
+  // 📐 EXIT GEOMETRY ENFORCEMENT (expectancy-first)
+  // A configuration where the stop is wider than the target is mathematically
+  // unprofitable unless the win rate is extreme. Both paper and live pay the same
+  // ~0.8% maker round trip, so the target must clear fees AND beat the stop.
+  //   stop  : capped at MAX_RISK_PCT so a loser can never cost more than a winner earns
+  //   target: at least the fee-clearing floor AND at least MIN_REWARD_RISK x stop
+  const stopPct = Math.min(rawStopPct, MAX_RISK_PCT);
+  const tpFloorFromRR = stopPct * MIN_REWARD_RISK;
+  const cfgTakeProfitPct = Math.max(rawTakeProfitPct, TP_FLOOR_GROSS_PCT, tpFloorFromRR);
+  const cfgHardStopLossPct = -stopPct;
   const cfgTrailingDropPct = Number(scalpRow?.trailing_drop_pct) > 0 ? Number(scalpRow.trailing_drop_pct) : TRAILING_STOP_DROP;
-  const cfgHardStopLossPct = Number(scalpRow?.hard_stop_loss_pct) > 0 ? -Math.abs(Number(scalpRow.hard_stop_loss_pct)) : BASE_STOP_LOSS_PERCENT;
-  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct}%${isPaperMode ? '' : ` (raw ${rawTakeProfitPct}% + ${LIVE_FEE_BUFFER_PCT}% fee buffer)`} TrailDrop=${cfgTrailingDropPct}% HardStop=${cfgHardStopLossPct}%`);
+  const geometryAdjusted = cfgTakeProfitPct > rawTakeProfitPct + 1e-9 || stopPct < rawStopPct - 1e-9;
+  const rewardRisk = cfgTakeProfitPct / stopPct;
+  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct.toFixed(2)}% Stop=-${stopPct.toFixed(2)}% R:R=${rewardRisk.toFixed(2)}:1 TrailDrop=${cfgTrailingDropPct}% (fees ${COINBASE_ROUND_TRIP_FEE}% round trip charged in ${isPaperMode ? 'paper too' : 'live'})`);
+  if (geometryAdjusted) {
+    console.log(`🔧 Geometry corrected from config (TP ${rawTakeProfitPct}% / Stop ${rawStopPct}% → R:R ${(rawTakeProfitPct / rawStopPct).toFixed(2)}:1 was below the ${MIN_REWARD_RISK}:1 floor)`);
+  }
+
 
   // Fetch ALL open positions for this user (both crypto AND stocks)
   const { data: positions, error: posError } = await supabase
@@ -1176,26 +1197,27 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       pnl = (entryPrice - currentPrice) * quantity;
     }
 
-    // Use latency-adjusted thresholds - ROTATION MODE
-    const rotationThreshold = getAdjustedRotationThreshold();
+    // Rotation may never fire below the fee-clearing floor, or it books losses as "wins"
+    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), COINBASE_ROUND_TRIP_FEE + 0.4);
     // Per-user hard stop adjusted for execution-latency slippage (widen slightly under high latency).
     const adjustedStopLoss = cfgHardStopLossPct - latencyTracker.slippageBuffer;
 
-    // TRUE TRAILING STOP LOGIC
-    // Track peak PnL and sell when current drops cfgTrailingDropPct below peak
+    // TRAILING STOP — arms only past breakeven+fees, then gives back a FRACTION of the gain
+    // so winners keep running instead of being cut at a fixed tiny giveback.
     const previousPeakPnl = Number(position.peak_pnl_percent || 0);
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
-    // Check if trailing stop triggered:
-    // 1. Peak must be at least TRAILING_STOP_MIN_PEAK (e.g., 0.8%) to activate
-    // 2. Current PnL must be cfgTrailingDropPct below peak
-    const trailingStopActive = newPeakPnl >= TRAILING_STOP_MIN_PEAK;
+    const trailingArmPct = COINBASE_ROUND_TRIP_FEE + TRAILING_ARM_BUFFER_PCT;
+    const trailingStopActive = newPeakPnl >= trailingArmPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    const hitTrailingStop = trailingStopActive && dropFromPeak >= cfgTrailingDropPct;
+    // Allowed giveback grows with the move: 40% of peak gain, never tighter than the floor
+    const allowedGiveback = Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION);
+    const hitTrailingStop = trailingStopActive && dropFromPeak >= allowedGiveback;
 
     const hitHardTakeProfit = pnlPercent >= cfgTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
+
 
     // Log position status for monitoring (even when not triggering)
     const statusIcon = hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : hitStopLoss ? '🛑' : '👀';
@@ -1251,7 +1273,9 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
             if (isPaperMode) {
               // Simulate swap: USD value of position converts at bestTarget.price
               if (bestTarget.price > 0) {
-                receivedQuantity = positionValue / bestTarget.price;
+                // Charge the round-trip maker fee on paper swaps too (sell leg + buy leg)
+                receivedQuantity = (positionValue * (1 - COINBASE_ROUND_TRIP_FEE / 100)) / bestTarget.price;
+
                 didDirectConversion = true;
               }
             } else {
@@ -1327,10 +1351,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       }
 
 
+      // 💸 PAPER PAYS THE SAME FEES AS LIVE
+      // Paper used to be fee-free, which made it an optimistic simulator: strategies that
+      // "worked" in paper were guaranteed losers live. Charge the maker round trip on both
+      // legs so paper P&L is a valid predictor of live P&L.
+      const roundTripFee = (entryPrice * quantity + actualExitPrice * quantity) * (COINBASE_MAKER_FEE / 100);
+      if (isPaperMode) {
+        actualPnl -= roundTripFee;
+      }
+
       await supabase.from('trades').update({
         status: 'closed',
         exit_price: actualExitPrice,
         pnl: actualPnl,
+        fees_estimate: roundTripFee,
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
 
@@ -1347,6 +1381,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           }).eq('user_id', userId);
         }
       }
+
 
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';

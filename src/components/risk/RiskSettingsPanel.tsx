@@ -22,18 +22,20 @@ import {
 
 type RiskTolerance = 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
 
+// NOTE ON EXIT GEOMETRY: every preset keeps take-profit >= 1.4% and >= 1.6x the stop.
+// Anything tighter is mathematically unprofitable once the ~0.8% fee round trip is paid.
 const RISK_PRESETS: Record<RiskTolerance, Record<string, number>> = {
   conservative:   { maxPositionSize: 5,  maxDailyLoss: 3,  weeklyLossLimit: 10, maxDrawdown: 20, maxConcurrentTrades: 5,  maxCapitalUsage: 50, maxLeverage: 1,
-                    take_profit_pct: 1.5, trailing_drop_pct: 1.0, hard_stop_loss_pct: 2.0,
+                    take_profit_pct: 1.6, trailing_drop_pct: 0.5, hard_stop_loss_pct: 0.6,
                     entry_min_5m_pct: 0.5, entry_min_1h_pct: 0.5, entry_min_24h_pct: 0.5 },
   moderate:       { maxPositionSize: 10, maxDailyLoss: 5,  weeklyLossLimit: 12, maxDrawdown: 25, maxConcurrentTrades: 8,  maxCapitalUsage: 70, maxLeverage: 1,
-                    take_profit_pct: 1.0, trailing_drop_pct: 1.5, hard_stop_loss_pct: 3.0,
+                    take_profit_pct: 1.4, trailing_drop_pct: 0.5, hard_stop_loss_pct: 0.7,
                     entry_min_5m_pct: 0.3, entry_min_1h_pct: 0.3, entry_min_24h_pct: 0.3 },
   aggressive:     { maxPositionSize: 20, maxDailyLoss: 8,  weeklyLossLimit: 18, maxDrawdown: 30, maxConcurrentTrades: 12, maxCapitalUsage: 85, maxLeverage: 2,
-                    take_profit_pct: 0.8, trailing_drop_pct: 1.8, hard_stop_loss_pct: 3.5,
+                    take_profit_pct: 1.4, trailing_drop_pct: 0.45, hard_stop_loss_pct: 0.8,
                     entry_min_5m_pct: 0.2, entry_min_1h_pct: 0.2, entry_min_24h_pct: 0.2 },
   ultra_aggressive:{ maxPositionSize: 30, maxDailyLoss: 10, weeklyLossLimit: 25, maxDrawdown: 40, maxConcurrentTrades: 20, maxCapitalUsage: 95, maxLeverage: 3,
-                    take_profit_pct: 0.6, trailing_drop_pct: 2.0, hard_stop_loss_pct: 4.0,
+                    take_profit_pct: 1.5, trailing_drop_pct: 0.4, hard_stop_loss_pct: 0.8,
                     entry_min_5m_pct: 0.15, entry_min_1h_pct: 0.15, entry_min_24h_pct: 0.15 },
 };
 
@@ -48,13 +50,14 @@ const SCALP_DEFAULTS = {
   entry_min_5m_pct: 0.3,
   entry_min_1h_pct: 0.3,
   entry_min_24h_pct: 0.3,
-  take_profit_pct: 1.0,
-  trailing_drop_pct: 1.5,
-  hard_stop_loss_pct: 3.0,
+  take_profit_pct: 1.4,
+  trailing_drop_pct: 0.4,
+  hard_stop_loss_pct: 0.8,
   loss_rotation_enabled: true,
   loss_rotation_max_loss_pct: -2.0,
   target_position_size_usd: 50,
 };
+
 
 type ScalpRow = typeof SCALP_DEFAULTS;
 
@@ -102,9 +105,33 @@ export function RiskSettingsPanel() {
     return (scalp as any)[key];
   };
 
+  // Exit-geometry floors, mirrored from the trading engine. A target below these makes
+  // the strategy mathematically unprofitable no matter how good the entries are.
+  const MIN_REWARD_RISK = 1.6;
+  const TP_FLOOR_PCT = 1.4;
+  const MAX_RISK_PCT = 0.8;
+  const ROUND_TRIP_FEE_PCT = 0.8;
+
   const setValue = (key: string, value: any) => {
-    setPending(prev => ({ ...prev, [key]: value }));
+    setPending(prev => {
+      const next = { ...prev, [key]: value };
+      // Keep take-profit and stop-loss in a profitable relationship at all times
+      if (key === 'hard_stop_loss_pct') {
+        const stop = Math.min(Number(value), MAX_RISK_PCT);
+        next.hard_stop_loss_pct = stop;
+        const tpFloor = Math.max(TP_FLOOR_PCT, stop * MIN_REWARD_RISK);
+        const currentTp = next.take_profit_pct ?? (scalp as any).take_profit_pct ?? 0;
+        if (Number(currentTp) < tpFloor) next.take_profit_pct = Number(tpFloor.toFixed(2));
+      }
+      if (key === 'take_profit_pct') {
+        const stop = Number(next.hard_stop_loss_pct ?? (scalp as any).hard_stop_loss_pct ?? MAX_RISK_PCT);
+        const tpFloor = Math.max(TP_FLOOR_PCT, Math.min(stop, MAX_RISK_PCT) * MIN_REWARD_RISK);
+        if (Number(value) < tpFloor) next.take_profit_pct = Number(tpFloor.toFixed(2));
+      }
+      return next;
+    });
   };
+
 
   const applyPreset = (preset: RiskTolerance) => {
     setSelectedPreset(preset);
@@ -247,9 +274,38 @@ export function RiskSettingsPanel() {
         <Row label="Max concurrent trades" description="Maximum simultaneous open AI positions." settingKey="maxConcurrentTrades" min={1} max={20} unit="" />
         <Row label="Max leverage" description="Maximum leverage. 1x is spot. Amplifies gains and losses." settingKey="maxLeverage" min={1} max={10} unit="x" warn={2} />
 
-        <Row label="Take-profit (arms trailing)" description="Profit % at which the trailing stop activates." settingKey="take_profit_pct" min={0.2} max={5} step={0.1} />
-        <Row label="Trailing drop from peak" description="Once armed, exit when price drops this % from peak." settingKey="trailing_drop_pct" min={0.2} max={5} step={0.1} />
-        <Row label="Hard stop-loss" description="Emergency exit if loss exceeds this %." settingKey="hard_stop_loss_pct" min={0.5} max={10} step={0.1} warn={5} />
+        {/* Live expectancy readout for the current exit geometry */}
+        {(() => {
+          const tp = Number(getValue('take_profit_pct')) || 0;
+          const stop = Math.min(Number(getValue('hard_stop_loss_pct')) || 0, MAX_RISK_PCT);
+          const rr = stop > 0 ? tp / stop : 0;
+          const netTp = tp - ROUND_TRIP_FEE_PCT;
+          // Break-even win rate for this geometry, after fees
+          const breakEvenWr = netTp + stop > 0 ? (stop / (netTp + stop)) * 100 : 100;
+          const healthy = rr >= MIN_REWARD_RISK && netTp > 0;
+          return (
+            <div className={cn(
+              'my-3 p-3 rounded-lg border text-xs space-y-1',
+              healthy ? 'bg-success/10 border-success/30 text-success' : 'bg-warning/10 border-warning/30 text-warning',
+            )}>
+              <p className="font-medium">
+                Exit geometry: +{tp.toFixed(2)}% target / -{stop.toFixed(2)}% stop = {rr.toFixed(2)}:1 reward:risk
+              </p>
+              <p className="text-muted-foreground">
+                After the {ROUND_TRIP_FEE_PCT}% fee round trip, a win nets +{netTp.toFixed(2)}%.
+                You need a win rate above <strong>{breakEvenWr.toFixed(0)}%</strong> to break even.
+                {healthy
+                  ? ' This geometry can be profitable.'
+                  : ` Below the ${MIN_REWARD_RISK}:1 floor — the engine will correct this automatically.`}
+              </p>
+            </div>
+          );
+        })()}
+
+        <Row label="Take-profit (arms trailing)" description={`Profit % target. Enforced floor: ${TP_FLOOR_PCT}% and at least ${MIN_REWARD_RISK}x the stop-loss.`} settingKey="take_profit_pct" min={0.2} max={5} step={0.1} />
+        <Row label="Trailing drop from peak" description="Once armed (past breakeven + fees), the engine gives back at most 40% of the peak gain, never less than this floor." settingKey="trailing_drop_pct" min={0.2} max={5} step={0.1} />
+        <Row label="Hard stop-loss" description={`Emergency exit. Capped at ${MAX_RISK_PCT}% so a loser can never cost more than a winner earns.`} settingKey="hard_stop_loss_pct" min={0.2} max={MAX_RISK_PCT} step={0.05} />
+
 
         <Row label="Min 5m momentum to enter" description="Skip entries with weaker 5-minute momentum." settingKey="entry_min_5m_pct" min={0} max={2} step={0.05} />
         <Row label="Min 1h momentum to enter" description="Skip entries with weaker 1-hour momentum." settingKey="entry_min_1h_pct" min={0} max={2} step={0.05} />

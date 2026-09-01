@@ -16,6 +16,8 @@ import { AIStatusCard } from '@/components/dashboard/AIStatusCard';
 import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
+import { ExpectancyCard } from '@/components/dashboard/ExpectancyCard';
+
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -412,9 +414,11 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <MilestoneProgressCard />
+          <ExpectancyCard isPaper={!isLiveMode} />
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
         </div>
+
         <div className="space-y-6">
           <AIStatusCard />
           <RecentTradesCard />
