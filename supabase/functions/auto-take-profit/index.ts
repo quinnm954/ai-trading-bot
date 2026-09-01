@@ -1674,9 +1674,13 @@ serve(async (req) => {
         console.log(`📤 Coinbase sell result:`, sellResult);
       }
 
-      // Calculate PnL
+      // Calculate PnL — paper pays the same maker round trip as live so both ledgers agree.
       const currentPrice = position.current_price || position.avg_entry_price;
-      const pnl = (currentPrice - position.avg_entry_price) * position.quantity;
+      const grossPnl = (currentPrice - position.avg_entry_price) * position.quantity;
+      const roundTripFee =
+        (position.avg_entry_price * position.quantity + currentPrice * position.quantity) *
+        (COINBASE_MAKER_FEE / 100);
+      const pnl = position.is_paper ? grossPnl - roundTripFee : grossPnl;
 
       // Create closed trade record
       await supabase.from('trades').insert({
@@ -1687,29 +1691,32 @@ serve(async (req) => {
         entry_price: position.avg_entry_price,
         exit_price: currentPrice,
         pnl: pnl,
+        fees_estimate: roundTripFee,
         status: 'closed',
         is_paper: position.is_paper,
         market_type: position.market_type,
         strategy: position.strategy,
         closed_at: new Date().toISOString(),
+        exit_reason: 'force_close',
         ai_reasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
       });
 
-      // Update balance if paper mode
+      // Update balance if paper mode (return the original stake plus net P&L)
       if (position.is_paper) {
-        const positionValue = currentPrice * position.quantity;
+        const originalInvestment = position.avg_entry_price * position.quantity;
         const { data: paperData } = await supabase
           .from('paper_account')
           .select('balance')
           .eq('user_id', position.user_id)
           .single();
-        
+
         if (paperData) {
           await supabase.from('paper_account')
-            .update({ balance: paperData.balance + positionValue })
+            .update({ balance: Number(paperData.balance) + originalInvestment + pnl })
             .eq('user_id', position.user_id);
         }
       }
+
 
       // Delete the position
       await supabase.from('positions').delete().eq('id', positionId);
