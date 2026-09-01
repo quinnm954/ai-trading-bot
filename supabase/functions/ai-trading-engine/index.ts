@@ -3357,9 +3357,33 @@ serve(async (req) => {
         .eq('user_id', user.id);
     }
 
+    // 💵 CAPITAL BASIS — profits are NOT reinvested unless the user opts in.
+    // Sizing is based on the initial deposit, so realized gains accumulate as idle cash
+    // instead of compounding risk. reinvest_profits = true restores equity-based sizing.
+    const reinvestProfits = settings.reinvest_profits === true;
+    let initialDeposit = 0;
+    if (isPaperMode) {
+      const { data: paperInit } = await supabase
+        .from('paper_account')
+        .select('initial_balance')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      initialDeposit = Number(paperInit?.initial_balance) || 0;
+    } else {
+      initialDeposit = Number(settings.live_initial_investment) || 0;
+    }
+
+    // Cash-equivalent basis the engine may deploy. Never larger than the cash on hand.
+    const capitalBasis = reinvestProfits || initialDeposit <= 0
+      ? balance
+      : Math.min(balance, initialDeposit);
+
+    console.log(`💵 Capital basis: $${capitalBasis.toFixed(2)} (cash $${balance.toFixed(2)}, initial deposit $${initialDeposit.toFixed(2)}, reinvest profits: ${reinvestProfits ? 'ON' : 'OFF — profits held aside'})`);
+
     // 📋 LOG ALL USER PARAMETERS BEING USED
     console.log(`⚙️ YOUR AI TRADER SETTINGS:`);
     console.log(`   Max Capital Usage: ${settings.max_capital_usage || 80}%`);
+
     console.log(`   Max Position Size: ${settings.max_position_size || 10}%`);
     console.log(`   Max Daily Loss: ${settings.max_daily_loss || 5}%`);
     console.log(`   Max Concurrent Trades: ${settings.max_concurrent_trades || 5}`);
