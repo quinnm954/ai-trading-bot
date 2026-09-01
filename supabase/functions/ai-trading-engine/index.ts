@@ -3000,7 +3000,7 @@ async function adaptParametersFromRecentTrades(
       sl = clamp(sl * 0.6 + target * 0.4, 0.3, MAX_RISK_PCT);
     }
 
-    // 4) Re-assert geometry on the tuned pair before persisting anything.
+    // Geometry guard: re-assert on the tuned pair before persisting anything.
     const tunedGeo = enforceExitGeometry(tp, sl);
     tp = tunedGeo.take_profit_pct;
     sl = tunedGeo.hard_stop_loss_pct;
