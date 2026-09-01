@@ -17,7 +17,7 @@ Measured from what the app actually calls:
 
 - One paid plan only. No Pro/Unlimited split, no per-tier feature gating.
 - 7-day free trial stays: paper trading during trial, subscription unlocks live trading and everything else.
-- Payment via **Stripe Checkout**, which shows **Apple Pay and Google Pay** wallets automatically on supported devices, plus card.
+- Checkout is **Apple Pay / Google Pay first**: the wallet buttons are the primary way to pay, with card as fallback. Those wallet buttons are rendered and settled by the payment processor behind checkout — that is the only way Apple Pay and Google Pay work on the web — and money settles to your bank account.
 - Existing admin/invite free access is preserved. Current paid subscribers are not auto-granted anything; they move onto the single plan.
 
 ## What changes
