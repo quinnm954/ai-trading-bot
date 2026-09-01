@@ -274,9 +274,38 @@ export function RiskSettingsPanel() {
         <Row label="Max concurrent trades" description="Maximum simultaneous open AI positions." settingKey="maxConcurrentTrades" min={1} max={20} unit="" />
         <Row label="Max leverage" description="Maximum leverage. 1x is spot. Amplifies gains and losses." settingKey="maxLeverage" min={1} max={10} unit="x" warn={2} />
 
-        <Row label="Take-profit (arms trailing)" description="Profit % at which the trailing stop activates." settingKey="take_profit_pct" min={0.2} max={5} step={0.1} />
-        <Row label="Trailing drop from peak" description="Once armed, exit when price drops this % from peak." settingKey="trailing_drop_pct" min={0.2} max={5} step={0.1} />
-        <Row label="Hard stop-loss" description="Emergency exit if loss exceeds this %." settingKey="hard_stop_loss_pct" min={0.5} max={10} step={0.1} warn={5} />
+        {/* Live expectancy readout for the current exit geometry */}
+        {(() => {
+          const tp = Number(getValue('take_profit_pct')) || 0;
+          const stop = Math.min(Number(getValue('hard_stop_loss_pct')) || 0, MAX_RISK_PCT);
+          const rr = stop > 0 ? tp / stop : 0;
+          const netTp = tp - ROUND_TRIP_FEE_PCT;
+          // Break-even win rate for this geometry, after fees
+          const breakEvenWr = netTp + stop > 0 ? (stop / (netTp + stop)) * 100 : 100;
+          const healthy = rr >= MIN_REWARD_RISK && netTp > 0;
+          return (
+            <div className={cn(
+              'my-3 p-3 rounded-lg border text-xs space-y-1',
+              healthy ? 'bg-success/10 border-success/30 text-success' : 'bg-warning/10 border-warning/30 text-warning',
+            )}>
+              <p className="font-medium">
+                Exit geometry: +{tp.toFixed(2)}% target / -{stop.toFixed(2)}% stop = {rr.toFixed(2)}:1 reward:risk
+              </p>
+              <p className="text-muted-foreground">
+                After the {ROUND_TRIP_FEE_PCT}% fee round trip, a win nets +{netTp.toFixed(2)}%.
+                You need a win rate above <strong>{breakEvenWr.toFixed(0)}%</strong> to break even.
+                {healthy
+                  ? ' This geometry can be profitable.'
+                  : ` Below the ${MIN_REWARD_RISK}:1 floor — the engine will correct this automatically.`}
+              </p>
+            </div>
+          );
+        })()}
+
+        <Row label="Take-profit (arms trailing)" description={`Profit % target. Enforced floor: ${TP_FLOOR_PCT}% and at least ${MIN_REWARD_RISK}x the stop-loss.`} settingKey="take_profit_pct" min={0.2} max={5} step={0.1} />
+        <Row label="Trailing drop from peak" description="Once armed (past breakeven + fees), the engine gives back at most 40% of the peak gain, never less than this floor." settingKey="trailing_drop_pct" min={0.2} max={5} step={0.1} />
+        <Row label="Hard stop-loss" description={`Emergency exit. Capped at ${MAX_RISK_PCT}% so a loser can never cost more than a winner earns.`} settingKey="hard_stop_loss_pct" min={0.2} max={MAX_RISK_PCT} step={0.05} />
+
 
         <Row label="Min 5m momentum to enter" description="Skip entries with weaker 5-minute momentum." settingKey="entry_min_5m_pct" min={0} max={2} step={0.05} />
         <Row label="Min 1h momentum to enter" description="Skip entries with weaker 1-hour momentum." settingKey="entry_min_1h_pct" min={0} max={2} step={0.05} />
