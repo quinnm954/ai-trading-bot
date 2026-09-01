@@ -4457,6 +4457,16 @@ serve(async (req) => {
         ? Math.max((decision as any)._topupSpend || MIN_TRADE_VALUE, MIN_TRADE_VALUE)
         : Math.max(Math.min(baseValue, availableCapital), MIN_TRADE_VALUE);
 
+      // 📉 Expectancy probation: never scale a strategy whose math is currently negative
+      if (scalpOnProbation && !(decision as any)._topup) {
+        const throttled = Math.max(tradeValue * EXPECTANCY_PROBATION_SIZE_MULT, MIN_TRADE_VALUE);
+        if (throttled < tradeValue) {
+          console.log(`📉 Probation sizing: $${tradeValue.toFixed(2)} → $${throttled.toFixed(2)}`);
+          tradeValue = throttled;
+        }
+      }
+
+
       // 🔥 LIQUIDATION-MAP pre-trade check (best-effort, never blocks on error)
       try {
         const _entrySide: 'long' | 'short' = (decision.action === 'sell') ? 'short' : 'long';
