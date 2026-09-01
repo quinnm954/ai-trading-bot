@@ -302,6 +302,7 @@ export type Database = {
           meme_coins_only: boolean
           peak_equity: number | null
           prioritize_moonshots: boolean | null
+          reinvest_profits: boolean
           risk_tolerance: string | null
           target_equity: number | null
           trading_mode: string
@@ -336,6 +337,7 @@ export type Database = {
           meme_coins_only?: boolean
           peak_equity?: number | null
           prioritize_moonshots?: boolean | null
+          reinvest_profits?: boolean
           risk_tolerance?: string | null
           target_equity?: number | null
           trading_mode?: string
@@ -370,6 +372,7 @@ export type Database = {
           meme_coins_only?: boolean
           peak_equity?: number | null
           prioritize_moonshots?: boolean | null
+          reinvest_profits?: boolean
           risk_tolerance?: string | null
           target_equity?: number | null
           trading_mode?: string
