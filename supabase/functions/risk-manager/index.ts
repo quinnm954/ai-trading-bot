@@ -69,7 +69,10 @@ interface RiskSettings {
   peakEquity: number;
   riskTolerance: 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggressive';
   targetEquity: number;
+  reinvestProfits: boolean;   // false = size off the initial deposit only
+  initialDeposit: number;     // paper initial_balance or live_initial_investment
 }
+
 
 // =============================================================================
 // CORE RISK VALIDATION FUNCTIONS
