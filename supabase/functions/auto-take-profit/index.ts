@@ -15,13 +15,20 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
   // FAST-COMPOUND MODE: maximize trades/day. Targets clear ~0.8% maker round-trip;
   // book small wins quickly and recycle capital into the next mover.
   const ROTATION_PROFIT_THRESHOLD = 1.2; // 1.2% triggers rotation into a fresh mover
-  // Stop loss: tighter — small losers must die fast so capital can rotate
-  const BASE_STOP_LOSS_PERCENT = -1.5;
-  // Trailing stop: arm very fast, exit on tiny giveback (lock the move)
-  const TRAILING_STOP_DROP = 0.35; // Sell when current gain is 0.35% below peak gain
-  const TRAILING_STOP_MIN_PEAK = 0.6; // Activate trailing as soon as peak ≥ 0.6%
+  // ── Expectancy-first exit geometry ───────────────────────────────────────────
+  // Every loser must cost less than every winner earns, after fees.
+  const MIN_REWARD_RISK = 1.6;          // minimum reward:risk on any scalp
+  const TP_FLOOR_GROSS_PCT = 1.4;       // gross TP floor; clears the 0.8% round trip with edge left
+  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose
+  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop (tightened from -1.5)
+  // Trailing stop: only arms once the trade is past breakeven+fees, then gives back
+  // a fraction of the gain so winners can actually run.
+  const TRAILING_STOP_DROP = 0.35;      // absolute floor on giveback
+  const TRAILING_GIVEBACK_FRACTION = 0.4; // trail at 40% of the current peak gain
+  const TRAILING_ARM_BUFFER_PCT = 0.2;  // arm at fees + this buffer
   // Hard take-profit: lock in once gain hits this level regardless of peak/trail
   const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
+
   // Minimum momentum for target asset (must be rising)
   const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
   // Maximum momentum - avoid buying at the top
