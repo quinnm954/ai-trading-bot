@@ -64,6 +64,8 @@ const App = () => (
               <Route path="/fusion" element={<Fusion />} />
               <Route path="/trades" element={<Trades />} />
               <Route path="/api-keys" element={<ApiKeys />} />
+              <Route path="/wallet" element={<CryptoWallet />} />
+              <Route path="/market-depth" element={<MarketDepth />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/agents" element={<AgentConsole />} />
               <Route path="/admin" element={<AdminDashboard />} />
