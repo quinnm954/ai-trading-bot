@@ -110,7 +110,8 @@ export function ResetPaperBalance() {
         <div className="p-4 rounded-lg bg-secondary/30">
           <p className="font-medium text-foreground mb-2">Reset Paper Balance</p>
           <p className="text-sm text-muted-foreground mb-3">
-            Start fresh with a new $100,000 virtual balance. You can optionally clear all trading history.
+            Start fresh with a new $100,000 virtual balance. This also clears every piece of data
+            derived from paper trading.
           </p>
           
           <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
@@ -126,26 +127,19 @@ export function ResetPaperBalance() {
                   <AlertTriangle className="w-5 h-5 text-warning" />
                   Reset Paper Trading Account?
                 </AlertDialogTitle>
-                <AlertDialogDescription className="space-y-4">
+                <AlertDialogDescription className="space-y-3">
                   <p>
                     This will reset your paper trading balance back to <strong>$100,000</strong>.
                   </p>
-                  
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50">
-                    <Checkbox 
-                      id="clearHistory"
-                      checked={clearHistory}
-                      onCheckedChange={(checked) => setClearHistory(checked === true)}
-                    />
-                    <label htmlFor="clearHistory" className="text-sm cursor-pointer">
-                      <span className="font-medium text-foreground">Also clear trading history</span>
-                      <p className="text-muted-foreground mt-1">
-                        Delete all paper trades, positions, and equity history for a completely fresh start.
-                      </p>
-                    </label>
-                  </div>
+                  <p className="text-muted-foreground">
+                    All associated data is cleared: paper trades and positions, equity curve, daily
+                    P&amp;L, risk events, AI decisions and signal scores, strategy performance,
+                    cooldowns, pending trades, journal notes, backtests, grids and agent logs.
+                    Live broker data is not touched.
+                  </p>
                 </AlertDialogDescription>
               </AlertDialogHeader>
+
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction 
