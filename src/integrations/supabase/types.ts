@@ -2291,7 +2291,22 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      strategy_expectancy: {
+        Row: {
+          avg_loss: number | null
+          avg_win: number | null
+          expectancy_pct: number | null
+          expectancy_per_trade: number | null
+          is_paper: boolean | null
+          last_trade_at: string | null
+          net_pnl: number | null
+          sample_size: number | null
+          strategy: string | null
+          user_id: string | null
+          win_rate: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       approve_payment_claim: {
