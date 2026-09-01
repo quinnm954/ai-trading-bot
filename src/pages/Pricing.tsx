@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useCurrency } from '@/hooks/useCurrency';
 import { useSubscription } from '@/hooks/useSubscription';
-import { WalletCheckoutButton } from '@/components/subscription/WalletCheckoutButton';
+import { CryptoPayButton } from '@/components/subscription/CryptoPayButton';
 import {
   MONTHLY_PRICE_USD,
   PLAN_NAME,
@@ -206,12 +206,12 @@ export default function Pricing() {
                 <Link to="/settings">Manage Subscription</Link>
               </Button>
             ) : isAuthenticated ? (
-              <WalletCheckoutButton />
+              <CryptoPayButton />
             ) : (
               <Button variant="glow" size="lg" className="w-full gap-2" asChild>
                 <Link to="/auth">
                   <Wallet className="w-4 h-4" />
-                  Create account to subscribe
+                  Create account to get access
                 </Link>
               </Button>
             )}
@@ -223,18 +223,18 @@ export default function Pricing() {
           <div className="glass-panel p-5 rounded-xl flex items-start gap-3">
             <Wallet className="w-5 h-5 text-primary shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-foreground text-sm">Apple Pay & Google Pay</p>
+              <p className="font-medium text-foreground text-sm">Pay in USDC, no processor</p>
               <p className="text-xs text-muted-foreground">
-                Tap to pay from your phone wallet. Card also accepted.
+                Sent wallet-to-wallet from any crypto app. No card, no middleman.
               </p>
             </div>
           </div>
           <div className="glass-panel p-5 rounded-xl flex items-start gap-3">
             <Shield className="w-5 h-5 text-primary shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-foreground text-sm">Cancel anytime</p>
+              <p className="font-medium text-foreground text-sm">Nothing auto-charges</p>
               <p className="text-xs text-muted-foreground">
-                No contract. Access runs to the end of your billing period.
+                Each payment buys 30 days. Stop paying and it simply lapses.
               </p>
             </div>
           </div>

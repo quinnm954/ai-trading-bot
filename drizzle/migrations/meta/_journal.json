@@ -15,6 +15,13 @@
       "when": 1788280799751,
       "tag": "0001_add_reinvest_profits_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788283021579,
+      "tag": "0002_crypto_direct_wallet_payments",
+      "breakpoints": true
     }
   ]
 }

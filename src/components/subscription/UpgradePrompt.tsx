@@ -3,7 +3,7 @@ import { Lock, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Feature } from '@/hooks/useSubscription';
-import { WalletCheckoutButton } from './WalletCheckoutButton';
+import { CryptoPayButton } from './CryptoPayButton';
 import { MONTHLY_PRICE_USD, PLAN_NAME } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
 
@@ -97,7 +97,7 @@ export function UpgradePrompt({
         </CardDescription>
       </CardHeader>
       <CardContent className="text-center space-y-4">
-        <WalletCheckoutButton />
+        <CryptoPayButton />
         <p className="text-sm text-muted-foreground">
           or{' '}
           <Link to="/pricing" className="text-primary hover:underline">

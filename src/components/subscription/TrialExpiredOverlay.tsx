@@ -1,6 +1,6 @@
 import { Shield, Check, Brain } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { WalletCheckoutButton } from './WalletCheckoutButton';
+import { CryptoPayButton } from './CryptoPayButton';
 import { MONTHLY_PRICE_USD, PLAN_NAME, PLAN_FEATURES } from '@/lib/pricing';
 
 export function TrialExpiredOverlay() {
@@ -37,7 +37,7 @@ export function TrialExpiredOverlay() {
                 </li>
               ))}
             </ul>
-            <WalletCheckoutButton />
+            <CryptoPayButton />
           </CardContent>
         </Card>
 

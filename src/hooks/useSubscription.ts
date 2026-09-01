@@ -159,13 +159,13 @@ export function useSubscription() {
     }
   }, [isAuthenticated, user]);
 
-  // Ask the backend to reconcile with the payment provider, then refresh locally
+  // Ask the backend to re-scan the chain for incoming payments, then refresh locally
   const syncWithProvider = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
-      await supabase.functions.invoke('check-subscription');
+      await supabase.functions.invoke('verify-crypto-payments');
     } catch (error) {
-      console.error('check-subscription failed:', error);
+      console.error('verify-crypto-payments failed:', error);
     }
     await checkSubscription();
   }, [isAuthenticated, checkSubscription]);
