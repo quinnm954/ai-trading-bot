@@ -16,6 +16,8 @@ import { AIStatusCard } from '@/components/dashboard/AIStatusCard';
 import { MarketTicker } from '@/components/dashboard/MarketTicker';
 import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
+import { ExpectancyCard } from '@/components/dashboard/ExpectancyCard';
+
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
 import { useDashboardData } from '@/hooks/useDashboardData';
