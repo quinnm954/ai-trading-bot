@@ -4524,8 +4524,12 @@ serve(async (req) => {
         const _openVal = (_capPositions || []).reduce(
           (s: number, p: any) => s + Number(p.quantity) * Number(p.avg_entry_price), 0
         );
-        const equity = balance + _openVal;
+        // Cap against the capital basis, not grown equity, so profits don't enlarge positions.
+        const equity = reinvestProfits || initialDeposit <= 0
+          ? balance + _openVal
+          : Math.min(balance + _openVal, initialDeposit);
         const equityCap = equity * (SCALP_MAX_POSITION_PCT / 100);
+
         const notional = tradeValue * decisionLeverage;
         if (notional > equityCap) {
           const newMargin = equityCap / Math.max(decisionLeverage, 1);
