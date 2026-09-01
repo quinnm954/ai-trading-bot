@@ -2981,26 +2981,32 @@ async function adaptParametersFromRecentTrades(
 
     const next: Record<string, number> = {};
 
-    // 1) Take profit — capture more when winners run, take less when they barely tag
+    // 1) Take profit — capture more when winners run, but never below the fee-clearing floor
     let tp = Number(ss.take_profit_pct);
-    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, 0.6, 4.0);
-    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, 0.6, 4.0);
-    if (Math.abs(tp - Number(ss.take_profit_pct)) >= 0.05) next.take_profit_pct = round2(tp);
+    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, TP_FLOOR_GROSS_PCT, 4.0);
+    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, TP_FLOOR_GROSS_PCT, 4.0);
 
     // 2) Trailing drop — tighten in hot streaks, loosen in cold
     let td = Number(ss.trailing_drop_pct);
-    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.6, 3.0);
-    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.6, 3.0);
+    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.3, 1.5);
+    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.3, 1.5);
     if (Math.abs(td - Number(ss.trailing_drop_pct)) >= 0.05) next.trailing_drop_pct = round2(td);
 
-    // 3) Hard stop loss — pull in to the realized avg loss with safety buffer
-    let sl = Number(ss.hard_stop_loss_pct);
+    // 3) Hard stop loss — may only tighten. Widening it past MAX_RISK_PCT is what made
+    //    the average loss 2.3x the average win, so the tuner can no longer do that.
+    let sl = Math.min(Math.abs(Number(ss.hard_stop_loss_pct)), MAX_RISK_PCT);
     if (avgLoss > 0 && losses.length >= 3) {
-      const target = clamp(avgLoss * 1.25, 1.0, 4.0); // 25% buffer beyond avg realized loss
-      // ease toward target so we don't whipsaw
-      sl = clamp(sl * 0.6 + target * 0.4, 1.0, 4.0);
+      const target = clamp(avgLoss * 1.25, 0.3, MAX_RISK_PCT);
+      sl = clamp(sl * 0.6 + target * 0.4, 0.3, MAX_RISK_PCT);
     }
-    if (Math.abs(sl - Number(ss.hard_stop_loss_pct)) >= 0.05) next.hard_stop_loss_pct = round2(sl);
+
+    // 4) Re-assert geometry on the tuned pair before persisting anything.
+    const tunedGeo = enforceExitGeometry(tp, sl);
+    tp = tunedGeo.take_profit_pct;
+    sl = tunedGeo.hard_stop_loss_pct;
+    if (Math.abs(tp - Number(ss.take_profit_pct)) >= 0.05) next.take_profit_pct = round2(tp);
+    if (Math.abs(sl - Math.abs(Number(ss.hard_stop_loss_pct))) >= 0.05) next.hard_stop_loss_pct = round2(sl);
+
 
     // 4) Entry thresholds — be pickier after a losing streak, more permissive after wins
     let e5 = Number(ss.entry_min_5m_pct);
