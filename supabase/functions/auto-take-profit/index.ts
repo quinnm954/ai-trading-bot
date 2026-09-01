@@ -1349,10 +1349,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       }
 
 
+      // 💸 PAPER PAYS THE SAME FEES AS LIVE
+      // Paper used to be fee-free, which made it an optimistic simulator: strategies that
+      // "worked" in paper were guaranteed losers live. Charge the maker round trip on both
+      // legs so paper P&L is a valid predictor of live P&L.
+      const roundTripFee = (entryPrice * quantity + actualExitPrice * quantity) * (COINBASE_MAKER_FEE / 100);
+      if (isPaperMode) {
+        actualPnl -= roundTripFee;
+      }
+
       await supabase.from('trades').update({
         status: 'closed',
         exit_price: actualExitPrice,
         pnl: actualPnl,
+        fees_estimate: roundTripFee,
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
 
@@ -1369,6 +1379,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           }).eq('user_id', userId);
         }
       }
+
 
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
