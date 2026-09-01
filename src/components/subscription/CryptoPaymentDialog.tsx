@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useCryptoCheckout } from '@/hooks/useCryptoCheckout';
+import { ConnectWalletPay } from './ConnectWalletPay';
 import { useSubscription } from '@/hooks/useSubscription';
 import { MONTHLY_PRICE_USD } from '@/lib/pricing';
 import { toast } from 'sonner';
@@ -192,6 +193,10 @@ export function CryptoPaymentDialog({ open, onOpenChange }: Props) {
 
                 <CopyRow label={`Exact amount (${invoice.token})`} value={invoice.amount} />
                 <CopyRow label="Wallet address" value={invoice.wallet_address} />
+
+                {status !== 'expired' && (
+                  <ConnectWalletPay invoice={invoice} onSent={() => void checkPayment(false)} />
+                )}
 
                 {status === 'expired' ? (
                   <Button className="w-full gap-2" onClick={() => { reset(); void createInvoice(); }}>

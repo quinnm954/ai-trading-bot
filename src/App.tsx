@@ -23,6 +23,8 @@ import Fusion from "./pages/Fusion";
 import Trades from "./pages/Trades";
 import ApiKeys from "./pages/ApiKeys";
 import Settings from "./pages/Settings";
+import CryptoWallet from "./pages/CryptoWallet";
+import MarketDepth from "./pages/MarketDepth";
 import Auth from "./pages/Auth";
 import Pricing from "./pages/Pricing";
 import Landing from "./pages/Landing";
@@ -62,6 +64,8 @@ const App = () => (
               <Route path="/fusion" element={<Fusion />} />
               <Route path="/trades" element={<Trades />} />
               <Route path="/api-keys" element={<ApiKeys />} />
+              <Route path="/wallet" element={<CryptoWallet />} />
+              <Route path="/market-depth" element={<MarketDepth />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/agents" element={<AgentConsole />} />
               <Route path="/admin" element={<AdminDashboard />} />
