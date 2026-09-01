@@ -127,25 +127,26 @@ export function ExpectancyCard({ isPaper }: Props) {
               const exp = Number(r.expectancy_per_trade || 0);
               const ok = exp > 0;
               return (
-                <div key={r.strategy} className="flex items-center justify-between text-xs py-2 border-t border-border/40">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-foreground capitalize">{r.strategy}</span>
+                <div key={r.strategy} className="flex flex-col gap-1.5 text-xs py-2 border-t border-border/40 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium text-foreground capitalize truncate">{r.strategy}</span>
                     <span className={cn(
-                      'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                      'shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium',
                       ok ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning',
                     )}>
                       {ok ? 'trading' : 'probation'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-4 font-mono text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground sm:text-xs sm:gap-4">
                     <span>{Number(r.win_rate).toFixed(0)}% WR</span>
                     <span>W ${Number(r.avg_win).toFixed(2)}</span>
                     <span>L ${Math.abs(Number(r.avg_loss)).toFixed(2)}</span>
-                    <span className={ok ? 'text-success' : 'text-destructive'}>
+                    <span className={cn('whitespace-nowrap', ok ? 'text-success' : 'text-destructive')}>
                       {exp >= 0 ? '+' : '-'}${Math.abs(exp).toFixed(2)}/trade
                     </span>
                   </div>
                 </div>
+
               );
             })}
           </div>
