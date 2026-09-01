@@ -1,10 +1,10 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Crown, Zap, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { Lock, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useSubscription, Feature, SubscriptionTier } from '@/hooks/useSubscription';
-import { CashAppPaymentDialog } from './CashAppPaymentDialog';
+import { Feature } from '@/hooks/useSubscription';
+import { WalletCheckoutButton } from './WalletCheckoutButton';
+import { MONTHLY_PRICE_USD, PLAN_NAME } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
 
 interface UpgradePromptProps {
@@ -29,12 +29,6 @@ const FEATURE_NAMES: Record<Feature, string> = {
   priority_support: 'Priority Support',
 };
 
-const TIER_LABELS: Record<SubscriptionTier, { label: string; icon: typeof Zap }> = {
-  free: { label: 'Free', icon: Lock },
-  pro: { label: 'Pro', icon: Zap },
-  unlimited: { label: 'Unlimited', icon: Crown },
-};
-
 export function UpgradePrompt({
   feature,
   title,
@@ -42,128 +36,79 @@ export function UpgradePrompt({
   className,
   variant = 'card',
 }: UpgradePromptProps) {
-  const { getRequiredTier, isLoading: subLoading } = useSubscription();
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  const requiredTier = getRequiredTier(feature);
   const featureName = FEATURE_NAMES[feature];
-  const tierInfo = TIER_LABELS[requiredTier];
-  const TierIcon = tierInfo.icon;
-
-  const handleUpgrade = () => {
-    if (requiredTier === 'free') return;
-    setDialogOpen(true);
-  };
-
-  const dialog = requiredTier !== 'free' && (
-    <CashAppPaymentDialog
-      open={dialogOpen}
-      onOpenChange={setDialogOpen}
-      tier={requiredTier as 'pro' | 'unlimited'}
-    />
-  );
 
   if (variant === 'inline') {
     return (
-      <>
-        <div className={cn('flex items-center gap-2 text-sm', className)}>
-          <Lock className="w-4 h-4 text-muted-foreground" />
-          <span className="text-muted-foreground">
-            {title || `${featureName} requires ${tierInfo.label}`}
-          </span>
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto p-0 text-primary"
-            onClick={handleUpgrade}
-            disabled={subLoading}
-          >
-            Upgrade
-          </Button>
-        </div>
-        {dialog}
-      </>
+      <div className={cn('flex items-center gap-2 text-sm', className)}>
+        <Lock className="w-4 h-4 text-muted-foreground" />
+        <span className="text-muted-foreground">
+          {title || `${featureName} requires ${PLAN_NAME}`}
+        </span>
+        <Button variant="link" size="sm" className="h-auto p-0 text-primary" asChild>
+          <Link to="/pricing">Get access</Link>
+        </Button>
+      </div>
     );
   }
 
   if (variant === 'banner') {
     return (
-      <>
-        <div
-          className={cn(
-            'flex items-center justify-between p-4 rounded-lg border border-primary/20 bg-primary/5',
-            className
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/20">
-              <TierIcon className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="font-medium text-foreground">
-                {title || `Unlock ${featureName}`}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {description || `Upgrade to ${tierInfo.label} to access this feature`}
-              </p>
-            </div>
+      <div
+        className={cn(
+          'flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg border border-primary/20 bg-primary/5',
+          className
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/20">
+            <Lock className="w-5 h-5 text-primary" />
           </div>
-          <Button
-            variant="glow"
-            size="sm"
-            onClick={handleUpgrade}
-            disabled={subLoading}
-            className="gap-2"
-          >
-            Upgrade to {tierInfo.label}
-            <ArrowRight className="w-4 h-4" />
-          </Button>
+          <div>
+            <p className="font-medium text-foreground">
+              {title || `Unlock ${featureName}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {description || `${PLAN_NAME} — $${MONTHLY_PRICE_USD}/month, everything included`}
+            </p>
+          </div>
         </div>
-        {dialog}
-      </>
+        <Button variant="glow" size="sm" className="gap-2 shrink-0" asChild>
+          <Link to="/pricing">
+            Get Full Access
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </Button>
+      </div>
     );
   }
 
-  // Card variant (default)
   return (
-    <>
-      <Card className={cn('border-primary/20 bg-gradient-to-br from-primary/5 to-transparent', className)}>
-        <CardHeader className="text-center pb-4">
-          <div className="mx-auto p-3 rounded-full bg-primary/20 w-fit mb-4">
-            <Lock className="w-8 h-8 text-primary" />
-          </div>
-          <CardTitle className="text-xl">
-            {title || `${featureName} Locked`}
-          </CardTitle>
-          <CardDescription>
-            {description || `This feature requires a ${tierInfo.label} subscription`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-center space-y-4">
-          <Button
-            variant="glow"
-            size="lg"
-            onClick={handleUpgrade}
-            disabled={subLoading}
-            className="gap-2"
-          >
-            <TierIcon className="w-4 h-4" />
-            Upgrade to {tierInfo.label}
-          </Button>
-          <p className="text-sm text-muted-foreground">
-            or{' '}
-            <Link to="/pricing" className="text-primary hover:underline">
-              view all plans
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-      {dialog}
-    </>
+    <Card className={cn('border-primary/20 bg-gradient-to-br from-primary/5 to-transparent', className)}>
+      <CardHeader className="text-center pb-4">
+        <div className="mx-auto p-3 rounded-full bg-primary/20 w-fit mb-4">
+          <Lock className="w-8 h-8 text-primary" />
+        </div>
+        <CardTitle className="text-xl">
+          {title || `${featureName} Locked`}
+        </CardTitle>
+        <CardDescription>
+          {description || `Included in ${PLAN_NAME} — $${MONTHLY_PRICE_USD}/month`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="text-center space-y-4">
+        <WalletCheckoutButton />
+        <p className="text-sm text-muted-foreground">
+          or{' '}
+          <Link to="/pricing" className="text-primary hover:underline">
+            see what's included
+          </Link>
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
-// Higher-order component to wrap features with subscription check
 interface FeatureGateProps {
   feature: Feature;
   children: React.ReactNode;
