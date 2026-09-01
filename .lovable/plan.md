@@ -31,10 +31,10 @@ Measured from what the app actually calls:
 - Two columns only: **Free 7-Day Trial** and **Full Access — $29/month**. Everything the app can do goes in the paid column. Remove the three-tier comparison table and tier dropdowns.
 - Single `MONTHLY_PRICE_USD` constant sourced by Pricing page, Settings, and the checkout function.
 
-### 3. Stripe Checkout with wallets
-- Enable Lovable's built-in Stripe payments, create one recurring monthly product/price.
-- New edge function `create-checkout` (subscription mode, wallets enabled) and `customer-portal` for cancel/payment-method changes; `check-subscription` verifies against Stripe on login/page load and writes `subscriptions`.
-- Retire the manual Cash App flow: remove `CashAppPaymentDialog` and the payment-claim UI path from the purchase flow (keep `payment_claims` table and admin approve/reject RPCs intact so historical claims stay readable).
+### 3. Wallet checkout (Apple Pay / Google Pay)
+- Enable Lovable's built-in payments and create one recurring $29/month price.
+- New edge function `create-checkout` (subscription mode, wallets enabled so Apple Pay shows on iPhone/Safari and Google Pay on Android/Chrome) and `customer-portal` for cancel/payment-method changes; `check-subscription` verifies status on login and page load and writes `subscriptions`.
+- Retire the manual Cash App flow: remove `CashAppPaymentDialog` and the payment-claim path from the purchase flow (keep the `payment_claims` table and admin approve/reject RPCs intact so historical claims stay readable).
 
 ### 4. Subscription-aware profit accounting
 Because it's a monthly fee, net profit has to be shown after the fee:
