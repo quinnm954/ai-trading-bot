@@ -11,10 +11,11 @@ const corsHeaders = {
 // Sell positions with gains and rotate into assets showing upward momentum
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
- // Rotation threshold: when position gains X%, rotate into rising asset
-  // FAST-COMPOUND MODE: maximize trades/day. Targets clear ~0.8% maker round-trip;
-  // book small wins quickly and recycle capital into the next mover.
-  const ROTATION_PROFIT_THRESHOLD = 1.2; // 1.2% triggers rotation into a fresh mover
+ // Rotation threshold: when a position gains X%, rotate into a rising asset.
+  // Must never sit below the gross TP floor, or rotation would book a net loss
+  // after the 0.8% maker round trip. Kept in lockstep with TP_FLOOR_GROSS_PCT.
+  const ROTATION_PROFIT_THRESHOLD = 1.4;
+
   // ── Expectancy-first exit geometry ───────────────────────────────────────────
   // Every loser must cost less than every winner earns, after fees.
   const MIN_REWARD_RISK = 1.6;          // minimum reward:risk on any scalp
