@@ -25,23 +25,23 @@ export function EquityChart() {
 
   return (
     <div className="glass-panel p-4 sm:p-6">
-      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 mb-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h3 className="text-lg font-semibold text-foreground whitespace-nowrap">Equity Curve</h3>
-          <p className="text-sm text-muted-foreground">
+          <h3 className="text-base sm:text-lg font-semibold text-foreground whitespace-nowrap">Equity Curve</h3>
+          <p className="text-xs sm:text-sm text-muted-foreground">
             {selectedPeriod === 'ALL' ? 'All time' : `${periodDays[selectedPeriod]}-day`} performance
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-
+        <div className="grid grid-cols-5 gap-2 sm:flex sm:flex-wrap">
           {(['1D', '1W', '1M', '3M', 'ALL'] as Period[]).map((period) => (
             <button
               key={period}
               onClick={() => setSelectedPeriod(period)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              aria-pressed={period === selectedPeriod}
+              className={`min-h-9 px-2 sm:px-3 text-xs font-medium rounded-md transition-colors touch-manipulation ${
                 period === selectedPeriod 
                   ? 'bg-primary text-primary-foreground' 
-                  : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground active:bg-secondary/70'
               }`}
             >
               {period}
@@ -50,7 +50,8 @@ export function EquityChart() {
         </div>
       </div>
       
-      <div className="h-[300px]">
+      <div className="h-[220px] sm:h-[300px] -mx-2 sm:mx-0">
+
         {isLoading ? (
           <div className="h-full flex items-center justify-center text-muted-foreground">
             Loading chart...
