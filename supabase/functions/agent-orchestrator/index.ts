@@ -176,20 +176,22 @@ async function runWatcher(ctx: Ctx) {
     dailyLoss: Number(settings?.daily_loss_today ?? 0),
     openPositions: openCount,
     totalUnrealized: Number(totalUnrealized.toFixed(2)),
-    priceSnapshot: priceSnapshot(feed.quotes),
   };
+  // Snapshot is state-only (next cycle's short-window baseline) — kept out of the
+  // message bus so the /agents console stays readable.
+  const stateMeta = { ...obs, priceSnapshot: priceSnapshot(feed.quotes) };
 
   if (!regimeScore.live) {
     await post(ctx, "watcher", "all", "feed_down",
       "Live price feeds unavailable — regime scoring skipped, no trading this cycle", { feedSource: feed.source }, "high");
-    await setState(ctx, "watcher", "error", "Live price feed unavailable", obs);
+    await setState(ctx, "watcher", "error", "Live price feed unavailable", stateMeta);
     return obs;
   }
 
   const moverText = movers.length ? ` • movers ${movers.map((m) => `${m.symbol} ${m.change1h >= 0 ? "+" : ""}${m.change1h}%`).join(", ")}` : "";
   await post(ctx, "watcher", "analyst", "market_observation",
     `${regimeScore.enumRegime}/${regimeScore.profile} from ${regimeScore.sampleSize} live prices (${feed.source}) • ${openCount} open • unrealized ${obs.totalUnrealized >= 0 ? "+" : ""}${obs.totalUnrealized.toFixed(2)}${moverText}`, obs);
-  await setState(ctx, "watcher", "idle", null, obs);
+  await setState(ctx, "watcher", "idle", null, stateMeta);
   return obs;
 }
 
