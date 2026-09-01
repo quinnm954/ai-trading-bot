@@ -4739,7 +4739,12 @@ serve(async (req) => {
         status: 'open' as const,
         strategy: strategyType,
         ai_reasoning: decision.reason,
+        // Persist the enforced geometry so the journal shows the R:R the trade was taken on
+        stop_loss_price: defaultStopLoss ?? null,
+        take_profit_price: defaultTakeProfit ?? null,
+        risk_reward: defaultStopLoss ? strictTakeProfitPct / strictHardStopPct : null,
       };
+
 
       const { data: trade, error: tradeError } = await supabase
         .from('trades')
