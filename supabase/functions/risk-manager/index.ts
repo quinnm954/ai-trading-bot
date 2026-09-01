@@ -507,6 +507,19 @@ serve(async (req) => {
 
     // Get current open positions count for smart reset logic
     const isPaperMode = settings.tradingMode === 'paper';
+
+    // Resolve the initial deposit that bounds sizing when profits are not reinvested.
+    if (isPaperMode) {
+      const { data: paperInit } = await supabase
+        .from('paper_account')
+        .select('initial_balance')
+        .eq('user_id', userId)
+        .maybeSingle();
+      settings.initialDeposit = Number(paperInit?.initial_balance) || 0;
+    } else {
+      settings.initialDeposit = Number(settingsData.live_initial_investment) || 0;
+    }
+
     const { data: positionsData } = await supabase
       .from('positions')
       .select('id')
