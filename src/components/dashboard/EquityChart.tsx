@@ -25,14 +25,15 @@ export function EquityChart() {
 
   return (
     <div className="glass-panel p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Equity Curve</h3>
+      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-foreground whitespace-nowrap">Equity Curve</h3>
           <p className="text-sm text-muted-foreground">
             {selectedPeriod === 'ALL' ? 'All time' : `${periodDays[selectedPeriod]}-day`} performance
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+
           {(['1D', '1W', '1M', '3M', 'ALL'] as Period[]).map((period) => (
             <button
               key={period}
