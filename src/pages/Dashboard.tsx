@@ -421,8 +421,10 @@ export default function Dashboard() {
 
         <div className="space-y-6">
           <AIStatusCard />
+          <SubscriptionCostCard />
           <RecentTradesCard />
         </div>
+
       </div>
     </div>
     </>
