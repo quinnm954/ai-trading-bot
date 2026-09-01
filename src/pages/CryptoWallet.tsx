@@ -15,6 +15,7 @@ import {
 } from '@/hooks/useWeb3Wallet';
 import { CryptoPaymentDialog } from '@/components/subscription/CryptoPaymentDialog';
 import { MONTHLY_PRICE_USD } from '@/lib/pricing';
+import { useSpotPrice } from '@/hooks/useSpotPrice';
 import { toast } from 'sonner';
 
 interface InvoiceRow {
@@ -47,6 +48,8 @@ export default function CryptoWallet() {
   const [payOpen, setPayOpen] = useState(false);
 
   const chain = CHAINS[chainKey];
+  // Live USDC/USD spot from Coinbase — USDC is not assumed to be exactly $1.00
+  const { price: usdcSpot } = useSpotPrice('USDC-USD');
 
   const loadBalance = useCallback(async () => {
     if (!address) {
@@ -168,7 +171,12 @@ export default function CryptoWallet() {
               <div className="rounded-lg bg-secondary/30 p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">USDC on {chain.name}</p>
                 <p className="mt-1 text-3xl font-bold text-foreground">
-                  {balance === null ? '—' : `$${formatUnits(balance)}`}
+                  {balance === null ? '—' : `${formatUnits(balance)} USDC`}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {balance === null || usdcSpot === null
+                    ? 'Fetching live rate…'
+                    : `≈ $${(Number(formatUnits(balance)) * usdcSpot).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} at $${usdcSpot.toFixed(4)}/USDC`}
                 </p>
                 <a
                   href={`${chain.explorer}/address/${address}`}
