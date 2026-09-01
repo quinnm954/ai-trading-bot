@@ -1197,26 +1197,27 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       pnl = (entryPrice - currentPrice) * quantity;
     }
 
-    // Use latency-adjusted thresholds - ROTATION MODE
-    const rotationThreshold = getAdjustedRotationThreshold();
+    // Rotation may never fire below the fee-clearing floor, or it books losses as "wins"
+    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), COINBASE_ROUND_TRIP_FEE + 0.4);
     // Per-user hard stop adjusted for execution-latency slippage (widen slightly under high latency).
     const adjustedStopLoss = cfgHardStopLossPct - latencyTracker.slippageBuffer;
 
-    // TRUE TRAILING STOP LOGIC
-    // Track peak PnL and sell when current drops cfgTrailingDropPct below peak
+    // TRAILING STOP — arms only past breakeven+fees, then gives back a FRACTION of the gain
+    // so winners keep running instead of being cut at a fixed tiny giveback.
     const previousPeakPnl = Number(position.peak_pnl_percent || 0);
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
-    // Check if trailing stop triggered:
-    // 1. Peak must be at least TRAILING_STOP_MIN_PEAK (e.g., 0.8%) to activate
-    // 2. Current PnL must be cfgTrailingDropPct below peak
-    const trailingStopActive = newPeakPnl >= TRAILING_STOP_MIN_PEAK;
+    const trailingArmPct = COINBASE_ROUND_TRIP_FEE + TRAILING_ARM_BUFFER_PCT;
+    const trailingStopActive = newPeakPnl >= trailingArmPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    const hitTrailingStop = trailingStopActive && dropFromPeak >= cfgTrailingDropPct;
+    // Allowed giveback grows with the move: 40% of peak gain, never tighter than the floor
+    const allowedGiveback = Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION);
+    const hitTrailingStop = trailingStopActive && dropFromPeak >= allowedGiveback;
 
     const hitHardTakeProfit = pnlPercent >= cfgTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
+
 
     // Log position status for monitoring (even when not triggering)
     const statusIcon = hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : hitStopLoss ? '🛑' : '👀';
