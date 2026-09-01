@@ -39,29 +39,42 @@ export function useMarketData() {
         if (response.ok) {
           data = await response.json();
         } else if (response.status === 429) {
-          console.log('CoinGecko rate limited, using CoinCap fallback...');
+          console.log('CoinGecko rate limited, using Coinbase fallback...');
           throw new Error('Rate limited');
         } else {
           throw new Error('CoinGecko failed');
         }
       } catch {
-        // Fallback to CoinCap API (no rate limits)
-        const coinCapIds = ['bitcoin', 'ethereum', 'solana', 'cardano', 'ripple'];
-        const responses = await Promise.all(
-          coinCapIds.map(id => fetch(`https://api.coincap.io/v2/assets/${id}`))
-        );
-        
-        const coinCapData = await Promise.all(responses.map(r => r.json()));
-        data = coinCapData.map(item => ({
-          id: item.data?.id,
-          name: item.data?.name,
-          symbol: item.data?.symbol,
-          current_price: parseFloat(item.data?.priceUsd || '0'),
-          price_change_24h: parseFloat(item.data?.changePercent24Hr || '0') * parseFloat(item.data?.priceUsd || '0') / 100,
-          price_change_percentage_24h: parseFloat(item.data?.changePercent24Hr || '0'),
-          high_24h: parseFloat(item.data?.priceUsd || '0') * 1.02,
-          low_24h: parseFloat(item.data?.priceUsd || '0') * 0.98,
-        }));
+        // Fallback to Coinbase's public exchange API — real prices AND real 24h high/low
+        // (the previous CoinCap fallback fabricated high/low as price ±2%).
+        const products = CRYPTO_IDS.map((id) => ({ id, product: `${SYMBOL_MAP[id]}-USD` }));
+        data = (
+          await Promise.all(
+            products.map(async ({ id, product }) => {
+              const [tickerRes, statsRes] = await Promise.all([
+                fetch(`https://api.exchange.coinbase.com/products/${product}/ticker`),
+                fetch(`https://api.exchange.coinbase.com/products/${product}/stats`),
+              ]);
+              if (!tickerRes.ok || !statsRes.ok) return null;
+              const ticker = await tickerRes.json();
+              const stats = await statsRes.json();
+              const current = parseFloat(ticker.price ?? '0');
+              const open = parseFloat(stats.open ?? '0');
+              if (!current) return null;
+              return {
+                id,
+                name: id.charAt(0).toUpperCase() + id.slice(1),
+                symbol: SYMBOL_MAP[id],
+                current_price: current,
+                price_change_24h: open ? current - open : 0,
+                price_change_percentage_24h: open ? ((current - open) / open) * 100 : 0,
+                high_24h: parseFloat(stats.high ?? '0'),
+                low_24h: parseFloat(stats.low ?? '0'),
+              };
+            })
+          )
+        ).filter(Boolean) as any[];
+        if (!data.length) throw new Error('No live market data available');
       }
 
       const formattedData: MarketDataPoint[] = data.map((coin: any) => ({
