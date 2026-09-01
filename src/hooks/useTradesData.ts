@@ -13,7 +13,7 @@ interface Trade {
   pnl: number | null;
   strategy: string | null;
   aiReason: string | null;
-  marketType: 'stocks' | 'crypto';
+  marketType: 'crypto';
   isPaper: boolean;
   createdAt: Date;
   closedAt: Date | null;
@@ -36,7 +36,7 @@ interface Position {
   currentPrice: number | null;
   unrealizedPnl: number | null;
   strategy: string | null;
-  marketType: 'stocks' | 'crypto';
+  marketType: 'crypto';
   isPaper: boolean;
   createdAt: Date;
 }
@@ -102,7 +102,7 @@ export function useTradesData() {
           pnl: t.pnl ? Number(t.pnl) : null,
           strategy: t.strategy ? strategyDisplayName[t.strategy] || t.strategy : null,
           aiReason: t.ai_reasoning,
-          marketType: t.market_type as 'stocks' | 'crypto',
+          marketType: t.market_type as 'crypto',
           isPaper: t.is_paper,
           createdAt: new Date(t.created_at!),
           closedAt: t.closed_at ? new Date(t.closed_at) : null,
@@ -137,7 +137,7 @@ export function useTradesData() {
           currentPrice: p.current_price ? Number(p.current_price) : null,
           unrealizedPnl: p.unrealized_pnl ? Number(p.unrealized_pnl) : null,
           strategy: p.strategy ? strategyDisplayName[p.strategy] || p.strategy : null,
-          marketType: p.market_type as 'stocks' | 'crypto',
+          marketType: p.market_type as 'crypto',
           isPaper: p.is_paper,
           createdAt: new Date(p.created_at!),
         })));

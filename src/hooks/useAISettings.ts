@@ -44,7 +44,7 @@ export function useAISettings() {
           maxPositionSize: Number(data.max_position_size) || 10,
           maxDailyLoss: Number(data.max_daily_loss) || 5,
           maxConcurrentTrades: data.max_concurrent_trades || 5,
-          allowedMarkets: data.allowed_markets || ['stocks', 'crypto'],
+          allowedMarkets: data.allowed_markets || ['crypto'],
           updatedAt: new Date(data.updated_at || ''),
         });
       }

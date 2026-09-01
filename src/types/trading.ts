@@ -117,7 +117,7 @@ export interface RiskSettings {
   /** Maximum simultaneous open positions */
   maxOpenTrades: number;
   /** Asset classes permitted for trading (stocks, crypto) */
-  allowedMarkets: ('stocks' | 'crypto')[];
+  allowedMarkets: 'crypto'[];
   /** Maximum % of total capital AI can deploy */
   maxCapitalPercent: number;
 }
