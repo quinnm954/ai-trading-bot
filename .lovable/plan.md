@@ -50,4 +50,4 @@ Because it's a monthly fee, net profit has to be shown after the fee:
 - Price constant lives in `src/lib/pricing.ts`, imported by frontend and mirrored in the checkout function's env/price id.
 - Migration: single SQL migration to rewrite the two tier-checking DB functions; no table drops.
 - Files touched: `src/pages/Pricing.tsx`, `src/hooks/useSubscription.ts`, `src/components/settings/SubscriptionManager.tsx`, `src/components/subscription/*`, plus new `create-checkout` / `customer-portal` / `check-subscription` edge functions and a new dashboard cost card.
-- Apple Pay / Google Pay require the checkout domain to be the published domain; Stripe handles wallet enablement, no extra SDK in the app.
+- Apple Pay / Google Pay buttons only render on the published domain over HTTPS, on a supported device/browser; the processor handles wallet enablement and domain verification, so no extra SDK goes into the app. Desktop browsers without a wallet fall back to card entry.
