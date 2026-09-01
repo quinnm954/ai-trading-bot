@@ -14,13 +14,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { resetPaperAccount } from '@/lib/resetPaperAccount';
 
 export function ResetPaperBalance() {
   const [isResetting, setIsResetting] = useState(false);
-  const [clearHistory, setClearHistory] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [customBalance, setCustomBalance] = useState<string>('');
