@@ -1226,6 +1226,17 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       }
 
 
+      // 🛑 STOP FILLS AT EXACTLY THE STOP LEVEL IN PAPER
+      // Paper is a resting stop order: it fills at the stop price even if the polled tick
+      // already gapped below it. This keeps every paper loser at exactly -stopPct so the
+      // 1.6:1 reward/risk geometry holds and expectancy stays honest.
+      if (hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop && isPaperMode) {
+        actualExitPrice = stopPrice;
+        actualPnl = position.side === 'buy'
+          ? (stopPrice - entryPrice) * quantity
+          : (entryPrice - stopPrice) * quantity;
+      }
+
       // 💸 PAPER PAYS THE SAME FEES AS LIVE
       // Paper used to be fee-free, which made it an optimistic simulator: strategies that
       // "worked" in paper were guaranteed losers live. Charge the maker round trip on both
@@ -1235,13 +1246,43 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         actualPnl -= roundTripFee;
       }
 
+      // 🚨 SLIPPAGE ALERT — did the realized exit land worse than the stop level?
+      const realizedPctGross = position.side === 'buy'
+        ? ((actualExitPrice - entryPrice) / entryPrice) * 100
+        : ((entryPrice - actualExitPrice) / entryPrice) * 100;
+      const isStopExit = hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop;
+      const slippagePct = isStopExit ? Math.max(0, cfgHardStopLossPct - realizedPctGross) : 0;
+      if (isStopExit && slippagePct > 0.05) {
+        console.warn(`🚨 STOP SLIPPAGE ${position.symbol}: filled at ${realizedPctGross.toFixed(3)}% vs stop ${cfgHardStopLossPct.toFixed(2)}% (${slippagePct.toFixed(3)}% past)`);
+        await supabase.from('risk_events').insert({
+          user_id: userId,
+          event_type: 'stop_slippage',
+          severity: slippagePct > 0.4 ? 'high' : 'medium',
+          message: `${position.symbol} stop slipped ${slippagePct.toFixed(2)}% past the -${Math.abs(cfgHardStopLossPct).toFixed(2)}% stop (filled at ${realizedPctGross.toFixed(2)}%)`,
+          details: {
+            symbol: position.symbol,
+            mode: isPaperMode ? 'paper' : 'live',
+            stop_pct: cfgHardStopLossPct,
+            realized_pct: realizedPctGross,
+            slippage_pct: slippagePct,
+            entry_price: entryPrice,
+            exit_price: actualExitPrice,
+            stop_price: stopPrice,
+          },
+        });
+      }
+
       await supabase.from('trades').update({
         status: 'closed',
         exit_price: actualExitPrice,
         pnl: actualPnl,
         fees_estimate: roundTripFee,
+        slippage_estimate: slippagePct,
+        stop_loss_price: stopPrice,
+        exit_reason: isStopExit ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss') : undefined,
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+
 
       await supabase.from('positions').delete().eq('id', position.id);
 
