@@ -49,7 +49,7 @@ export default function CryptoWallet() {
 
   const chain = CHAINS[chainKey];
   // Live USDC/USD spot from Coinbase — USDC is not assumed to be exactly $1.00
-  const { price: usdcSpot } = useSpotPrice('USDC-USD');
+  const { price: usdcSpot } = useSpotPrice('USDC-USD', { coingeckoId: 'usd-coin' });
 
   const loadBalance = useCallback(async () => {
     if (!address) {
