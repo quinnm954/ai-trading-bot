@@ -18,6 +18,7 @@ import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
 import { ExpectancyCard } from '@/components/dashboard/ExpectancyCard';
 import { SubscriptionCostCard } from '@/components/dashboard/SubscriptionCostCard';
+import { SubscriptionStatusCard } from '@/components/dashboard/SubscriptionStatusCard';
 
 
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
@@ -423,6 +424,7 @@ export default function Dashboard() {
 
         <div className="space-y-6">
           <AIStatusCard />
+          <SubscriptionStatusCard />
           <SubscriptionCostCard />
           <RecentTradesCard />
         </div>
