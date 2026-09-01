@@ -345,6 +345,8 @@ async function validateTradeWithRiskManager(
     price: number;
     positionValue: number;
     stopLoss?: number;
+    takeProfit?: number;
+
   },
   currentEquity: number,
   openPositionsCount: number,
