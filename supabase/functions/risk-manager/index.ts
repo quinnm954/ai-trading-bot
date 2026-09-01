@@ -164,41 +164,55 @@ async function validateTrade(
   }
 
   // ==========================================================================
+  // CAPITAL BASIS: profits are not reinvested unless the user opted in, so every
+  // sizing/exposure check below measures against the initial deposit, not grown equity.
+  // ==========================================================================
+  const capitalBase = settings.reinvestProfits || settings.initialDeposit <= 0
+    ? currentEquity
+    : Math.min(currentEquity, settings.initialDeposit);
+  const heldAsideProfit = Math.max(0, currentEquity - capitalBase);
+
+  // ==========================================================================
   // CHECK 6: Position Size Limit - No single position too large
   // ==========================================================================
-  const positionSizePercent = (proposal.positionValue / currentEquity) * 100;
+  const positionSizePercent = (proposal.positionValue / capitalBase) * 100;
   if (positionSizePercent > settings.maxPositionSize) {
-    violations.push(`position_size: ${positionSizePercent.toFixed(2)}% exceeds limit of ${settings.maxPositionSize}%`);
+    violations.push(`position_size: ${positionSizePercent.toFixed(2)}% of tradable capital exceeds limit of ${settings.maxPositionSize}%`);
     approved = false;
     severity = 'warning';
   }
 
   // ==========================================================================
   // CHECK 7: Total Capital Usage - Don't over-commit
-  // Capital usage = (value in positions) / (total equity)
-  // We want to limit how much of our equity is deployed in positions
+  // Capital usage = (value in positions) / (tradable capital basis)
   // ==========================================================================
-  
+
   // Calculate what our exposure would be AFTER this trade
   const totalExposureAfterTrade = openPositionsValue + proposal.positionValue;
-  
-  // Capital usage % = how much of our equity is in positions
-  const capitalUsagePercent = (totalExposureAfterTrade / currentEquity) * 100;
-  
-  // Check if we have enough cash for this trade
-  const availableCash = currentEquity - openPositionsValue; // Cash not in positions
+
+  // Capital usage % = how much of the tradable basis is in positions
+  const capitalUsagePercent = (totalExposureAfterTrade / capitalBase) * 100;
+
+  // Check if we have enough deployable cash for this trade. Profit held aside is
+  // excluded, so realized gains stay parked instead of funding new exposure.
+  const availableCash = capitalBase - openPositionsValue;
   if (proposal.positionValue > availableCash * 1.05) { // Allow 5% buffer for price movements
-    violations.push(`insufficient_funds: Trade value $${proposal.positionValue.toFixed(2)} exceeds available cash $${availableCash.toFixed(2)}`);
+    violations.push(
+      `insufficient_funds: Trade value $${proposal.positionValue.toFixed(2)} exceeds deployable cash $${availableCash.toFixed(2)}` +
+      (heldAsideProfit > 0 ? ` ($${heldAsideProfit.toFixed(2)} profit held aside — enable reinvesting to use it)` : '')
+    );
     approved = false;
     severity = 'warning';
   }
-  
-  // Only block if we'd exceed maxCapitalUsage (how much of equity can be in positions)
+
+  // Only block if we'd exceed maxCapitalUsage
   if (capitalUsagePercent > settings.maxCapitalUsage) {
     violations.push(`capital_usage: ${capitalUsagePercent.toFixed(2)}% exceeds limit of ${settings.maxCapitalUsage}%`);
     approved = false;
     severity = 'warning';
   }
+
+
 
   // ==========================================================================
   // CHECK 8: Stop Loss Required for Live Trading
