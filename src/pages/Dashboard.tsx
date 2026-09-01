@@ -36,10 +36,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { resetPaperAccount } from '@/lib/resetPaperAccount';
 
 export default function Dashboard() {
   const { stats, positions, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
@@ -48,7 +48,6 @@ export default function Dashboard() {
   const [isSelling, setIsSelling] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isClosingPaper, setIsClosingPaper] = useState(false);
-  const [clearHistory, setClearHistory] = useState(true);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
 
