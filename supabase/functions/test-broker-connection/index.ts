@@ -130,7 +130,6 @@ interface DetectionResult {
 function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
   console.log("Detecting exchange from key format...");
   
-  }
   
   // CRYPTO EXCHANGE DETECTION
   // Check for Coinbase CDP (most distinctive)
