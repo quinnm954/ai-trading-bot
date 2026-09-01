@@ -14,6 +14,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ReinvestProfitsToggle } from './ReinvestProfitsToggle';
+
 
 // =============================================================================
 // Risk Settings Panel — single unified adjustment list
