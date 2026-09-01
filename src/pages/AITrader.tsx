@@ -30,8 +30,6 @@ import { LiveModeConfirmDialog } from '@/components/risk/LiveModeConfirmDialog';
 import { useRiskManager } from '@/hooks/useRiskManager';
 import { ExecutionModeToggle } from '@/components/trading/ExecutionModeToggle';
 import { PendingTradesPanel } from '@/components/trading/PendingTradesPanel';
-import { StockMarketIndicator } from '@/components/trading/StockMarketIndicator';
-import { PDTWarning } from '@/components/trading/PDTWarning';
 import { AIDecisionsBreakdownCard } from '@/components/dashboard/AIDecisionsBreakdownCard';
 
 export default function AITrader() {
@@ -58,14 +56,6 @@ export default function AITrader() {
     updateSettings,
     refetch,
   } = useAITraderData();
-
-  const toggleMarket = (market: string) => {
-    const current = aiSettings.allowedMarkets;
-    const updated = current.includes(market)
-      ? current.filter(m => m !== market)
-      : [...current, market];
-    updateSettings({ allowedMarkets: updated });
-  };
 
   // Handle live mode switch with confirmation
   const handleLiveModeClick = () => {
@@ -142,25 +132,6 @@ export default function AITrader() {
           </Button>
         </div>
       </div>
-
-      {/* Stock Market Hours Indicator & PDT Warning */}
-      {aiSettings.allowedMarkets.includes('stocks') && (
-        <div className="flex flex-wrap items-center gap-3">
-          <StockMarketIndicator />
-          {/* Show PDT warning for stock accounts under $25k */}
-          {liveAccounts
-            .filter(acc => acc.provider === 'ibkr' || acc.provider === 'tradier')
-            .filter(acc => acc.equity < 25000)
-            .map(acc => (
-              <PDTWarning 
-                key={acc.provider}
-                accountEquity={acc.equity}
-                dayTradesLast5Days={0} // TODO: Fetch from broker API
-              />
-            ))
-          }
-        </div>
-      )}
 
       {/* Kill Switch Banner - Show at top when active */}
       {isKillSwitchActive && (
