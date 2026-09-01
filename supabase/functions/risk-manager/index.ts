@@ -500,7 +500,10 @@ serve(async (req) => {
       peakEquity: settingsData.peak_equity || 100000,
       riskTolerance: settingsData.risk_tolerance || 'moderate',
       targetEquity: settingsData.target_equity || 1000000,
+      reinvestProfits: settingsData.reinvest_profits === true,
+      initialDeposit: 0, // resolved below once the mode is known
     };
+
 
     // Get current open positions count for smart reset logic
     const isPaperMode = settings.tradingMode === 'paper';
