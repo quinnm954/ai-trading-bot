@@ -341,7 +341,7 @@ export default function Dashboard() {
       <MarketTicker tradingMode={stats.tradingMode} positions={positions} isLoading={isLoading} />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <StatCard
           title="Cash Balance"
           value={isLoading ? '...' : `$${stats.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
@@ -414,15 +414,15 @@ export default function Dashboard() {
       )}
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+        <div className="lg:col-span-2 space-y-4 lg:space-y-6">
           <MilestoneProgressCard />
           <ExpectancyCard isPaper={!isLiveMode} />
           <EquityChart />
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 lg:space-y-6">
           <AIStatusCard />
           <SubscriptionStatusCard />
           <SubscriptionCostCard />

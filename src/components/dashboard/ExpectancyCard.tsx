@@ -103,20 +103,20 @@ export function ExpectancyCard({ isPaper }: Props) {
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
             <div>
               <p className="text-xs text-muted-foreground">Per trade</p>
-              <p className={cn('font-mono text-lg font-semibold', positive ? 'text-success' : 'text-destructive')}>
+              <p className={cn('font-mono text-base sm:text-lg font-semibold', positive ? 'text-success' : 'text-destructive')}>
                 {blendedExpectancy >= 0 ? '+' : '-'}${Math.abs(blendedExpectancy).toFixed(2)}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Trades / day</p>
-              <p className="font-mono text-lg font-semibold text-foreground">{tradesPerDay.toFixed(1)}</p>
+              <p className="font-mono text-base sm:text-lg font-semibold text-foreground">{tradesPerDay.toFixed(1)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Projected / day</p>
-              <p className={cn('font-mono text-lg font-semibold', dailyProjection >= 0 ? 'text-success' : 'text-destructive')}>
+              <p className={cn('font-mono text-base sm:text-lg font-semibold', dailyProjection >= 0 ? 'text-success' : 'text-destructive')}>
                 {dailyProjection >= 0 ? '+' : '-'}${Math.abs(dailyProjection).toFixed(2)}
               </p>
             </div>
@@ -127,7 +127,7 @@ export function ExpectancyCard({ isPaper }: Props) {
               const exp = Number(r.expectancy_per_trade || 0);
               const ok = exp > 0;
               return (
-                <div key={r.strategy} className="flex flex-col gap-1.5 text-xs py-2 border-t border-border/40 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div key={r.strategy} className="flex flex-col gap-1.5 text-xs py-2.5 border-t border-border/40 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-medium text-foreground capitalize truncate">{r.strategy}</span>
                     <span className={cn(
