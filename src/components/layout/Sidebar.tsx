@@ -33,9 +33,11 @@ const primaryNav = [
   { path: '/fusion', icon: Brain, label: 'Titan Fusion' },
   { path: '/crypto-signals', icon: TrendingUp, label: 'Signals' },
   { path: '/ai-trader', icon: Bot, label: 'Scalper' },
+  { path: '/market-depth', icon: Layers, label: 'Market Depth' },
   { path: '/leverage', icon: Zap, label: 'Leverage' },
   { path: '/risk-management', icon: Shield, label: 'Risk' },
   { path: '/trades', icon: History, label: 'Trade History' },
+  { path: '/wallet', icon: Wallet, label: 'Wallet' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
