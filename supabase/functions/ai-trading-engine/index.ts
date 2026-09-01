@@ -4288,8 +4288,46 @@ serve(async (req) => {
       console.error('Dust top-up phase failed (non-fatal):', e);
     }
 
+    // 📉 EXPECTANCY GATE
+    // A strategy is only allowed to scale while its trailing (last 20 closed trades,
+    // fee-inclusive) expectancy per trade is positive. Negative expectancy does not
+    // fully stop trading — that would deadlock the only strategy we have — it puts the
+    // strategy on PROBATION: one slot at a time and half size, until the math recovers.
+    const EXPECTANCY_MIN_SAMPLE = 10;
+    const EXPECTANCY_PROBATION_SIZE_MULT = 0.5;
+    const probationStrategies = new Set<string>();
+    try {
+      const { data: expRows } = await supabase
+        .from('strategy_expectancy')
+        .select('strategy, sample_size, win_rate, avg_win, avg_loss, expectancy_per_trade')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode);
+      for (const row of (expRows || []) as any[]) {
+        const sample = Number(row.sample_size || 0);
+        const exp = Number(row.expectancy_per_trade || 0);
+        if (sample >= EXPECTANCY_MIN_SAMPLE && exp <= 0) {
+          probationStrategies.add(String(row.strategy));
+          console.log(
+            `📉 PROBATION: strategy "${row.strategy}" expectancy $${exp.toFixed(4)}/trade over last ${sample} trades ` +
+            `(win rate ${row.win_rate}%, avg win $${row.avg_win}, avg loss $${row.avg_loss}) — throttling to 1 slot @ ${EXPECTANCY_PROBATION_SIZE_MULT * 100}% size`
+          );
+        } else if (sample >= EXPECTANCY_MIN_SAMPLE) {
+          console.log(`✅ Expectancy OK for "${row.strategy}": $${exp.toFixed(4)}/trade over last ${sample} trades (win rate ${row.win_rate}%)`);
+        }
+      }
+    } catch (e) {
+      console.error('Expectancy gate read failed (non-fatal, trading continues):', e);
+    }
+    // All autonomous entries are booked as 'scalp'
+    const scalpOnProbation = probationStrategies.has('scalp');
+    if (scalpOnProbation && remainingSlots > 1) {
+      console.log(`📉 Expectancy probation: slots ${remainingSlots} → 1`);
+      remainingSlots = 1;
+    }
+
     // Execute trades (limited to available slots)
     for (const decision of limitedDecisions) {
+
       // Double-check we haven't exceeded the limit during this loop
       if (tradesExecuted >= remainingSlots) {
         console.log(`🛑 Stopping: Reached max_concurrent_trades limit (${settings.max_concurrent_trades})`);
