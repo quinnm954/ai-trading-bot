@@ -871,7 +871,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   }
 
 
-  // Fetch ALL open positions for this user (both crypto AND stocks)
+  // Fetch ALL open crypto positions for this user
   const { data: positions, error: posError } = await supabase
     .from('positions')
     .select('*')
