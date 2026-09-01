@@ -39,7 +39,7 @@ export function useMarketData() {
         if (response.ok) {
           data = await response.json();
         } else if (response.status === 429) {
-          console.log('CoinGecko rate limited, using CoinCap fallback...');
+          console.log('CoinGecko rate limited, using Coinbase fallback...');
           throw new Error('Rate limited');
         } else {
           throw new Error('CoinGecko failed');
