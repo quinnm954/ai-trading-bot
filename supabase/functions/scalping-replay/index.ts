@@ -213,14 +213,21 @@ function simulate(bars: Kline[], strict: boolean): {
       exitPrice = entryPrice * (1 - HARD_STOP_LOSS);
       reason = 'hard_stop';
     }
-    // Trailing stop: peak gain reached trigger AND current price dropped 1.5% from peak
-    else if (peakPnl >= PEAK_GAIN_TRIGGER) {
-      const trailExitPnl = peakPnl - TRAIL_DROP_FROM_PEAK;
+    // Hard take-profit: lock the target in as soon as it trades through
+    else if (highPnl >= HARD_TAKE_PROFIT) {
+      exitPrice = entryPrice * (1 + HARD_TAKE_PROFIT);
+      reason = 'hard_tp';
+    }
+    // Proportional trailing stop: arms past fees, then gives back 40% of the peak gain
+    else if (peakPnl >= TRAIL_ARM_PNL) {
+      const giveback = Math.max(TRAIL_MIN_DROP, peakPnl * TRAIL_GIVEBACK_FRACTION);
+      const trailExitPnl = peakPnl - giveback;
       if (lowPnl <= trailExitPnl) {
         exitPrice = entryPrice * (1 + trailExitPnl);
         reason = 'trailing_stop';
       }
     }
+
 
     if (exitPrice !== null && reason !== null) {
       const grossPnlPct = (exitPrice - entryPrice) / entryPrice;
