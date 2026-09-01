@@ -27,6 +27,8 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
   const TRAILING_STOP_DROP = 0.35;      // absolute floor on giveback
   const TRAILING_GIVEBACK_FRACTION = 0.4; // trail at 40% of the current peak gain
   const TRAILING_ARM_BUFFER_PCT = 0.2;  // arm at fees + this buffer
+  // Minimum NET profit (after the round-trip fee) any profit-taking exit must realize
+  const MIN_NET_EXIT_PCT = 0.3;
   // Hard take-profit: lock in once gain hits this level regardless of peak/trail
   const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
 
@@ -1093,9 +1095,22 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const trailingArmPct = COINBASE_ROUND_TRIP_FEE + TRAILING_ARM_BUFFER_PCT;
     const trailingStopActive = newPeakPnl >= trailingArmPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // Allowed giveback grows with the move: 40% of peak gain, never tighter than the floor
-    const allowedGiveback = Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION);
-    const hitTrailingStop = trailingStopActive && dropFromPeak >= allowedGiveback;
+    // 🚦 A trailing exit must still be a NET WINNER after the 0.8% round-trip fee.
+    // Previously the trail could fire at +0.50% gross, which is -0.30% net — that alone
+    // turned genuine winners into recorded losses.
+    const trailingProfitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
+    // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
+    // land below the net-profit floor.
+    const givebackCap = Math.max(0, newPeakPnl - trailingProfitFloorPct);
+    const allowedGiveback = Math.min(
+      Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
+      givebackCap
+    );
+    const hitTrailingStop =
+      trailingStopActive &&
+      givebackCap > 0 &&
+      pnlPercent >= trailingProfitFloorPct &&
+      dropFromPeak >= allowedGiveback;
 
     const hitHardTakeProfit = pnlPercent >= cfgTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
@@ -1103,7 +1118,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
 
     // Log position status for monitoring (even when not triggering)
-    const statusIcon = hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : hitStopLoss ? '🛑' : '👀';
+    const statusIcon = hitStopLoss ? '🛑' : hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : '👀';
     const distToRotate = (rotationThreshold - pnlPercent).toFixed(2);
     const distToStop = (pnlPercent - adjustedStopLoss).toFixed(2);
     const peakInfo = trailingStopActive ? ` | Peak: ${newPeakPnl.toFixed(2)}% (drop: ${dropFromPeak.toFixed(2)}%)` : '';
@@ -1111,7 +1126,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     // Trigger sell on: hard take-profit, rotation target, trailing stop, or hard stop loss
     if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss) {
-      const triggerReason = hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitTrailingStop ? `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)` : '🛑 STOP TRIGGERED';
+      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
@@ -1230,7 +1245,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       // Paper is a resting stop order: it fills at the stop price even if the polled tick
       // already gapped below it. This keeps every paper loser at exactly -stopPct so the
       // 1.6:1 reward/risk geometry holds and expectancy stays honest.
-      if (hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop && isPaperMode) {
+      if (hitStopLoss && isPaperMode) {
         actualExitPrice = stopPrice;
         actualPnl = position.side === 'buy'
           ? (stopPrice - entryPrice) * quantity
@@ -1250,7 +1265,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       const realizedPctGross = position.side === 'buy'
         ? ((actualExitPrice - entryPrice) / entryPrice) * 100
         : ((entryPrice - actualExitPrice) / entryPrice) * 100;
-      const isStopExit = hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop;
+      const isStopExit = hitStopLoss;
       const slippagePct = isStopExit ? Math.max(0, cfgHardStopLossPct - realizedPctGross) : 0;
       if (isStopExit && slippagePct > 0.05) {
         console.warn(`🚨 STOP SLIPPAGE ${position.symbol}: filled at ${realizedPctGross.toFixed(3)}% vs stop ${cfgHardStopLossPct.toFixed(2)}% (${slippagePct.toFixed(3)}% past)`);
@@ -1301,7 +1316,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
-      const decisionType = hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitTrailingStop ? 'trailing_stop' : 'auto_stop_loss';
+      const decisionType = hitStopLoss ? 'auto_stop_loss' : hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : 'trailing_stop';
       const reasoningText = hitHardTakeProfit
         ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${cfgTakeProfitPct}%)`
         : hitRotationTarget 
