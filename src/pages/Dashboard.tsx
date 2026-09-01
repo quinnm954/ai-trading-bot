@@ -118,66 +118,12 @@ export default function Dashboard() {
 
   const handleResetPaperBalance = async () => {
     setIsResetting(true);
-    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: 'Not authenticated', variant: 'destructive' });
-        return;
-      }
-
-      // Reset paper account balance to initial $100,000
-      const { error: accountError } = await supabase
-        .from('paper_account')
-        .update({ balance: 100000 })
-        .eq('user_id', user.id);
-
-      if (accountError) throw accountError;
-
-      if (clearHistory) {
-        // Delete paper trades
-        await supabase
-          .from('trades')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('is_paper', true);
-
-        // Delete paper positions
-        await supabase
-          .from('positions')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('is_paper', true);
-
-        // Delete equity history
-        await supabase
-          .from('equity_history')
-          .delete()
-          .eq('user_id', user.id);
-
-        // Add fresh equity point
-        await supabase
-          .from('equity_history')
-          .insert({ user_id: user.id, equity: 100000 });
-
-        // Reset AI settings drawdown tracking
-        await supabase
-          .from('ai_settings')
-          .update({
-            current_drawdown: 0,
-            peak_equity: 100000,
-            daily_loss_today: 0,
-            weekly_loss_current: 0,
-            kill_switch_active: false,
-            kill_switch_triggered_at: null,
-          })
-          .eq('user_id', user.id);
-
-        toast({ title: '✨ Fresh Start!', description: 'Paper balance reset to $100,000 and all history cleared.' });
-      } else {
-        toast({ title: '💰 Balance Reset', description: 'Paper balance reset to $100,000.' });
-      }
-
+      await resetPaperAccount();
+      toast({
+        title: '✨ Fresh Start!',
+        description: 'Paper balance reset to $100,000 and all associated data cleared.',
+      });
       setResetDialogOpen(false);
       refetch();
     } catch (error) {
@@ -187,6 +133,7 @@ export default function Dashboard() {
       setIsResetting(false);
     }
   };
+
 
   const handleSellAll = async () => {
     if (!confirm('Are you sure you want to sell ALL crypto holdings?')) return;
