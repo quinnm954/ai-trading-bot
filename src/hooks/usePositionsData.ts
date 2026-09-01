@@ -14,7 +14,7 @@ export interface Position {
   unrealizedPnl: number | null;
   pnlPercent: number;
   strategy: string | null;
-  marketType: 'stocks' | 'crypto';
+  marketType: 'crypto';
   isPaper: boolean;
   createdAt: Date;
 }
@@ -149,7 +149,7 @@ export function usePositionsData(isPaper: boolean = true) {
         unrealizedPnl: pos.unrealized_pnl ? Number(pos.unrealized_pnl) : null,
         pnlPercent: 0,
         strategy: pos.strategy,
-        marketType: pos.market_type as 'stocks' | 'crypto',
+        marketType: pos.market_type as 'crypto',
         isPaper: pos.is_paper,
         createdAt: new Date(pos.created_at || ''),
       }));

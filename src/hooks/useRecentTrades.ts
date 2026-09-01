@@ -12,7 +12,7 @@ export interface Trade {
   pnl: number | null;
   strategy: string | null;
   status: 'open' | 'closed' | 'cancelled';
-  marketType: 'stocks' | 'crypto';
+  marketType: 'crypto';
   isPaper: boolean;
   createdAt: Date;
   closedAt: Date | null;
@@ -51,7 +51,7 @@ export function useRecentTrades(isPaper: boolean = true, limit: number = 4, sinc
         pnl: trade.pnl ? Number(trade.pnl) : null,
         strategy: trade.strategy,
         status: trade.status as 'open' | 'closed' | 'cancelled',
-        marketType: trade.market_type as 'stocks' | 'crypto',
+        marketType: trade.market_type as 'crypto',
         isPaper: trade.is_paper,
         createdAt: new Date(trade.created_at || ''),
         closedAt: trade.closed_at ? new Date(trade.closed_at) : null,

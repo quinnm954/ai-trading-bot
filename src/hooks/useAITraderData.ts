@@ -46,7 +46,7 @@ export function useAITraderData() {
     maxPositionSize: 10,
     maxDailyLoss: 5,
     maxConcurrentTrades: 5,
-    allowedMarkets: ['stocks', 'crypto'],
+    allowedMarkets: ['crypto'],
   });
   
   const [paperAccount, setPaperAccount] = useState<PaperAccount>({
@@ -87,7 +87,7 @@ export function useAITraderData() {
           maxPositionSize: Number(settingsData.max_position_size) ?? 10,
           maxDailyLoss: Number(settingsData.max_daily_loss) ?? 5,
           maxConcurrentTrades: settingsData.max_concurrent_trades ?? 5,
-          allowedMarkets: settingsData.allowed_markets ?? ['stocks', 'crypto'],
+          allowedMarkets: settingsData.allowed_markets ?? ['crypto'],
         });
       }
 

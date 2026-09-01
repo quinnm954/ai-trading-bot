@@ -10,10 +10,8 @@
  * This file defines the core data structures for TitanAI's intelligent trading
  * system. The platform is designed with multi-asset class support in mind:
  * 
- * MULTI-ASSET CLASS CAPABILITY (Patent Claim 1):
- * - stocks: Traditional equity securities (planned integration)
- * - crypto: Cryptocurrency digital assets (currently implemented)
- * - Future extensibility: forex, commodities, derivatives
+ * ASSET CLASS:
+ * - crypto: Cryptocurrency digital assets (the only supported asset class)
  * 
  * The architecture abstracts asset-specific logic to enable seamless addition
  * of new asset classes without core system modifications. Each asset class
@@ -24,9 +22,8 @@
  * - Risk parameters and position limits
  * 
  * ASSET-AWARE INTELLIGENCE (Patent Claim 2):
- * The system applies asset-class-specific trading logic:
- * - Crypto: 24/7 trading, high volatility strategies, satoshi-level precision
- * - Stocks: Market hours awareness, SEC compliance, lot-based trading
+ * Crypto-specific trading logic: 24/7 markets, high volatility strategies,
+ * and satoshi-level precision.
  * 
  * =============================================================================
  */
@@ -104,10 +101,6 @@ export interface Strategy {
  * The AI trading engine MUST obey these limits - they function as
  * inviolable guardrails, not suggestions.
  * 
- * MULTI-ASSET SUPPORT:
- * The allowedMarkets field enables users to specify which asset classes
- * the AI is permitted to trade. This supports the patent's multi-asset
- * capability claim while allowing user control over asset exposure.
  */
 export interface RiskSettings {
   /** Maximum % of portfolio for any single position */
@@ -116,8 +109,8 @@ export interface RiskSettings {
   maxDailyLoss: number;
   /** Maximum simultaneous open positions */
   maxOpenTrades: number;
-  /** Asset classes permitted for trading (stocks, crypto) */
-  allowedMarkets: ('stocks' | 'crypto')[];
+  /** Asset classes permitted for trading (crypto only) */
+  allowedMarkets: 'crypto'[];
   /** Maximum % of total capital AI can deploy */
   maxCapitalPercent: number;
 }
@@ -197,16 +190,14 @@ export interface SafetyGovernor {
  * balances via broker APIs. This architecture ensures users retain full
  * control and custody of their funds at all times.
  * 
- * MULTI-BROKER SUPPORT:
- * The system is designed to support multiple broker providers:
+ * BROKER SUPPORT:
  * - coinbase: Cryptocurrency trading (global)
- * - ibkr / tradier: Stock trading
- * - Future: Additional exchanges and brokers
+ * - Future: additional crypto exchanges
  */
 export interface ApiKey {
   id: string;
   /** Broker/exchange provider identifier */
-  provider: 'coinbase' | 'ibkr' | 'tradier';
+  provider: 'coinbase';
   name: string;
   isConnected: boolean;
   lastTested?: Date;

@@ -36,7 +36,7 @@ export default function Landing() {
         <div className="container mx-auto px-4 text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8">
             <Zap className="w-4 h-4" />
-            AI-Powered Stock & Crypto Trading
+            AI-Powered Crypto Trading
           </div>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-foreground mb-6 leading-tight">
             Autonomous Trading
@@ -72,7 +72,7 @@ export default function Landing() {
                 <Clock className="w-8 h-8 text-primary mb-4" />
                 <p className="text-foreground font-medium mb-2">Markets never sleep</p>
                 <p className="text-sm text-muted-foreground">
-                  Crypto trades 24/7. Stocks have pre-market and after-hours. You can't watch everything.
+                  Crypto trades 24/7, every day of the year. You can't watch it all.
                 </p>
               </div>
               <div className="p-6 rounded-2xl bg-muted/30 border border-border">
@@ -155,9 +155,9 @@ export default function Landing() {
             
             {/* Supported Platforms */}
             <div className="mt-12 text-center">
-              <p className="text-sm text-muted-foreground mb-4">Supports stocks and crypto across 10+ brokers & exchanges</p>
+              <p className="text-sm text-muted-foreground mb-4">Supports crypto across 8+ leading exchanges</p>
               <div className="flex flex-wrap justify-center gap-3">
-                {['Tradier', 'IBKR', 'Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit'].map((name) => (
+                {['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Bitget'].map((name) => (
                   <span
                     key={name}
                     className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground"

@@ -254,7 +254,7 @@ export const mockRiskSettings: RiskSettings = {
   maxPositionSize: 10,
   maxDailyLoss: 5,
   maxOpenTrades: 10,
-  allowedMarkets: ['stocks', 'crypto'],
+  allowedMarkets: ['crypto'],
   maxCapitalPercent: 80,
 };
 

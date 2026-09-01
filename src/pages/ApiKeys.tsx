@@ -29,33 +29,9 @@ interface ExchangeConfig {
 }
 
 /**
- * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
- * 
- * Supported brokers and exchanges for multi-asset trading:
- * - Interactive Brokers: Global stocks, options, futures, forex
- * - Tradier: US stocks & options (commission-free options)
- * - Crypto exchanges: Coinbase, Binance, Kraken, etc.
+ * Supported crypto exchanges. This platform is crypto-only.
  */
 const exchanges: ExchangeConfig[] = [
-  // STOCK BROKERS
-  {
-    provider: 'ibkr',
-    name: 'Interactive Brokers',
-    logo: '🏦',
-    description: 'Global Stocks, Options, Futures, Forex',
-    docsUrl: 'https://interactivebrokers.github.io/cpwebapi/',
-    requiresPassphrase: false,
-    keyHint: 'Client Portal API or TWS credentials',
-  },
-  {
-    provider: 'tradier',
-    name: 'Tradier',
-    logo: '📈',
-    description: 'US Stocks & Options (Commission-free options)',
-    docsUrl: 'https://documentation.tradier.com/',
-    requiresPassphrase: false,
-    keyHint: 'Access token from developer portal',
-  },
   // CRYPTO EXCHANGES
   {
     provider: 'coinbase',
@@ -167,20 +143,10 @@ export default function ApiKeys() {
   };
 
   /**
-   * Auto-detect exchange/broker from API key format
-   * 
-   * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
-   * Supports detection of stock brokers (IBKR, Tradier) and crypto exchanges
+   * Auto-detect crypto exchange from API key format
    */
   const detectExchangeFromKey = (apiKey: string, secretKey: string): string | null => {
     if (!apiKey && !secretKey) return null;
-    
-    // STOCK BROKER DETECTION
-    // Tradier access tokens are typically long alphanumeric strings
-    if (/^[A-Za-z0-9]{20,}$/.test(apiKey) && apiKey.length >= 20 && apiKey.length <= 40) {
-      return 'Tradier (possible)';
-    }
-    
     
     // CRYPTO EXCHANGE DETECTION
     if (apiKey.startsWith('organizations/') || secretKey.includes('-----BEGIN')) {
@@ -193,9 +159,6 @@ export default function ApiKeys() {
     if (/^[a-f0-9]{24}$/i.test(apiKey)) return 'KuCoin';
     if (/^[A-Za-z0-9]{18}$/.test(apiKey)) return 'Bybit';
     if (/^[a-f0-9]{32}$/i.test(apiKey)) return 'Gate.io';
-    
-    // IBKR detection requires server-side validation
-    // Keys don't have a distinctive pattern - detected via API test
     
     return null;
   };
@@ -258,7 +221,7 @@ export default function ApiKeys() {
             <Key className="w-7 h-7 text-primary" />
             Connect Broker / Exchange
           </h1>
-          <p className="text-muted-foreground">Connect your stock broker or crypto exchange with auto-detection</p>
+          <p className="text-muted-foreground">Connect your crypto exchange with auto-detection</p>
         </div>
       </div>
 
@@ -368,12 +331,7 @@ export default function ApiKeys() {
             <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary">
               <CheckCircle className="w-4 h-4" />
               <span className="text-sm font-medium">Detected: {detectedExchange}</span>
-              {(detectedExchange.includes('Tradier') || detectedExchange.includes('IBKR')) && (
-                <span className="text-xs bg-success/20 text-success px-2 py-0.5 rounded-full ml-2">Stock Broker</span>
-              )}
-              {!detectedExchange.includes('Tradier') && !detectedExchange.includes('IBKR') && (
-                <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded-full ml-2">Crypto Exchange</span>
-              )}
+              <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded-full ml-2">Crypto Exchange</span>
             </div>
           )}
 

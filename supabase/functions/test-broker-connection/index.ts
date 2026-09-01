@@ -10,11 +10,10 @@ import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
  * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
  * PATENT REFERENCE: No Custody of User Funds (Patent Claim 5)
  * 
- * This edge function validates API credentials for both stock brokers and
+ * This edge function validates crypto exchange API credentials
  * crypto exchanges, enabling the patent's multi-asset trading capability.
  * 
  * SUPPORTED BROKERS/EXCHANGES:
- * - IBKR / Tradier: US Stocks
  * - Coinbase: Cryptocurrency
  * - Binance, Kraken, KuCoin, Bybit, OKX, Gate.io, Bitget: Crypto
  * 
@@ -28,27 +27,6 @@ const corsHeaders = {
 
 // Exchange configurations with key detection patterns
 const EXCHANGES = {
-  // STOCK BROKERS - US & Global Equities
-  ibkr: {
-    name: "Interactive Brokers",
-    assetClasses: ["stocks", "options", "futures", "forex", "crypto"],
-    keyPatterns: [], // IBKR uses OAuth or Client Portal - detection via API test
-    endpoints: {
-      account: "https://api.ibkr.com/v1/api/portfolio/accounts",
-      paperAccount: "https://api.ibkr.com/v1/api/portfolio/accounts",
-    },
-  },
-  tradier: {
-    name: "Tradier",
-    assetClasses: ["stocks", "options"],
-    keyPatterns: [
-      { pattern: /^[A-Za-z0-9]{20,40}$/, type: "access_token" },
-    ],
-    endpoints: {
-      account: "https://api.tradier.com/v1/user/profile",
-      sandbox: "https://sandbox.tradier.com/v1/user/profile",
-    },
-  },
   // CRYPTO EXCHANGES
   coinbase: {
     name: "Coinbase",
@@ -152,15 +130,6 @@ interface DetectionResult {
 function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
   console.log("Detecting exchange from key format...");
   
-  // STOCK BROKER DETECTION
-  
-  
-  // Tradier access tokens - typically 20-40 char alphanumeric
-  // Will be confirmed via API test since format is generic
-  if (/^[A-Za-z0-9]{20,40}$/.test(apiKey) && !secretKey) {
-    console.log("Possible Tradier access token detected");
-    return { exchange: "tradier", authType: "access_token", confidence: 0.6 };
-  }
   
   // CRYPTO EXCHANGE DETECTION
   // Check for Coinbase CDP (most distinctive)
@@ -220,123 +189,6 @@ function detectExchange(apiKey: string, secretKey: string): DetectionResult | nu
 
 // Alpaca integration removed.
 
-/**
- * Test Interactive Brokers connection (Global Multi-Asset)
- * 
- * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
- * IBKR supports stocks, options, futures, forex, and crypto globally
- * 
- * NOTE: IBKR uses Client Portal API which requires OAuth authentication
- * or a running TWS/IB Gateway session. This tests the Web API endpoint.
- */
-async function testIBKR(apiKey: string, secretKey: string) {
-  console.log("Testing Interactive Brokers connection...");
-  
-  // IBKR Client Portal API - OAuth-based
-  // The apiKey here would be the OAuth access token
-  const response = await fetch("https://api.ibkr.com/v1/api/portfolio/accounts", {
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Interactive Brokers error (${response.status}): ${errorText}`);
-  }
-  
-  const accounts = await response.json();
-  
-  // IBKR returns an array of accounts
-  let totalEquity = 0;
-  let totalCash = 0;
-  
-  if (Array.isArray(accounts)) {
-    for (const account of accounts) {
-      totalEquity += parseFloat(account.equity || 0);
-      totalCash += parseFloat(account.availableFunds || 0);
-    }
-  }
-  
-  return {
-    balance: totalCash,
-    buying_power: totalCash,
-    equity: totalEquity,
-    accountCount: accounts.length || 0,
-    tradingMode: "live",
-  };
-}
-
-/**
- * Test Tradier connection (US Stocks & Options)
- * 
- * PATENT REFERENCE: Multi-Asset Class Trading (Patent Claim 1)
- * Tradier offers commission-free options trading with excellent API
- */
-async function testTradier(accessToken: string, useSandbox: boolean = false) {
-  console.log(`Testing Tradier ${useSandbox ? "sandbox" : "production"} connection...`);
-  
-  const baseUrl = useSandbox 
-    ? "https://sandbox.tradier.com" 
-    : "https://api.tradier.com";
-  
-  // First test user profile to validate token
-  const profileResponse = await fetch(`${baseUrl}/v1/user/profile`, {
-    headers: {
-      "Authorization": `Bearer ${accessToken}`,
-      "Accept": "application/json",
-    },
-  });
-  
-  if (!profileResponse.ok) {
-    const errorText = await profileResponse.text();
-    throw new Error(`Tradier error (${profileResponse.status}): ${errorText}`);
-  }
-  
-  const profileData = await profileResponse.json();
-  
-  // Get account balances
-  const balanceResponse = await fetch(`${baseUrl}/v1/accounts`, {
-    headers: {
-      "Authorization": `Bearer ${accessToken}`,
-      "Accept": "application/json",
-    },
-  });
-  
-  let totalEquity = 0;
-  let totalCash = 0;
-  let buyingPower = 0;
-  let accountId = "";
-  
-  if (balanceResponse.ok) {
-    const balanceData = await balanceResponse.json();
-    const accounts = balanceData?.accounts?.account;
-    
-    if (Array.isArray(accounts)) {
-      for (const account of accounts) {
-        totalEquity += parseFloat(account.account_value || 0);
-        totalCash += parseFloat(account.cash || 0);
-        buyingPower += parseFloat(account.buying_power || 0);
-        if (!accountId) accountId = account.account_number;
-      }
-    } else if (accounts) {
-      totalEquity = parseFloat(accounts.account_value || 0);
-      totalCash = parseFloat(accounts.cash || 0);
-      buyingPower = parseFloat(accounts.buying_power || 0);
-      accountId = accounts.account_number;
-    }
-  }
-  
-  return {
-    balance: totalCash,
-    buying_power: buyingPower,
-    equity: totalEquity,
-    accountId,
-    userName: profileData?.profile?.account?.name || "Unknown",
-    tradingMode: useSandbox ? "sandbox" : "live",
-  };
-}
 
 // Generate JWT for Coinbase CDP API
 async function generateCdpJwt(apiKey: string, privateKeyPem: string, uri: string): Promise<string> {
@@ -805,18 +657,6 @@ serve(async (req) => {
     let accountInfo;
     
     switch (detectedExchange) {
-      case "ibkr":
-        accountInfo = await testIBKR(apiKey, secretKey);
-        break;
-      case "tradier":
-        // Try production first, fall back to sandbox
-        try {
-          accountInfo = await testTradier(apiKey, false);
-        } catch (prodError) {
-          console.log("Tradier production failed, trying sandbox...");
-          accountInfo = await testTradier(apiKey, true);
-        }
-        break;
       case "coinbase":
         accountInfo = await testCoinbase(apiKey, secretKey, passphrase, authType);
         break;
