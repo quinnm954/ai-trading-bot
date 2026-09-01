@@ -64,7 +64,7 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
 
   if (isLoading) {
     return (
-      <div className="glass-panel p-6">
+      <div className="glass-panel p-4 sm:p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-lg font-semibold text-foreground">Open Positions</h3>
@@ -79,7 +79,7 @@ export function PositionsTable({ positions, isLoading, isLiveMode = false, onRef
   }
 
   return (
-    <div className="glass-panel p-6">
+    <div className="glass-panel p-4 sm:p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Open Positions</h3>

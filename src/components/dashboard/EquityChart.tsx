@@ -24,7 +24,7 @@ export function EquityChart() {
   }, [equityHistory]);
 
   return (
-    <div className="glass-panel p-6">
+    <div className="glass-panel p-4 sm:p-6">
       <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold text-foreground whitespace-nowrap">Equity Curve</h3>

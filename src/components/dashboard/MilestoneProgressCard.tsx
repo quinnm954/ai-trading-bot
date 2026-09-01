@@ -188,7 +188,7 @@ export function MilestoneProgressCard() {
 
   if (isLoading) {
     return (
-      <div className="glass-panel p-6 animate-pulse">
+      <div className="glass-panel p-4 sm:p-6 animate-pulse">
         <div className="h-6 bg-secondary/50 rounded w-1/3 mb-4" />
         <div className="h-4 bg-secondary/50 rounded w-full mb-2" />
         <div className="h-8 bg-secondary/50 rounded w-2/3" />
@@ -197,7 +197,7 @@ export function MilestoneProgressCard() {
   }
 
   return (
-    <div className="glass-panel p-6 space-y-4">
+    <div className="glass-panel p-4 sm:p-6 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -8,7 +8,7 @@ export function AIStatusCard() {
 
   if (isLoading || !settings) {
     return (
-      <div className="glass-panel p-6 gradient-border">
+      <div className="glass-panel p-4 sm:p-6 gradient-border">
         <div className="flex items-center gap-3">
           <div className="p-3 rounded-xl bg-muted">
             <Bot className="w-6 h-6 text-muted-foreground" />
@@ -29,7 +29,7 @@ export function AIStatusCard() {
   };
 
   return (
-    <div className="glass-panel p-6 gradient-border">
+    <div className="glass-panel p-4 sm:p-6 gradient-border">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={cn(

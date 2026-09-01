@@ -75,7 +75,7 @@ export function ExpectancyCard({ isPaper }: Props) {
   const positive = blendedExpectancy > 0;
 
   return (
-    <div className="glass-panel p-6">
+    <div className="glass-panel p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={cn('p-2.5 rounded-xl', positive ? 'bg-success/20' : 'bg-destructive/20')}>
