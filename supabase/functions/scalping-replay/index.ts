@@ -30,7 +30,7 @@ interface SimTrade {
   exit: number;
   pnlPct: number;
   holdMinutes: number;
-  reason: 'trailing_stop' | 'hard_stop' | 'end_of_window';
+  reason: 'trailing_stop' | 'hard_stop' | 'hard_tp' | 'end_of_window';
 }
 
 interface SkipRecord {
@@ -38,14 +38,18 @@ interface SkipRecord {
   reason: string;
 }
 
-// Same constants as the live scalping logic.
-const PEAK_GAIN_TRIGGER = 0.01;   // 1% — arms trailing stop
-const TRAIL_DROP_FROM_PEAK = 0.015; // 1.5% drop from peak triggers exit
-const HARD_STOP_LOSS = 0.02;      // 2% hard stop
+// Same expectancy-first geometry as auto-take-profit / ai-trading-engine.
+// Any divergence here would make the replay a fantasy simulator.
+const HARD_TAKE_PROFIT = 0.014;      // 1.4% gross target (clears the 0.8% round trip)
+const HARD_STOP_LOSS = 0.008;        // 0.8% max risk → 1.75:1 reward:risk
+const TRAIL_ARM_PNL = 0.010;         // arm the trail once past fees + buffer
+const TRAIL_GIVEBACK_FRACTION = 0.4; // trail at 40% of the peak gain
+const TRAIL_MIN_DROP = 0.0035;       // absolute floor on giveback
 const MIN_MOMENTUM = 0.005;       // 0.5% — entry trigger over short window
 const ENTRY_LOOKBACK_BARS = 5;    // momentum measured over last 5 mins
-const FEE_ROUND_TRIP = 0.002;     // 0.2% round-trip fee assumption
+const FEE_ROUND_TRIP = 0.008;     // 0.4% maker in + 0.4% maker out
 const COOLDOWN_BARS = 6;          // 6-min cooldown after exit
+
 
 // Multi-confirmation gates (mirror live ai-trading-engine scalp case)
 const VOL_WINDOW_BARS = 1440;       // 24h rolling window for daily range/volume
