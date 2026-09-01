@@ -12,6 +12,14 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  fetchLiveMarket,
+  scoreRegime,
+  quoteMap,
+  priceSnapshot,
+  baseAsset,
+} from "../_shared/market-feed.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,33 +93,105 @@ async function consumeOverride(ctx: Ctx, id: string) {
 }
 
 // ---------- WATCHER ----------
+// Reads a LIVE market feed every cycle: real prices drive regime scoring, position
+// marks and the movers list the analyst/trader act on. If the feed is down the
+// watcher reports `live: false` so downstream agents stand down rather than score
+// a regime from stale numbers.
 async function runWatcher(ctx: Ctx) {
   const pauseOv = await getOverride(ctx, "watcher");
   if (pauseOv?.override_type === "pause") {
     await setState(ctx, "watcher", "paused", "Paused by user override");
     return { skipped: true };
   }
-  await setState(ctx, "watcher", "working", "Scanning market & open positions");
+  await setState(ctx, "watcher", "working", "Fetching live market feed");
+
+  // Previous cycle's real price snapshot → genuine short-window deltas.
+  const { data: prevState } = await ctx.supabase
+    .from("agent_state").select("metadata")
+    .eq("user_id", ctx.userId).eq("agent", "watcher").maybeSingle();
+  const prevPrices = ((prevState?.metadata as any)?.priceSnapshot ?? null) as Record<string, number> | null;
+
+  const feed = await fetchLiveMarket();
+  const regimeScore = scoreRegime(feed.quotes, prevPrices);
+  const quotes = quoteMap(feed.quotes);
 
   const { data: positions } = await ctx.supabase
-    .from("positions").select("symbol, side, quantity, avg_entry_price, current_price, unrealized_pnl, is_paper")
+    .from("positions").select("id, symbol, side, quantity, avg_entry_price, current_price, unrealized_pnl, is_paper")
     .eq("user_id", ctx.userId);
-  const { data: regime } = await ctx.supabase
+  const { data: settings } = await ctx.supabase
     .from("ai_settings").select("current_regime, kill_switch_active, daily_loss_today, peak_equity")
     .eq("user_id", ctx.userId).maybeSingle();
 
+  // Mark open positions to live prices so unrealized P&L is real, not last-known.
+  let marked = 0;
+  let totalUnrealized = 0;
+  for (const p of (positions ?? []) as any[]) {
+    const q = quotes[baseAsset(p.symbol)];
+    const price = q?.price;
+    if (price && price > 0) {
+      const qty = Number(p.quantity ?? 0);
+      const entry = Number(p.avg_entry_price ?? 0);
+      const pnl = p.side === "sell" ? (entry - price) * qty : (price - entry) * qty;
+      totalUnrealized += pnl;
+      if (Number(p.current_price ?? 0) !== price) {
+        await ctx.supabase.from("positions")
+          .update({ current_price: price, unrealized_pnl: Number(pnl.toFixed(6)) })
+          .eq("id", p.id);
+        marked++;
+      }
+    } else {
+      totalUnrealized += Number(p.unrealized_pnl ?? 0);
+    }
+  }
+
+  // Persist the freshly-scored regime so every other agent/engine reads live truth.
+  if (regimeScore.live && regimeScore.enumRegime !== settings?.current_regime) {
+    await ctx.supabase.from("ai_settings")
+      .update({ current_regime: regimeScore.enumRegime, updated_at: new Date().toISOString() })
+      .eq("user_id", ctx.userId);
+  }
+
+  const movers = feed.quotes
+    .filter((q) => Number.isFinite(q.change1h))
+    .sort((a, b) => Math.abs(b.change1h) - Math.abs(a.change1h))
+    .slice(0, 5)
+    .map((q) => ({ symbol: q.symbol, price: q.price, change1h: Number(q.change1h.toFixed(2)), change24h: Number(q.change24h.toFixed(2)) }));
+
   const openCount = positions?.length ?? 0;
-  const totalUnrealized = (positions ?? []).reduce((s, p: any) => s + Number(p.unrealized_pnl ?? 0), 0);
   const obs = {
-    regime: regime?.current_regime ?? "unknown",
-    killSwitch: regime?.kill_switch_active ?? false,
-    dailyLoss: Number(regime?.daily_loss_today ?? 0),
+    live: regimeScore.live,
+    feedSource: feed.source,
+    fetchedAt: feed.fetchedAt,
+    assetsScanned: regimeScore.sampleSize,
+    regime: regimeScore.live ? regimeScore.enumRegime : (settings?.current_regime ?? "unknown"),
+    regimeProfile: regimeScore.profile,
+    avgShortAbs: regimeScore.avgShortAbs,
+    avg1hAbs: regimeScore.avg1hAbs,
+    avg24h: regimeScore.avg24h,
+    dispersion24h: regimeScore.dispersion24h,
+    risersShare: regimeScore.risersShare,
+    topMovers: movers,
+    positionsMarked: marked,
+    killSwitch: settings?.kill_switch_active ?? false,
+    dailyLoss: Number(settings?.daily_loss_today ?? 0),
     openPositions: openCount,
     totalUnrealized: Number(totalUnrealized.toFixed(2)),
   };
+  // Snapshot is state-only (next cycle's short-window baseline) — kept out of the
+  // message bus so the /agents console stays readable.
+  const stateMeta = { ...obs, priceSnapshot: priceSnapshot(feed.quotes) };
+
+  if (!regimeScore.live) {
+    await post(ctx, "watcher", "all", "feed_down",
+      "Live price feeds unavailable — regime scoring skipped, no trading this cycle", { feedSource: feed.source }, "high");
+    await setState(ctx, "watcher", "error", "Live price feed unavailable", stateMeta);
+    return obs;
+  }
+
+  const moverText = movers.length ? ` • movers ${movers.map((m) => `${m.symbol} ${m.change1h >= 0 ? "+" : ""}${m.change1h}%`).join(", ")}` : "";
   await post(ctx, "watcher", "analyst", "market_observation",
-    `Regime ${obs.regime} • ${openCount} open • unrealized ${obs.totalUnrealized >= 0 ? "+" : ""}${obs.totalUnrealized.toFixed(2)}`, obs);
-  await setState(ctx, "watcher", "idle", null, obs);
+    `${regimeScore.enumRegime}/${regimeScore.profile} from ${regimeScore.sampleSize} live prices (${feed.source}) • ${openCount} open • unrealized ${obs.totalUnrealized >= 0 ? "+" : ""}${obs.totalUnrealized.toFixed(2)}${moverText}`, obs);
+  await setState(ctx, "watcher", "idle", null, stateMeta);
   return obs;
 }
 
@@ -241,7 +321,15 @@ async function runRisk(ctx: Ctx, analysis: Record<string, unknown>, observation:
 
   let veto = false;
   const reasons: string[] = [];
+  // No live prices this cycle → never let the trader act on stale marks.
+  if (observation && observation.live === false) {
+    veto = true; reasons.push("live price feed unavailable");
+  }
+  if (observation?.regimeProfile === "dead") {
+    veto = true; reasons.push("dead market — movement below fee round-trip");
+  }
   if (!settings?.enabled) { veto = true; reasons.push("bot disabled"); }
+
   if (settings?.kill_switch_active) { veto = true; reasons.push("kill switch active"); }
   if (settings?.max_daily_loss && Number(settings.daily_loss_today ?? 0) >= Number(settings.max_daily_loss)) {
     veto = true; reasons.push(`daily loss ${settings.daily_loss_today}% ≥ limit ${settings.max_daily_loss}%`);
