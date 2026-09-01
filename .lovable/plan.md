@@ -17,7 +17,7 @@ Measured from what the app actually calls:
 
 - One paid plan only. No Pro/Unlimited split, no per-tier feature gating.
 - 7-day free trial stays: paper trading during trial, subscription unlocks live trading and everything else.
-- Payment via **Stripe Checkout**, which shows **Apple Pay and Google Pay** wallets automatically on supported devices, plus card.
+- Checkout is **Apple Pay / Google Pay first**: the wallet buttons are the primary way to pay, with card as fallback. Those wallet buttons are rendered and settled by the payment processor behind checkout — that is the only way Apple Pay and Google Pay work on the web — and money settles to your bank account.
 - Existing admin/invite free access is preserved. Current paid subscribers are not auto-granted anything; they move onto the single plan.
 
 ## What changes
@@ -31,10 +31,10 @@ Measured from what the app actually calls:
 - Two columns only: **Free 7-Day Trial** and **Full Access — $29/month**. Everything the app can do goes in the paid column. Remove the three-tier comparison table and tier dropdowns.
 - Single `MONTHLY_PRICE_USD` constant sourced by Pricing page, Settings, and the checkout function.
 
-### 3. Stripe Checkout with wallets
-- Enable Lovable's built-in Stripe payments, create one recurring monthly product/price.
-- New edge function `create-checkout` (subscription mode, wallets enabled) and `customer-portal` for cancel/payment-method changes; `check-subscription` verifies against Stripe on login/page load and writes `subscriptions`.
-- Retire the manual Cash App flow: remove `CashAppPaymentDialog` and the payment-claim UI path from the purchase flow (keep `payment_claims` table and admin approve/reject RPCs intact so historical claims stay readable).
+### 3. Wallet checkout (Apple Pay / Google Pay)
+- Enable Lovable's built-in payments and create one recurring $29/month price.
+- New edge function `create-checkout` (subscription mode, wallets enabled so Apple Pay shows on iPhone/Safari and Google Pay on Android/Chrome) and `customer-portal` for cancel/payment-method changes; `check-subscription` verifies status on login and page load and writes `subscriptions`.
+- Retire the manual Cash App flow: remove `CashAppPaymentDialog` and the payment-claim path from the purchase flow (keep the `payment_claims` table and admin approve/reject RPCs intact so historical claims stay readable).
 
 ### 4. Subscription-aware profit accounting
 Because it's a monthly fee, net profit has to be shown after the fee:
@@ -50,4 +50,4 @@ Because it's a monthly fee, net profit has to be shown after the fee:
 - Price constant lives in `src/lib/pricing.ts`, imported by frontend and mirrored in the checkout function's env/price id.
 - Migration: single SQL migration to rewrite the two tier-checking DB functions; no table drops.
 - Files touched: `src/pages/Pricing.tsx`, `src/hooks/useSubscription.ts`, `src/components/settings/SubscriptionManager.tsx`, `src/components/subscription/*`, plus new `create-checkout` / `customer-portal` / `check-subscription` edge functions and a new dashboard cost card.
-- Apple Pay / Google Pay require the checkout domain to be the published domain; Stripe handles wallet enablement, no extra SDK in the app.
+- Apple Pay / Google Pay buttons only render on the published domain over HTTPS, on a supported device/browser; the processor handles wallet enablement and domain verification, so no extra SDK goes into the app. Desktop browsers without a wallet fall back to card entry.
