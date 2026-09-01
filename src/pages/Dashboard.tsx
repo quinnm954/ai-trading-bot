@@ -36,10 +36,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { resetPaperAccount } from '@/lib/resetPaperAccount';
 
 export default function Dashboard() {
   const { stats, positions, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
@@ -48,7 +48,6 @@ export default function Dashboard() {
   const [isSelling, setIsSelling] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isClosingPaper, setIsClosingPaper] = useState(false);
-  const [clearHistory, setClearHistory] = useState(true);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
 
@@ -118,66 +117,12 @@ export default function Dashboard() {
 
   const handleResetPaperBalance = async () => {
     setIsResetting(true);
-    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: 'Not authenticated', variant: 'destructive' });
-        return;
-      }
-
-      // Reset paper account balance to initial $100,000
-      const { error: accountError } = await supabase
-        .from('paper_account')
-        .update({ balance: 100000 })
-        .eq('user_id', user.id);
-
-      if (accountError) throw accountError;
-
-      if (clearHistory) {
-        // Delete paper trades
-        await supabase
-          .from('trades')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('is_paper', true);
-
-        // Delete paper positions
-        await supabase
-          .from('positions')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('is_paper', true);
-
-        // Delete equity history
-        await supabase
-          .from('equity_history')
-          .delete()
-          .eq('user_id', user.id);
-
-        // Add fresh equity point
-        await supabase
-          .from('equity_history')
-          .insert({ user_id: user.id, equity: 100000 });
-
-        // Reset AI settings drawdown tracking
-        await supabase
-          .from('ai_settings')
-          .update({
-            current_drawdown: 0,
-            peak_equity: 100000,
-            daily_loss_today: 0,
-            weekly_loss_current: 0,
-            kill_switch_active: false,
-            kill_switch_triggered_at: null,
-          })
-          .eq('user_id', user.id);
-
-        toast({ title: '✨ Fresh Start!', description: 'Paper balance reset to $100,000 and all history cleared.' });
-      } else {
-        toast({ title: '💰 Balance Reset', description: 'Paper balance reset to $100,000.' });
-      }
-
+      await resetPaperAccount();
+      toast({
+        title: '✨ Fresh Start!',
+        description: 'Paper balance reset to $100,000 and all associated data cleared.',
+      });
       setResetDialogOpen(false);
       refetch();
     } catch (error) {
@@ -187,6 +132,7 @@ export default function Dashboard() {
       setIsResetting(false);
     }
   };
+
 
   const handleSellAll = async () => {
     if (!confirm('Are you sure you want to sell ALL crypto holdings?')) return;
@@ -270,22 +216,16 @@ export default function Dashboard() {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Reset Paper Trading Account?</AlertDialogTitle>
-                  <AlertDialogDescription className="space-y-4">
+                  <AlertDialogDescription className="space-y-3">
                     <p>This will reset your paper trading balance back to <strong>$100,000</strong>.</p>
-                    <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50">
-                      <Checkbox 
-                        id="clearHistoryDashboard"
-                        checked={clearHistory}
-                        onCheckedChange={(checked) => setClearHistory(checked === true)}
-                      />
-                      <label htmlFor="clearHistoryDashboard" className="text-sm cursor-pointer">
-                        <span className="font-medium text-foreground">Clear all trading history</span>
-                        <p className="text-muted-foreground mt-1">
-                          Delete all paper trades, positions, and equity history for a fresh start.
-                        </p>
-                      </label>
-                    </div>
+                    <p className="text-muted-foreground">
+                      All associated data is cleared too: paper trades and positions, equity curve,
+                      daily P&amp;L, risk events, AI decisions and signal scores, strategy performance,
+                      cooldowns, pending trades, journal notes, backtests, grids and agent logs.
+                      Live broker data is not touched.
+                    </p>
                   </AlertDialogDescription>
+
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
