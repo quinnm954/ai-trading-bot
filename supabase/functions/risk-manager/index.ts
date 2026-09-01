@@ -295,9 +295,10 @@ async function validateTrade(
   // Suggest adjusted size if position is too large
   if (violations.some(v => v.includes('position_size') || v.includes('capital_usage'))) {
     const maxAllowedValue = Math.min(
-      currentEquity * settings.maxPositionSize / 100,
-      (currentEquity * settings.maxCapitalUsage / 100) - openPositionsValue
+      capitalBase * settings.maxPositionSize / 100,
+      (capitalBase * settings.maxCapitalUsage / 100) - openPositionsValue
     );
+
     if (maxAllowedValue > 5) {
       result.adjustedSize = maxAllowedValue;
     }
