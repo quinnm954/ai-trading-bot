@@ -13,7 +13,7 @@ export function RecentTradesCard() {
   const isLoading = dashboardLoading || tradesLoading;
 
   return (
-    <div className="glass-panel p-6">
+    <div className="glass-panel p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Recent Trades</h3>

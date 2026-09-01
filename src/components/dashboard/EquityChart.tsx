@@ -24,24 +24,24 @@ export function EquityChart() {
   }, [equityHistory]);
 
   return (
-    <div className="glass-panel p-6">
-      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+    <div className="glass-panel p-4 sm:p-6">
+      <div className="flex flex-col gap-3 mb-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h3 className="text-lg font-semibold text-foreground whitespace-nowrap">Equity Curve</h3>
-          <p className="text-sm text-muted-foreground">
+          <h3 className="text-base sm:text-lg font-semibold text-foreground whitespace-nowrap">Equity Curve</h3>
+          <p className="text-xs sm:text-sm text-muted-foreground">
             {selectedPeriod === 'ALL' ? 'All time' : `${periodDays[selectedPeriod]}-day`} performance
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-
+        <div className="grid grid-cols-5 gap-2 sm:flex sm:flex-wrap">
           {(['1D', '1W', '1M', '3M', 'ALL'] as Period[]).map((period) => (
             <button
               key={period}
               onClick={() => setSelectedPeriod(period)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              aria-pressed={period === selectedPeriod}
+              className={`min-h-9 px-2 sm:px-3 text-xs font-medium rounded-md transition-colors touch-manipulation ${
                 period === selectedPeriod 
                   ? 'bg-primary text-primary-foreground' 
-                  : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground active:bg-secondary/70'
               }`}
             >
               {period}
@@ -50,7 +50,8 @@ export function EquityChart() {
         </div>
       </div>
       
-      <div className="h-[300px]">
+      <div className="h-[220px] sm:h-[300px] -mx-2 sm:mx-0">
+
         {isLoading ? (
           <div className="h-full flex items-center justify-center text-muted-foreground">
             Loading chart...
@@ -61,7 +62,7 @@ export function EquityChart() {
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
+            <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
@@ -72,15 +73,20 @@ export function EquityChart() {
                 dataKey="date" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                minTickGap={28}
+                tickMargin={6}
+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
               />
               <YAxis 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                width={44}
+                tickCount={5}
+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                 tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                 domain={['dataMin - 1000', 'dataMax + 1000']}
               />
+
               <Tooltip 
                 contentStyle={{
                   backgroundColor: 'hsl(var(--card))',
