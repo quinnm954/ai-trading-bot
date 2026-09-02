@@ -174,7 +174,9 @@ export function MilestoneProgressCard() {
           startingBalance,
           tradingStartTime,
           recentProfitRate: profitRate,
+          velocityWindow,
         });
+
       } catch (error) {
         console.error('Error fetching milestone data:', error);
       } finally {
