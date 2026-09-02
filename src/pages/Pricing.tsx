@@ -131,13 +131,14 @@ export default function Pricing() {
           </p>
         </div>
 
-        <div className="max-w-2xl mx-auto mb-12">
+        <div className="max-w-md mx-auto mb-14">
           <PromoReel />
           <p className="text-center text-sm text-muted-foreground mt-3 inline-flex items-center justify-center gap-2 w-full">
             <Play className="w-4 h-4 text-primary" />
             30-second overview of how Titan AI trades for you.
           </p>
         </div>
+
 
 
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto items-start">
