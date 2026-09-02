@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 
 const LIVE_STARTING_EQUITY_FALLBACK = 100;
 
+type VelocityWindow = '24h' | '7d' | 'since start' | null;
+
 interface MilestoneData {
   currentEquity: number;
   cashBalance: number;
@@ -13,7 +15,8 @@ interface MilestoneData {
   targetMilestone: number;
   startingBalance: number;
   tradingStartTime: Date | null;
-  recentProfitRate: number; // profit per hour
+  recentProfitRate: number; // realized profit per hour
+  velocityWindow: VelocityWindow;
 }
 
 export function MilestoneProgressCard() {
@@ -26,8 +29,10 @@ export function MilestoneProgressCard() {
     startingBalance: 100000,
     tradingStartTime: null,
     recentProfitRate: 0,
+    velocityWindow: null,
   });
   const [isLoading, setIsLoading] = useState(true);
+
 
   useEffect(() => {
     if (!user) return;
