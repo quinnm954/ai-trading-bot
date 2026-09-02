@@ -2408,6 +2408,10 @@ export type Database = {
       }
     }
     Functions: {
+      adjust_paper_balance: {
+        Args: { p_delta: number; p_user_id: string }
+        Returns: number
+      }
       approve_payment_claim: {
         Args: { p_admin_notes?: string; p_claim_id: string }
         Returns: Json

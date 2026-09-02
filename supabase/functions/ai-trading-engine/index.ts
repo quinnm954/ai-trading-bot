@@ -868,15 +868,10 @@ async function tryLossRotation(
       return false;
     }
   } else {
-    // Paper: credit the paper account balance
-    const { data: paperAcct } = await supabase
-      .from('paper_account').select('balance').eq('user_id', userId).maybeSingle();
-    if (paperAcct) {
-      await supabase.from('paper_account')
-        .update({ balance: Number(paperAcct.balance) + proceeds, updated_at: new Date().toISOString() })
-        .eq('user_id', userId);
-    }
+    // Paper: credit the paper account balance (atomic delta)
+    await supabase.rpc('adjust_paper_balance', { p_user_id: userId, p_delta: proceeds });
   }
+
 
   // Close the position row + record trade + decision + risk event
   await supabase.from('positions').delete().eq('id', pos.id);
@@ -4444,14 +4439,16 @@ serve(async (req) => {
         }
       }
 
-      // Update paper account balance (only for paper mode)
+      // Update paper account balance (only for paper mode).
+      // Atomic delta — absolute writes lose debits when two cycles overlap.
       if (isPaperMode && decision.action === 'buy') {
-        await supabase
-          .from('paper_account')
-          .update({ balance: balance - tradeValue, updated_at: new Date().toISOString() })
-          .eq('user_id', user.id);
-        balance -= tradeValue;
+        const { data: newBal } = await supabase.rpc('adjust_paper_balance', {
+          p_user_id: user.id,
+          p_delta: -tradeValue,
+        });
+        balance = Number(newBal ?? balance - tradeValue);
       }
+
 
       // Compute and persist 0-100 signal score
       const factors = buildSignalFactors(coinData, regime, decision.confidence, decision.action as 'buy' | 'sell');

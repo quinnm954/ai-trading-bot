@@ -1028,16 +1028,11 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           await supabase.from('positions').delete().eq('id', position.id);
           takeProfitCount++;
 
-          // Credit paper balance with realized proceeds
+          // Credit paper balance with realized proceeds (atomic delta)
           if (isPaperMode) {
-            const { data: paperAccount } = await supabase.from('paper_account').select('balance').eq('user_id', userId).single();
-            if (paperAccount) {
-              await supabase.from('paper_account').update({
-                balance: Number(paperAccount.balance) + soldValue,
-                updated_at: new Date().toISOString(),
-              }).eq('user_id', userId);
-            }
+            await supabase.rpc('adjust_paper_balance', { p_user_id: userId, p_delta: soldValue });
           }
+
 
           await supabase.from('ai_decisions').insert({
             user_id: userId,
@@ -1303,15 +1298,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
       // Only credit paper cash when we actually sold to cash (not on rotation, since capital is now in the new position)
       if (isPaperMode && !didDirectConversion) {
-        const { data: paperAccount } = await supabase.from('paper_account').select('balance').eq('user_id', userId).single();
-        if (paperAccount) {
-          const originalInvestment = entryPrice * quantity;
-          await supabase.from('paper_account').update({
-            balance: Number(paperAccount.balance) + originalInvestment + actualPnl,
-            updated_at: new Date().toISOString()
-          }).eq('user_id', userId);
-        }
+        const originalInvestment = entryPrice * quantity;
+        await supabase.rpc('adjust_paper_balance', {
+          p_user_id: userId,
+          p_delta: originalInvestment + actualPnl,
+        });
       }
+
 
 
 
@@ -1635,18 +1628,12 @@ serve(async (req) => {
       // Update balance if paper mode (return the original stake plus net P&L)
       if (position.is_paper) {
         const originalInvestment = position.avg_entry_price * position.quantity;
-        const { data: paperData } = await supabase
-          .from('paper_account')
-          .select('balance')
-          .eq('user_id', position.user_id)
-          .single();
-
-        if (paperData) {
-          await supabase.from('paper_account')
-            .update({ balance: Number(paperData.balance) + originalInvestment + pnl })
-            .eq('user_id', position.user_id);
-        }
+        await supabase.rpc('adjust_paper_balance', {
+          p_user_id: position.user_id,
+          p_delta: originalInvestment + pnl,
+        });
       }
+
 
 
       // Delete the position

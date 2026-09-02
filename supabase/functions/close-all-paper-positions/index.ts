@@ -135,18 +135,13 @@ serve(async (req) => {
       closed.push({ symbol: sym, pnl, proceeds });
     }
 
-    // Credit proceeds to paper account
-    const { data: acct } = await supabase
-      .from('paper_account')
-      .select('balance')
-      .eq('user_id', userId)
-      .single();
+    // Credit proceeds to paper account (atomic delta — avoids lost updates)
+    const { data: creditedBalance } = await supabase.rpc('adjust_paper_balance', {
+      p_user_id: userId,
+      p_delta: totalProceeds,
+    });
+    const newBalance = Number(creditedBalance ?? 0);
 
-    const newBalance = Number(acct?.balance || 0) + totalProceeds;
-    await supabase
-      .from('paper_account')
-      .update({ balance: newBalance, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
 
     await supabase.from('ai_decisions').insert({
       user_id: userId,

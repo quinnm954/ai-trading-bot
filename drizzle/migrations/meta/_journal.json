@@ -22,6 +22,13 @@
       "when": 1788283021579,
       "tag": "0002_crypto_direct_wallet_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788319019538,
+      "tag": "0003_atomic_paper_balance_adjust",
+      "breakpoints": true
     }
   ]
 }
