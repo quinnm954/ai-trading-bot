@@ -3841,9 +3841,17 @@ serve(async (req) => {
       });
     }
     
-    // Only take as many decisions as we have slots for
-    const limitedDecisions = decisions.slice(0, remainingSlots);
-    console.log(`✅ Generated ${decisions.length} trading decisions, executing ${limitedDecisions.length} (limited by ${remainingSlots} slots) using ${bestStrategy} strategy`);
+    // 🎚️ UNIFORM FILL RATE (identical for AI-momentum and rule/grid paths)
+    // Both paths previously behaved differently: the AI path typically surfaced one
+    // candidate per cycle while the grid fallback filled every free slot at once.
+    // Now every path is ranked by score and capped by the same per-cycle allowance,
+    // so two accounts in the same regime fill slots at the same rate.
+    decisions = [...decisions].sort(
+      (a, b) => ((b as any)._score ?? (b.confidence ?? 0) * 100) - ((a as any)._score ?? (a.confidence ?? 0) * 100)
+    );
+    const perCycleAllowance = Math.min(remainingSlots, MAX_NEW_ENTRIES_PER_CYCLE);
+    const limitedDecisions = decisions.slice(0, perCycleAllowance);
+    console.log(`✅ Generated ${decisions.length} ranked decisions, executing ${limitedDecisions.length} (slots=${remainingSlots}, per-cycle cap=${MAX_NEW_ENTRIES_PER_CYCLE}) via ${bestStrategy}`);
 
     // 🎛️ EXECUTION MODE CHECK - Patent: Selectable Execution Control Modes
     // If user_confirmed mode, queue trades for approval instead of executing
