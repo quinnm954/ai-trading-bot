@@ -29,6 +29,13 @@
       "when": 1788319019538,
       "tag": "0003_atomic_paper_balance_adjust",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788354061689,
+      "tag": "0004_allow_users_delete_own_live_account",
+      "breakpoints": true
     }
   ]
 }
