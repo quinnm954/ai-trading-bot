@@ -86,5 +86,194 @@
       "text": "Start free in paper mode.",
       "durationSeconds": 2.592
     }
+  ],
+  "ads15": [
+    {
+      "id": "a15-01",
+      "audio": "voiceover/a15-01.mp3",
+      "text": "Crypto never sleeps. You do.",
+      "durationSeconds": 3.024,
+      "words": [
+        {
+          "word": "Crypto",
+          "start": 0.06,
+          "end": 0.682
+        },
+        {
+          "word": "never",
+          "start": 0.682,
+          "end": 1.201
+        },
+        {
+          "word": "sleeps.",
+          "start": 1.201,
+          "end": 2.134
+        },
+        {
+          "word": "You",
+          "start": 2.134,
+          "end": 2.445
+        },
+        {
+          "word": "do.",
+          "start": 2.445,
+          "end": 2.964
+        }
+      ]
+    },
+    {
+      "id": "a15-02",
+      "audio": "voiceover/a15-02.mp3",
+      "text": "Five AI agents trade for you, server side, all night.",
+      "durationSeconds": 4.296,
+      "words": [
+        {
+          "word": "Five",
+          "start": 0.06,
+          "end": 0.394
+        },
+        {
+          "word": "AI",
+          "start": 0.394,
+          "end": 0.561
+        },
+        {
+          "word": "agents",
+          "start": 0.561,
+          "end": 1.062
+        },
+        {
+          "word": "trade",
+          "start": 1.062,
+          "end": 1.48
+        },
+        {
+          "word": "for",
+          "start": 1.48,
+          "end": 1.73
+        },
+        {
+          "word": "you,",
+          "start": 1.73,
+          "end": 2.232
+        },
+        {
+          "word": "server",
+          "start": 2.232,
+          "end": 2.733
+        },
+        {
+          "word": "side,",
+          "start": 2.733,
+          "end": 3.317
+        },
+        {
+          "word": "all",
+          "start": 3.317,
+          "end": 3.568
+        },
+        {
+          "word": "night.",
+          "start": 3.568,
+          "end": 4.236
+        }
+      ]
+    },
+    {
+      "id": "a15-03",
+      "audio": "voiceover/a15-03.mp3",
+      "text": "Every trade must clear one point six to one, net of fees.",
+      "durationSeconds": 4.008,
+      "words": [
+        {
+          "word": "Every",
+          "start": 0.06,
+          "end": 0.449
+        },
+        {
+          "word": "trade",
+          "start": 0.449,
+          "end": 0.838
+        },
+        {
+          "word": "must",
+          "start": 0.838,
+          "end": 1.149
+        },
+        {
+          "word": "clear",
+          "start": 1.149,
+          "end": 1.537
+        },
+        {
+          "word": "one",
+          "start": 1.537,
+          "end": 1.771
+        },
+        {
+          "word": "point",
+          "start": 1.771,
+          "end": 2.16
+        },
+        {
+          "word": "six",
+          "start": 2.16,
+          "end": 2.393
+        },
+        {
+          "word": "to",
+          "start": 2.393,
+          "end": 2.548
+        },
+        {
+          "word": "one,",
+          "start": 2.548,
+          "end": 3.015
+        },
+        {
+          "word": "net",
+          "start": 3.015,
+          "end": 3.248
+        },
+        {
+          "word": "of",
+          "start": 3.248,
+          "end": 3.404
+        },
+        {
+          "word": "fees.",
+          "start": 3.404,
+          "end": 3.948
+        }
+      ]
+    },
+    {
+      "id": "a15-04",
+      "audio": "voiceover/a15-04.mp3",
+      "text": "Start free. TitanAI Trader.",
+      "durationSeconds": 3.168,
+      "words": [
+        {
+          "word": "Start",
+          "start": 0.06,
+          "end": 0.604
+        },
+        {
+          "word": "free.",
+          "start": 0.604,
+          "end": 1.366
+        },
+        {
+          "word": "TitanAI",
+          "start": 1.366,
+          "end": 2.128
+        },
+        {
+          "word": "Trader.",
+          "start": 2.128,
+          "end": 3.108
+        }
+      ]
+    }
   ]
 }
