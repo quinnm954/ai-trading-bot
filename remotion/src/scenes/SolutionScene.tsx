@@ -32,7 +32,7 @@ export const SolutionScene: React.FC<{ beat: PlacedBeat }> = ({ beat }) => {
         </Headline>
       </AbsoluteFill>
 
-      <AbsoluteFill style={{ justifyContent: "flex-end", padding: "0 60px 150px" }}>
+      <AbsoluteFill style={{ justifyContent: "flex-end", padding: "0 60px 120px" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "center" }}>
           {chips.map((c, i) => {
             const s = spring({
@@ -59,7 +59,7 @@ export const SolutionScene: React.FC<{ beat: PlacedBeat }> = ({ beat }) => {
                   color: theme.text,
                   fontFamily: theme.font,
                   fontWeight: 700,
-                  fontSize: 38,
+                  fontSize: 32,
                   display: "flex",
                   alignItems: "center",
                   gap: 14,

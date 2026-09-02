@@ -30,7 +30,7 @@ export const FeatureScene: React.FC<{ beat: PlacedBeat; index: number }> = ({ be
           transform: `scale(${camera}) translateX(${slide}px)`,
         }}
       >
-        <div style={{ position: "relative", transform: "scale(0.9)" }}>
+        <div style={{ position: "relative", transform: "scale(0.72) translateY(70px)" }}>
           <PhoneMockup
             screen={beat.screen!}
             focusY={beat.focusY}
