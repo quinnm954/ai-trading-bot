@@ -201,7 +201,7 @@ export default function CryptoSignals() {
   }
 
   return (
-    <FeatureGate feature="moonshot_scanner">
+    <FeatureGate feature="ai_learning_engine">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
