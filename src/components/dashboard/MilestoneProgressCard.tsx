@@ -108,22 +108,46 @@ export function MilestoneProgressCard() {
           cashBalance = Math.max(0, liveEquity - positionsValue);
         }
         const currentEquity = isLiveMode && liveEquity > 0 ? liveEquity : cashBalance + positionsValue;
-        
-        // Calculate profit rate from recent trades
+
+        // Velocity = realized P&L per hour of actual elapsed time.
+        // Window preference: last 24h -> last 7d -> since trading started.
+        const trades = (windowTrades || []).filter((t) => t.closed_at);
+        const sumPnl = (rows: typeof trades) =>
+          rows.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+        const dayAgoMs = now - 24 * HOUR_MS;
+        const last24h = trades.filter((t) => new Date(t.closed_at!).getTime() >= dayAgoMs);
+
         let profitRate = 0;
-        if (recentTrades && recentTrades.length > 1) {
-          const totalProfit = recentTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-          const oldestTrade = recentTrades[recentTrades.length - 1];
-          const newestTrade = recentTrades[0];
-          
-          if (oldestTrade?.closed_at && newestTrade?.closed_at) {
-            const timeSpanMs = new Date(newestTrade.closed_at).getTime() - new Date(oldestTrade.closed_at).getTime();
-            const timeSpanHours = timeSpanMs / (1000 * 60 * 60);
-            if (timeSpanHours > 0) {
-              profitRate = totalProfit / timeSpanHours;
-            }
+        let velocityWindow: VelocityWindow = null;
+
+        if (last24h.length > 0) {
+          velocityWindow = '24h';
+          profitRate = sumPnl(last24h) / 24;
+        } else if (trades.length > 0) {
+          velocityWindow = '7d';
+          profitRate = sumPnl(trades) / (7 * 24);
+        } else {
+          // Nothing closed in the last week - fall back to lifetime realized P&L
+          const { data: allTrades } = await supabase
+            .from('trades')
+            .select('pnl, closed_at')
+            .eq('user_id', user.id)
+            .eq('is_paper', !isLiveMode)
+            .eq('status', 'closed')
+            .order('closed_at', { ascending: true });
+
+          const lifetime = (allTrades || []).filter((t) => t.closed_at);
+          if (lifetime.length > 0) {
+            const startMs = tradingStartTime
+              ? tradingStartTime.getTime()
+              : new Date(lifetime[0].closed_at!).getTime();
+            // Floor of 1 hour so simultaneous closes can never explode the rate
+            const elapsedHours = Math.max(1, (now - startMs) / HOUR_MS);
+            velocityWindow = 'since start';
+            profitRate = sumPnl(lifetime) / elapsedHours;
           }
         }
+
 
         // Calculate target milestone - $1M for live, $200K increments for paper
         const TARGET_EQUITY = isLiveMode ? 1000000 : 200000;
