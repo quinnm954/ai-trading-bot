@@ -211,9 +211,14 @@ export function MilestoneProgressCard() {
   const totalPnl = data.currentEquity - data.startingBalance;
   const pnlPercent = (totalPnl / data.startingBalance) * 100;
 
-  // Calculate estimated time to milestone
-  let estimatedTime = 'Calculating...';
-  if (data.recentProfitRate > 0 && remaining > 0) {
+  // Estimated time to milestone, based on the same windowed velocity
+  const hasVelocity = data.velocityWindow !== null;
+  let estimatedTime = 'Not enough data';
+  if (remaining <= 0) {
+    estimatedTime = 'Milestone reached!';
+  } else if (!hasVelocity) {
+    estimatedTime = 'Not enough data';
+  } else if (data.recentProfitRate > 0) {
     const hoursToMilestone = remaining / data.recentProfitRate;
     if (hoursToMilestone < 1) {
       estimatedTime = `${Math.round(hoursToMilestone * 60)} minutes`;
@@ -224,11 +229,10 @@ export function MilestoneProgressCard() {
     } else {
       estimatedTime = `${(hoursToMilestone / 168).toFixed(1)} weeks`;
     }
-  } else if (data.recentProfitRate <= 0) {
+  } else {
     estimatedTime = 'Need profitable trades';
-  } else if (remaining <= 0) {
-    estimatedTime = 'Milestone reached!';
   }
+
 
   if (isLoading) {
     return (
