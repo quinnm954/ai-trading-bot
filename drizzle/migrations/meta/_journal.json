@@ -36,6 +36,13 @@
       "when": 1788354061689,
       "tag": "0004_allow_users_delete_own_live_account",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788354637491,
+      "tag": "0005_schedule_remaining_background_jobs",
+      "breakpoints": true
     }
   ]
 }
