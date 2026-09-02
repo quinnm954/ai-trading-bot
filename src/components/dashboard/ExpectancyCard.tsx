@@ -3,6 +3,7 @@ import { Calculator, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useLivePrices } from '@/hooks/useLivePrices';
 
 interface ExpectancyRow {
   strategy: string;
@@ -12,6 +13,22 @@ interface ExpectancyRow {
   avg_loss: number;
   net_pnl: number;
   expectancy_per_trade: number;
+}
+
+interface OpenPosition {
+  symbol: string;
+  side: string;
+  quantity: number;
+  avg_entry_price: number;
+  strategy: string | null;
+}
+
+interface LiveRow extends ExpectancyRow {
+  liveWinRate: number;
+  liveExpectancy: number;
+  liveSample: number;
+  openCount: number;
+  openPnl: number;
 }
 
 interface Props {
