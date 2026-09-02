@@ -49,9 +49,9 @@ interface LearningResult {
 
 export function useLearningEngineData() {
   const { user } = useAuth();
-  const [learningState, setLearningState] = useState<LearningState>(mockLearningState);
+  const [learningState, setLearningState] = useState<LearningState>(emptyLearningState);
   const [regimePerformance, setRegimePerformance] = useState<Record<MarketRegime, RegimePerformance>>(
-    mockLearningState.regimePerformance
+    emptyLearningState.regimePerformance
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
