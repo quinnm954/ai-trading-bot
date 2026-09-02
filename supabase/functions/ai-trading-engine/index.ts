@@ -1,6 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
+import {
+  solveExitGeometry,
+  describeGeometry,
+  exitPricesForLong,
+  MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
+  TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
+  MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
+  ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
+} from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,19 +31,20 @@ const SCALP_MAX_CONCURRENT = 12; // hard cap: never more than 12 simultaneous sc
 // fill open slots at an identical rate instead of one path dumping every level at once.
 const MAX_NEW_ENTRIES_PER_CYCLE = 2;
 
-// ── Expectancy-first exit geometry (must match auto-take-profit / risk-manager) ──
-// Every loser has to cost less than every winner earns, after the 0.8% maker round trip.
-// These bounds apply identically to paper and live — no mode gets looser math.
-const MIN_REWARD_RISK = 1.6;      // minimum reward:risk on any scalp
-const TP_FLOOR_GROSS_PCT = 1.4;   // gross TP floor; clears the 0.8% round trip with edge left
-const MAX_RISK_PCT = 0.8;         // hard cap on how far a single trade may lose
-const ROUND_TRIP_FEE_PCT = 0.8;   // 0.4% maker in + 0.4% maker out
+// ── Expectancy-first exit geometry (shared with auto-take-profit / risk-manager) ──
+// Sizing used to enforce a GROSS 1.6:1 pair (TP = stop × 1.6), which realizes only
+// ~0.30:1 once the 0.8% round trip is charged to both sides. The solver below is the
+// same one the exit engine executes, so the levels stored on the trade are the levels
+// that fire — identical in paper and live.
+const MIN_REWARD_RISK = SHARED_MIN_REWARD_RISK;
+const TP_FLOOR_GROSS_PCT = SHARED_TP_FLOOR_GROSS_PCT;
+const MAX_RISK_PCT = SHARED_MAX_RISK_PCT;
+const ROUND_TRIP_FEE_PCT = SHARED_ROUND_TRIP_FEE_PCT;
 
-// Clamp any take-profit/stop pair into profitable geometry.
+// Clamp any take-profit/stop pair into geometry that is profitable NET of fees.
 function enforceExitGeometry(rawTp: number, rawStop: number) {
-  const stop = Math.min(Math.abs(rawStop) > 0 ? Math.abs(rawStop) : MAX_RISK_PCT, MAX_RISK_PCT);
-  const tp = Math.max(Number(rawTp) || 0, TP_FLOOR_GROSS_PCT, stop * MIN_REWARD_RISK);
-  return { take_profit_pct: tp, hard_stop_loss_pct: stop };
+  const geo = solveExitGeometry(rawTp, rawStop);
+  return { take_profit_pct: geo.takeProfitPct, hard_stop_loss_pct: geo.stopLossPct };
 }
 
 // Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
@@ -4271,23 +4281,20 @@ serve(async (req) => {
         0
       );
       
-      // 🔒 STRICT EXIT GEOMETRY: stop and target come from the geometry-enforced config,
-      // so the risk-manager's expectancy check sees the same numbers auto-take-profit
-      // will actually execute — identical in paper and live.
-      const strictHardStopPct = Math.min(Number(scalpCfg.hard_stop_loss_pct) || MAX_RISK_PCT, MAX_RISK_PCT);
-      const strictTakeProfitPct = Math.max(
-        Number(scalpCfg.take_profit_pct) || TP_FLOOR_GROSS_PCT,
-        TP_FLOOR_GROSS_PCT,
-        strictHardStopPct * MIN_REWARD_RISK
+      // 🔒 STRICT EXIT GEOMETRY: solved NET of the 0.8% round trip by the shared module,
+      // so the levels stored on the trade are exactly the levels auto-take-profit fires
+      // and the winner's net gain is MIN_REWARD_RISK × the loser's net cost.
+      const entryGeometry = solveExitGeometry(
+        Number(scalpCfg.take_profit_pct),
+        Number(scalpCfg.hard_stop_loss_pct),
       );
-      const maxStopDistancePct = Math.max(0.0025, strictHardStopPct / 100);
+      const strictHardStopPct = entryGeometry.stopLossPct;
+      const strictTakeProfitPct = entryGeometry.takeProfitPct;
+      console.log(`📐 Entry geometry (${decision.symbol}): ${describeGeometry(entryGeometry)}`);
 
-      const defaultStopLoss = decision.action === 'buy'
-        ? actualEntryPrice * (1 - maxStopDistancePct)
-        : undefined;
-      const defaultTakeProfit = decision.action === 'buy'
-        ? actualEntryPrice * (1 + strictTakeProfitPct / 100)
-        : undefined;
+      const levels = exitPricesForLong(actualEntryPrice, entryGeometry);
+      const defaultStopLoss = decision.action === 'buy' ? levels.stopLossPrice : undefined;
+      const defaultTakeProfit = decision.action === 'buy' ? levels.takeProfitPrice : undefined;
       
       // currentEquity = cash + value of open positions (NOT cash alone),
       // otherwise risk-manager computes availableCash = equity − positionsValue → negative.
@@ -4372,7 +4379,8 @@ serve(async (req) => {
         // Persist the enforced geometry so the journal shows the R:R the trade was taken on
         stop_loss_price: defaultStopLoss ?? null,
         take_profit_price: defaultTakeProfit ?? null,
-        risk_reward: defaultStopLoss ? strictTakeProfitPct / strictHardStopPct : null,
+        // Store the NET (post-fee) payoff — the gross ratio flattered the trade.
+        risk_reward: defaultStopLoss ? Number(entryGeometry.netRewardRisk.toFixed(2)) : null,
       };
 
 
