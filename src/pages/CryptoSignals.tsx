@@ -260,7 +260,10 @@ export default function CryptoSignals() {
         </div>
 
           {/* Stats Overview */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="bg-card/50 border-border/50">
               <CardContent className="p-4">
+
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-purple-500/20">
                     <MessageSquare className="w-5 h-5 text-purple-400" />
