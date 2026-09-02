@@ -135,6 +135,13 @@ const UP_PROB_ABS_FLOOR = 0.50;   // never trade a coin the model rates below th
 const UP_PROB_EDGE_MARGIN = 0.08; // must beat break-even by 8 percentage points
 const MIN_EXPECTANCY_PCT = 0.25;  // required modelled net % per trade
 
+// ── SWING PROFILE ───────────────────────────────────────────────────────────
+// Positions are held 12–24h with the SAME geometry (+3.36% TP / -0.80% stop), so the
+// asset must be volatile enough to travel the target inside that window. These gates
+// remove the quiet coins that only ever drift into the fee dead zone.
+const SWING_MIN_24H_RANGE_PCT = 5.0; // 24h high-low range as % of price
+const SWING_MIN_ATR_PCT = 0.45;      // realized 5m ATR as % of price
+
 export interface UpEdge {
   prob: number;
   expectancyPct: number;
