@@ -12,7 +12,7 @@ A vertical (9:16) 30-second promo reel for the $29/month Full Access plan, with 
 ## Script (voiceover + captions)
 
 1. **Hook (0-5s)** — "Most traders lose money to fees and emotion."
-2. **System (5-12s)** — "Titan AI runs six agents around the clock: watcher, analyst, risk, trader, healer." Agent nodes light up in sequence.
+2. **System (5-12s)** — "Titan AI runs five agents around the clock: watcher, analyst, risk, trader, healer." Agent nodes light up in sequence.
 3. **Discipline (12-19s)** — "Every trade must clear a 1.6-to-1 reward-to-risk ratio, net of fees. Hard stops. Kill switch. Non-custodial — your keys, your funds."
 4. **Set and forget (19-25s)** — "It trades server-side. No app open, no tab, no babysitting."
 5. **Close (25-30s)** — "Full access. Twenty-nine dollars a month. Cancel anytime." Plan card lands, ends on the logo.
