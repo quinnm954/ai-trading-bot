@@ -116,17 +116,26 @@ export function MilestoneProgressCard() {
           rows.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
         const dayAgoMs = now - 24 * HOUR_MS;
         const last24h = trades.filter((t) => new Date(t.closed_at!).getTime() >= dayAgoMs);
+        // Elapsed hours inside a window, capped by how long the account has existed,
+        // with a 1-hour floor so simultaneous closes can never explode the rate.
+        const elapsedIn = (windowHours: number) => {
+          const sinceStart = tradingStartTime
+            ? (now - tradingStartTime.getTime()) / HOUR_MS
+            : windowHours;
+          return Math.max(1, Math.min(windowHours, sinceStart));
+        };
 
         let profitRate = 0;
         let velocityWindow: VelocityWindow = null;
 
         if (last24h.length > 0) {
           velocityWindow = '24h';
-          profitRate = sumPnl(last24h) / 24;
+          profitRate = sumPnl(last24h) / elapsedIn(24);
         } else if (trades.length > 0) {
           velocityWindow = '7d';
-          profitRate = sumPnl(trades) / (7 * 24);
+          profitRate = sumPnl(trades) / elapsedIn(7 * 24);
         } else {
+
           // Nothing closed in the last week - fall back to lifetime realized P&L
           const { data: allTrades } = await supabase
             .from('trades')
