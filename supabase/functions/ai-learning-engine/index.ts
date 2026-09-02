@@ -362,23 +362,22 @@ serve(async (req) => {
     let userId: string | null = null;
     let isCronJob = false;
 
-    // Check if this is a cron job or user request
+    // Distinguish a signed-in user request from a scheduled (cron) invocation.
+    // Anything that does not resolve to a real user is treated as cron fan-out,
+    // so schedules work with only an apikey header and no browser session.
     const authHeader = req.headers.get('authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      
-      // Check if it's the anon key (cron job)
-      const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-      if (token === anonKey) {
-        isCronJob = true;
-        console.log('🔄 Cron job: Running learning for all active users');
-      } else {
-        const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (!error && user) {
-          userId = user.id;
-        }
-      }
+    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    if (bearer && bearer !== anonKey && bearer !== supabaseKey) {
+      const { data: { user } } = await supabase.auth.getUser(bearer);
+      if (user) userId = user.id;
     }
+    if (!userId) {
+      isCronJob = true;
+      console.log('🔄 Cron mode: running learning for all active users');
+    }
+
+
 
     // For cron jobs, process all users with AI enabled
     if (isCronJob) {
