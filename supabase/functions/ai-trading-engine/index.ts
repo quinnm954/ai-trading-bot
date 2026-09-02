@@ -4444,14 +4444,16 @@ serve(async (req) => {
         }
       }
 
-      // Update paper account balance (only for paper mode)
+      // Update paper account balance (only for paper mode).
+      // Atomic delta — absolute writes lose debits when two cycles overlap.
       if (isPaperMode && decision.action === 'buy') {
-        await supabase
-          .from('paper_account')
-          .update({ balance: balance - tradeValue, updated_at: new Date().toISOString() })
-          .eq('user_id', user.id);
-        balance -= tradeValue;
+        const { data: newBal } = await supabase.rpc('adjust_paper_balance', {
+          p_user_id: user.id,
+          p_delta: -tradeValue,
+        });
+        balance = Number(newBal ?? balance - tradeValue);
       }
+
 
       // Compute and persist 0-100 signal score
       const factors = buildSignalFactors(coinData, regime, decision.confidence, decision.action as 'buy' | 'sell');
