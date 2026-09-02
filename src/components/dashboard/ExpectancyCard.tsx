@@ -137,12 +137,13 @@ export function ExpectancyCard({ isPaper }: Props) {
     return { ...r, liveWinRate, liveExpectancy, liveSample: sample, openCount, openPnl };
   });
 
-  const totalTrades = rows.reduce((s, r) => s + Number(r.sample_size || 0), 0);
+  const totalTrades = liveRows.reduce((s, r) => s + r.liveSample, 0);
   const blendedExpectancy = totalTrades > 0
-    ? rows.reduce((s, r) => s + Number(r.expectancy_per_trade || 0) * Number(r.sample_size || 0), 0) / totalTrades
+    ? liveRows.reduce((s, r) => s + r.liveExpectancy * r.liveSample, 0) / totalTrades
     : 0;
   const dailyProjection = blendedExpectancy * tradesPerDay;
   const positive = blendedExpectancy > 0;
+  const openMarked = liveRows.reduce((s, r) => s + r.openCount, 0);
 
   return (
     <div className="glass-panel p-4 sm:p-6">
@@ -154,7 +155,9 @@ export function ExpectancyCard({ isPaper }: Props) {
           <div>
             <h3 className="text-base font-semibold text-foreground">Expectancy</h3>
             <p className="text-xs text-muted-foreground">
-              Fee-inclusive, trailing 20 trades per strategy ({isPaper ? 'paper' : 'live'})
+              Fee-inclusive, marked to live prices ({isPaper ? 'paper' : 'live'})
+              {openMarked > 0 && ` · ${openMarked} open marked`}
+              {updatedAt && ` · ${updatedAt.toLocaleTimeString()}`}
             </p>
           </div>
         </div>
@@ -193,8 +196,8 @@ export function ExpectancyCard({ isPaper }: Props) {
           </div>
 
           <div className="space-y-2">
-            {rows.map(r => {
-              const exp = Number(r.expectancy_per_trade || 0);
+            {liveRows.map(r => {
+              const exp = r.liveExpectancy;
               const ok = exp > 0;
               return (
                 <div key={r.strategy} className="flex flex-col gap-1.5 text-xs py-2.5 border-t border-border/40 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
@@ -206,11 +209,21 @@ export function ExpectancyCard({ isPaper }: Props) {
                     )}>
                       {ok ? 'trading' : 'probation'}
                     </span>
+                    {r.openCount > 0 && (
+                      <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/15 text-primary">
+                        {r.openCount} live
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground sm:text-xs sm:gap-4">
-                    <span>{Number(r.win_rate).toFixed(0)}% WR</span>
+                    <span>{r.liveWinRate.toFixed(0)}% WR</span>
                     <span>W ${Number(r.avg_win).toFixed(2)}</span>
                     <span>L ${Math.abs(Number(r.avg_loss)).toFixed(2)}</span>
+                    {r.openCount > 0 && (
+                      <span className={cn('whitespace-nowrap', r.openPnl >= 0 ? 'text-success' : 'text-destructive')}>
+                        open {r.openPnl >= 0 ? '+' : '-'}${Math.abs(r.openPnl).toFixed(2)}
+                      </span>
+                    )}
                     <span className={cn('whitespace-nowrap', ok ? 'text-success' : 'text-destructive')}>
                       {exp >= 0 ? '+' : '-'}${Math.abs(exp).toFixed(2)}/trade
                     </span>
