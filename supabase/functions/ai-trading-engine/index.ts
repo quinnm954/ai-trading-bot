@@ -18,6 +18,9 @@ const DIVERSITY_LOOKBACK_MINUTES = 90;       // window used to penalise recently
 const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window triggers the rotation penalty
 const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
+// Same allowance for every strategy path (AI momentum, rules, grid) so all accounts
+// fill open slots at an identical rate instead of one path dumping every level at once.
+const MAX_NEW_ENTRIES_PER_CYCLE = 2;
 
 // ── Expectancy-first exit geometry (must match auto-take-profit / risk-manager) ──
 // Every loser has to cost less than every winner earns, after the 0.8% maker round trip.
