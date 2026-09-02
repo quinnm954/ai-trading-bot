@@ -1,31 +1,29 @@
-import { Composition, calculateMetadata } from "remotion";
-import { MainVideo } from "./MainVideo";
-import type { AudioManifest } from "./types";
-import manifest from "../public/audio-manifest.json";
+import { Composition } from "remotion";
+import { MainVideo, getTimeline } from "./MainVideo";
 
 const FPS = 30;
 
 export const Root: React.FC = () => {
   return (
-    <Composition
-      id="TitanAIPromo"
-      component={MainVideo}
-      durationInFrames={900}
-      fps={FPS}
-      width={1080}
-      height={1920}
-      defaultProps={{ manifest: manifest as AudioManifest }}
-      calculateMetadata={async ({ props }) => {
-        const m = props.manifest as AudioManifest;
-        const totalSeconds =
-          m.introSeconds +
-          m.outroSeconds +
-          m.scenes.reduce((sum, s) => sum + s.durationSeconds + m.gapSeconds, 0) -
-          m.gapSeconds;
-        return {
-          durationInFrames: Math.ceil(totalSeconds * FPS),
-        };
-      }}
-    />
+    <>
+      <Composition
+        id="TitanAIReel"
+        component={MainVideo}
+        fps={FPS}
+        width={1080}
+        height={1920}
+        durationInFrames={getTimeline("main", FPS).totalFrames}
+        defaultProps={{ variant: "main" as const }}
+      />
+      <Composition
+        id="TitanAIReelAds"
+        component={MainVideo}
+        fps={FPS}
+        width={1080}
+        height={1920}
+        durationInFrames={getTimeline("ads", FPS).totalFrames}
+        defaultProps={{ variant: "ads" as const }}
+      />
+    </>
   );
 };

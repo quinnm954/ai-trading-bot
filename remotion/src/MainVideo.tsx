@@ -1,59 +1,57 @@
-import { AbsoluteFill, Audio, staticFile, Sequence, useVideoConfig } from "remotion";
-import { PersistentBackground } from "./components/PersistentBackground";
-import { PersistentAccents } from "./components/PersistentAccents";
-import { Scene1 } from "./scenes/Scene1";
-import { Scene2 } from "./scenes/Scene2";
-import { Scene3 } from "./scenes/Scene3";
-import { Scene4 } from "./scenes/Scene4";
-import { Scene5 } from "./scenes/Scene5";
-import type { AudioManifest } from "./types";
+import { AbsoluteFill, Audio, Sequence, staticFile, useVideoConfig } from "remotion";
+import manifestJson from "../public/audio-manifest.json";
+import { ADS_BEATS, MAIN_BEATS, buildTimeline, type AudioManifest } from "./timeline";
+import { Backdrop } from "./components/Backdrop";
+import { HookScene } from "./scenes/HookScene";
+import { ProblemScene } from "./scenes/ProblemScene";
+import { SolutionScene } from "./scenes/SolutionScene";
+import { FeatureScene } from "./scenes/FeatureScene";
+import { TransformScene } from "./scenes/TransformScene";
+import { BrandScene } from "./scenes/BrandScene";
+import { CtaScene } from "./scenes/CtaScene";
+import { theme } from "./theme";
 
-export const MainVideo: React.FC<{ manifest: AudioManifest }> = ({ manifest }) => {
+const manifest = manifestJson as unknown as AudioManifest;
+
+export const getTimeline = (variant: "main" | "ads", fps: number) =>
+  buildTimeline(variant === "main" ? MAIN_BEATS : ADS_BEATS, variant === "main" ? manifest.main : manifest.ads, fps);
+
+export const MainVideo: React.FC<{ variant?: "main" | "ads" }> = ({ variant = "main" }) => {
   const { fps } = useVideoConfig();
-  const introFrames = Math.round(manifest.introSeconds * fps);
-  const gapFrames = Math.round(manifest.gapSeconds * fps);
-  const outroFrames = Math.round(manifest.outroSeconds * fps);
+  const { placed } = getTimeline(variant, fps);
+  const clips = variant === "main" ? manifest.main : manifest.ads;
+  const clipById = new Map(clips.map((c) => [c.id, c]));
 
-  let cursor = introFrames;
-  const sceneStarts: number[] = [];
-  for (const scene of manifest.scenes) {
-    sceneStarts.push(cursor);
-    cursor += Math.round(scene.durationSeconds * fps);
-    cursor += gapFrames;
-  }
-  const totalFrames = cursor - gapFrames + outroFrames;
+  let featureIndex = -1;
 
   return (
-    <AbsoluteFill>
-      <PersistentBackground />
-      <PersistentAccents />
-      <Audio src={staticFile("audio/ambient.mp3")} volume={0.25} />
+    <AbsoluteFill style={{ backgroundColor: theme.bgDeep }}>
+      <Backdrop />
 
-      {manifest.scenes.map((scene, i) => (
-        <Sequence
-          key={scene.id}
-          from={sceneStarts[i]}
-          durationInFrames={Math.round(scene.durationSeconds * fps) + 2}
-        >
-          <Audio src={staticFile(scene.audio)} volume={1} />
-        </Sequence>
-      ))}
-
-      <Sequence from={0} durationInFrames={totalFrames}>
-        <Scene1 manifest={manifest} />
-      </Sequence>
-      <Sequence from={sceneStarts[1] || 0} durationInFrames={totalFrames - (sceneStarts[1] || 0)}>
-        <Scene2 manifest={manifest} />
-      </Sequence>
-      <Sequence from={sceneStarts[2] || 0} durationInFrames={totalFrames - (sceneStarts[2] || 0)}>
-        <Scene3 manifest={manifest} />
-      </Sequence>
-      <Sequence from={sceneStarts[3] || 0} durationInFrames={totalFrames - (sceneStarts[3] || 0)}>
-        <Scene4 manifest={manifest} />
-      </Sequence>
-      <Sequence from={sceneStarts[4] || 0} durationInFrames={totalFrames - (sceneStarts[4] || 0)}>
-        <Scene5 manifest={manifest} />
-      </Sequence>
+      {placed.map((beat) => {
+        if (beat.kind === "feature") featureIndex += 1;
+        const idx = featureIndex;
+        const clip = beat.vo ? clipById.get(beat.vo) : undefined;
+        return (
+          <Sequence
+            key={beat.id}
+            from={beat.fromFrame}
+            durationInFrames={beat.durationFrames}
+            layout="none"
+          >
+            {clip ? <Audio src={staticFile(clip.audio)} /> : null}
+            <AbsoluteFill>
+              {beat.kind === "hook" ? <HookScene beat={beat} /> : null}
+              {beat.kind === "problem" ? <ProblemScene beat={beat} /> : null}
+              {beat.kind === "solution" ? <SolutionScene beat={beat} /> : null}
+              {beat.kind === "feature" ? <FeatureScene beat={beat} index={idx} /> : null}
+              {beat.kind === "transform" ? <TransformScene beat={beat} /> : null}
+              {beat.kind === "brand" ? <BrandScene beat={beat} /> : null}
+              {beat.kind === "cta" ? <CtaScene beat={beat} /> : null}
+            </AbsoluteFill>
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };

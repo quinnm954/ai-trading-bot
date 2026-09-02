@@ -1,12 +1,90 @@
 {
-  "introSeconds": 0.5,
-  "outroSeconds": 1.2,
-  "gapSeconds": 0.8,
-  "scenes": [
-    { "id": "scene-01", "audio": "voiceover/scene-01.mp3", "durationSeconds": 3.552 },
-    { "id": "scene-02", "audio": "voiceover/scene-02.mp3", "durationSeconds": 5.112 },
-    { "id": "scene-03", "audio": "voiceover/scene-03.mp3", "durationSeconds": 8.232 },
-    { "id": "scene-04", "audio": "voiceover/scene-04.mp3", "durationSeconds": 4.416 },
-    { "id": "scene-05", "audio": "voiceover/scene-05.mp3", "durationSeconds": 3.888 }
+  "main": [
+    {
+      "id": "vo-01",
+      "audio": "voiceover/vo-01.mp3",
+      "text": "Crypto never sleeps. You do.",
+      "durationSeconds": 2.808
+    },
+    {
+      "id": "vo-02",
+      "audio": "voiceover/vo-02.mp3",
+      "text": "Missed entries. Emotional exits. Fees eating the rest.",
+      "durationSeconds": 4.536
+    },
+    {
+      "id": "vo-03",
+      "audio": "voiceover/vo-03.mp3",
+      "text": "TitanAI is one system, run by five AI agents.",
+      "durationSeconds": 4.368
+    },
+    {
+      "id": "vo-04",
+      "audio": "voiceover/vo-04.mp3",
+      "text": "The watcher reads live prices. The analyst ranks every setup.",
+      "durationSeconds": 4.8
+    },
+    {
+      "id": "vo-05",
+      "audio": "voiceover/vo-05.mp3",
+      "text": "The risk manager enforces the limits you set, and can veto any trade.",
+      "durationSeconds": 4.44
+    },
+    {
+      "id": "vo-06",
+      "audio": "voiceover/vo-06.mp3",
+      "text": "Nothing executes unless it clears one point six to one, net of fees.",
+      "durationSeconds": 4.896
+    },
+    {
+      "id": "vo-07",
+      "audio": "voiceover/vo-07.mp3",
+      "text": "It runs on our servers. Laptop closed.",
+      "durationSeconds": 4.104
+    },
+    {
+      "id": "vo-08",
+      "audio": "voiceover/vo-08.mp3",
+      "text": "Manual and emotional, or automated and disciplined.",
+      "durationSeconds": 2.976
+    },
+    {
+      "id": "vo-09",
+      "audio": "voiceover/vo-09.mp3",
+      "text": "TitanAI. Set it, and forget it.",
+      "durationSeconds": 3.408
+    },
+    {
+      "id": "vo-10",
+      "audio": "voiceover/vo-10.mp3",
+      "text": "Start free in paper mode.",
+      "durationSeconds": 2.664
+    }
+  ],
+  "ads": [
+    {
+      "id": "ad-01",
+      "audio": "voiceover/ad-01.mp3",
+      "text": "Crypto never sleeps. You do.",
+      "durationSeconds": 2.856
+    },
+    {
+      "id": "ad-02",
+      "audio": "voiceover/ad-02.mp3",
+      "text": "TitanAI trades for you. Five AI agents, your risk limits, running server side.",
+      "durationSeconds": 6.456
+    },
+    {
+      "id": "ad-03",
+      "audio": "voiceover/ad-03.mp3",
+      "text": "Nothing executes unless it clears one point six to one, net of fees.",
+      "durationSeconds": 4.632
+    },
+    {
+      "id": "ad-04",
+      "audio": "voiceover/ad-04.mp3",
+      "text": "Start free in paper mode.",
+      "durationSeconds": 2.184
+    }
   ]
 }
