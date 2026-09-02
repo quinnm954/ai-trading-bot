@@ -119,8 +119,15 @@ const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
 const REACH_SAFETY = 1.5;
 
 function targetReachability(coin: MarketData, cfg: ScalpCfg) {
-  const requiredGross = requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
-  const needRangePct = requiredGross * REACH_SAFETY;
+  const wide = !!(cfg as any).wide_stop_mode;
+  const requiredGross = wide
+    ? solveWideGeometry((coin as any).atrPct).takeProfitPct
+    : requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
+  // Wide mode targets 8% over a 48h hold, so the 24h range only has to show the asset
+  // moves enough to travel it in two sessions — the walk-forward gate was a 5% range.
+  const needRangePct = wide
+    ? Math.max(SWING_MIN_24H_RANGE_PCT, requiredGross * 0.6)
+    : requiredGross * REACH_SAFETY;
   const rangePct =
     coin.high24h > 0 && coin.low24h > 0 && coin.price > 0
       ? ((coin.high24h - coin.low24h) / coin.price) * 100
@@ -161,7 +168,9 @@ function clamp(v: number, lo: number, hi: number) {
 }
 
 function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
-  const geo = solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
+  const geo = (cfg as any).wide_stop_mode
+    ? solveWideGeometry((coin as any).atrPct)
+    : solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
   const breakevenProb = geo.netLossPct / (geo.netWinPct + geo.netLossPct);
   const reach = targetReachability(coin, cfg);
 

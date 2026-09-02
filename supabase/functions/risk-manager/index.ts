@@ -5,6 +5,7 @@ import {
   requiredGrossTakeProfit,
   MIN_REWARD_RISK,
   MAX_RISK_PCT,
+  WIDE_STOP_MAX_PCT,
   ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
 
@@ -56,6 +57,9 @@ interface TradeProposal {
   positionValue: number;  // Total USD value of the position
   stopLoss?: number;      // Required for live trades
   takeProfit?: number;
+  // Wide-stop swing mode: the stop is ATR-scaled (up to WIDE_STOP_MAX_PCT) instead of the
+  // locked 0.80%. The NET reward:risk minimum below still applies unchanged.
+  wideStop?: boolean;
 }
 
 interface RiskSettings {
@@ -270,9 +274,10 @@ async function validateTrade(
       const netRiskPct = riskPct + ROUND_TRIP_FEE_PCT;
       const netRr = netRewardRiskOf(rewardPct, riskPct);
 
-      if (riskPct > MAX_RISK_PCT + 1e-6) {
+      const maxRiskForTrade = proposal.wideStop ? WIDE_STOP_MAX_PCT : MAX_RISK_PCT;
+      if (riskPct > maxRiskForTrade + 1e-6) {
         violations.push(
-          `exit_geometry: stop -${riskPct.toFixed(2)}% exceeds the ${MAX_RISK_PCT}% max risk per trade`
+          `exit_geometry: stop -${riskPct.toFixed(2)}% exceeds the ${maxRiskForTrade}% max risk per trade`
         );
         approved = false;
         severity = 'warning';
