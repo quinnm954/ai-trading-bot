@@ -26,20 +26,41 @@ type RiskTolerance = 'conservative' | 'moderate' | 'aggressive' | 'ultra_aggress
 
 // NOTE ON EXIT GEOMETRY: every preset target clears 1.6:1 NET of the ~0.8% fee round trip
 // (grossTP = 0.8 + 1.6 x (stop + 0.8)), so winners and losers book the same R:R.
+//
+// ENFORCED CEILINGS — the engine hard-caps each scalp at 15% of equity notional and 12
+// simultaneous positions, so no preset may advertise a number above those. Presets that
+// exceeded them used to display limits that never applied.
+export const ENFORCED_MAX_POSITION_PCT = 15;
+export const ENFORCED_MAX_CONCURRENT = 12;
+export const ENFORCED_MAX_LEVERAGE = 3;
+export const MIN_DAILY_LOSS_PCT = 3; // the tuner floors daily loss here; going lower is theatre
+
 const RISK_PRESETS: Record<RiskTolerance, Record<string, number>> = {
-  conservative:   { maxPositionSize: 5,  maxDailyLoss: 3,  weeklyLossLimit: 10, maxDrawdown: 20, maxConcurrentTrades: 5,  maxCapitalUsage: 50, maxLeverage: 1,
+  conservative:   { maxPositionSize: 5,  maxDailyLoss: 3, weeklyLossLimit: 10, maxDrawdown: 20, maxConcurrentTrades: 6,  maxCapitalUsage: 50, maxLeverage: 1,
                     take_profit_pct: 3.04, trailing_drop_pct: 0.5, hard_stop_loss_pct: 0.6,
                     entry_min_5m_pct: 0.5, entry_min_1h_pct: 0.5, entry_min_24h_pct: 0.5 },
-  moderate:       { maxPositionSize: 10, maxDailyLoss: 5,  weeklyLossLimit: 12, maxDrawdown: 25, maxConcurrentTrades: 8,  maxCapitalUsage: 70, maxLeverage: 1,
+  moderate:       { maxPositionSize: 10, maxDailyLoss: 4, weeklyLossLimit: 12, maxDrawdown: 25, maxConcurrentTrades: 8,  maxCapitalUsage: 70, maxLeverage: 1,
                     take_profit_pct: 3.20, trailing_drop_pct: 0.5, hard_stop_loss_pct: 0.7,
                     entry_min_5m_pct: 0.3, entry_min_1h_pct: 0.3, entry_min_24h_pct: 0.3 },
-  aggressive:     { maxPositionSize: 20, maxDailyLoss: 8,  weeklyLossLimit: 18, maxDrawdown: 30, maxConcurrentTrades: 12, maxCapitalUsage: 85, maxLeverage: 2,
+  aggressive:     { maxPositionSize: 15, maxDailyLoss: 5, weeklyLossLimit: 18, maxDrawdown: 30, maxConcurrentTrades: 12, maxCapitalUsage: 85, maxLeverage: 2,
                     take_profit_pct: 3.36, trailing_drop_pct: 0.45, hard_stop_loss_pct: 0.8,
                     entry_min_5m_pct: 0.2, entry_min_1h_pct: 0.2, entry_min_24h_pct: 0.2 },
-  ultra_aggressive:{ maxPositionSize: 30, maxDailyLoss: 10, weeklyLossLimit: 25, maxDrawdown: 40, maxConcurrentTrades: 20, maxCapitalUsage: 95, maxLeverage: 3,
+  ultra_aggressive:{ maxPositionSize: 15, maxDailyLoss: 6, weeklyLossLimit: 25, maxDrawdown: 40, maxConcurrentTrades: 12, maxCapitalUsage: 95, maxLeverage: 3,
                     take_profit_pct: 3.36, trailing_drop_pct: 0.4, hard_stop_loss_pct: 0.8,
                     entry_min_5m_pct: 0.15, entry_min_1h_pct: 0.15, entry_min_24h_pct: 0.15 },
 };
+
+// What the engine will actually apply for a requested value, per setting key.
+function enforcedValue(key: string, value: number): number {
+  switch (key) {
+    case 'maxPositionSize': return Math.min(value, ENFORCED_MAX_POSITION_PCT);
+    case 'maxConcurrentTrades': return Math.min(value, ENFORCED_MAX_CONCURRENT);
+    case 'maxLeverage': return Math.min(value, ENFORCED_MAX_LEVERAGE);
+    case 'maxDailyLoss': return Math.max(value, MIN_DAILY_LOSS_PCT);
+    case 'trailing_drop_pct': return Math.min(value, 0.6);
+    default: return value;
+  }
+}
 
 // Keys that belong to ai_settings (via useRiskManager.updateRiskSettings)
 const AI_KEYS = new Set([
@@ -151,8 +172,10 @@ export function RiskSettingsPanel() {
     const aiUpdate: Record<string, any> = {};
     const scalpUpdate: Record<string, any> = {};
     for (const [k, v] of Object.entries(pending)) {
-      if (AI_KEYS.has(k)) aiUpdate[k] = v;
-      else scalpUpdate[k] = v;
+      // Never persist a limit the engine will silently override.
+      const val = typeof v === 'number' ? enforcedValue(k, v) : v;
+      if (AI_KEYS.has(k)) aiUpdate[k] = val;
+      else scalpUpdate[k] = val;
     }
 
     let ok = true;
@@ -186,6 +209,8 @@ export function RiskSettingsPanel() {
     min: number; max: number; step?: number; unit?: string; warn?: number;
   }) => {
     const value = getValue(settingKey);
+    const enforced = typeof value === 'number' ? enforcedValue(settingKey, value) : value;
+    const isOverridden = typeof value === 'number' && Math.abs(enforced - value) > 1e-9;
     const isUnsafe = warn !== undefined && value > warn;
     const dirty = pending[settingKey] !== undefined;
     return (
@@ -211,7 +236,17 @@ export function RiskSettingsPanel() {
             'font-mono font-medium text-sm',
             isUnsafe ? 'text-warning' : 'text-foreground',
             dirty && 'text-primary',
-          )}>{value}{unit}</span>
+          )}>
+            {isOverridden ? (
+              <>
+                <span className="line-through text-muted-foreground">{value}{unit}</span>{' '}
+                {enforced}{unit}{' '}
+                <span className="text-[10px] uppercase tracking-wide text-warning">enforced</span>
+              </>
+            ) : (
+              <>{value}{unit}</>
+            )}
+          </span>
         </div>
         <Slider
           value={[value]}
