@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TitanAI Trader</string>
+    <string name="title_activity_main">TitanAI Trader</string>
+    <string name="package_name">app.lovable.p025e3af4bc0b40b0b747d5e969349fce</string>
+    <string name="custom_url_scheme">app.lovable.p025e3af4bc0b40b0b747d5e969349fce</string>
+</resources>
