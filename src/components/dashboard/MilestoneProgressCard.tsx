@@ -289,7 +289,7 @@ export function MilestoneProgressCard() {
             <span className="text-xs">Remaining</span>
           </div>
           <p className="font-bold text-foreground">
-            ${remaining.toLocaleString(undefined, { minimumFractionDigits: 0 })}
+            ${remaining.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
           </p>
         </div>
 
