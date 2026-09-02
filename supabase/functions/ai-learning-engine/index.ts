@@ -364,12 +364,13 @@ serve(async (req) => {
 
     // Check if this is a cron job or user request
     const authHeader = req.headers.get('authorization');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const apiKeyHeader = req.headers.get('apikey');
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      
-      // Check if it's the anon key (cron job)
-      const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-      if (token === anonKey) {
+
+      // Anon/service-role token => scheduled fan-out
+      if (token === anonKey || token === supabaseKey) {
         isCronJob = true;
         console.log('🔄 Cron job: Running learning for all active users');
       } else {
@@ -378,7 +379,12 @@ serve(async (req) => {
           userId = user.id;
         }
       }
+    } else if (!authHeader && (apiKeyHeader === anonKey || apiKeyHeader === supabaseKey || !apiKeyHeader)) {
+      // pg_cron calls with only an apikey header (no bearer token)
+      isCronJob = true;
+      console.log('🔄 Cron job (apikey only): Running learning for all active users');
     }
+
 
     // For cron jobs, process all users with AI enabled
     if (isCronJob) {
