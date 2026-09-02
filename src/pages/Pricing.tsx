@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Brain, Check, Sparkles, Crown, X, Wallet, Shield, Bot, Globe, ChevronDown } from 'lucide-react';
+import { Brain, Check, Sparkles, Crown, X, Wallet, Shield, Bot, Globe, ChevronDown, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,6 +7,8 @@ import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useCurrency } from '@/hooks/useCurrency';
 import { useSubscription } from '@/hooks/useSubscription';
 import { CryptoPayButton } from '@/components/subscription/CryptoPayButton';
+import { PromoReel } from '@/components/marketing/PromoReel';
+
 import {
   MONTHLY_PRICE_USD,
   PLAN_NAME,
@@ -128,6 +130,16 @@ export default function Pricing() {
             entire AI trading system.
           </p>
         </div>
+
+        <div className="max-w-md mx-auto mb-14">
+          <PromoReel />
+          <p className="text-center text-sm text-muted-foreground mt-3 inline-flex items-center justify-center gap-2 w-full">
+            <Play className="w-4 h-4 text-primary" />
+            30-second overview of how Titan AI trades for you.
+          </p>
+        </div>
+
+
 
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto items-start">
           {/* Free trial */}

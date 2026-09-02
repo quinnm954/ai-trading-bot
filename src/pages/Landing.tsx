@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
-import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock } from 'lucide-react';
+import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PromoReel } from '@/components/marketing/PromoReel';
+
 
 export default function Landing() {
   return (
@@ -57,8 +59,23 @@ export default function Landing() {
           <p className="text-sm text-muted-foreground mt-6">
             No credit card required • $100k virtual balance included
           </p>
+
+          <div className="mt-12 max-w-md mx-auto">
+            <PromoReel />
+          </div>
         </div>
       </section>
+
+      {/* Reel CTA strip */}
+      <section className="py-4 border-y border-border bg-muted/20">
+        <div className="container mx-auto px-4 text-center">
+          <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
+            <Play className="w-4 h-4 text-primary" />
+            Watch the 30-second overview above.
+          </p>
+        </div>
+      </section>
+
 
       {/* Emotional Hook - Pain Points */}
       <section className="py-16 border-t border-border">
