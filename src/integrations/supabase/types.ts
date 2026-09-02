@@ -1655,11 +1655,15 @@ export type Database = {
           id: string
           is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
+          max_hold_minutes: number | null
           peak_pnl_percent: number | null
           quantity: number
           side: Database["public"]["Enums"]["trade_side"]
+          stop_loss_pct: number | null
           strategy: Database["public"]["Enums"]["strategy_type"] | null
           symbol: string
+          take_profit_pct: number | null
+          trailing_enabled: boolean
           unrealized_pnl: number | null
           updated_at: string | null
           user_id: string | null
@@ -1671,11 +1675,15 @@ export type Database = {
           id?: string
           is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
+          max_hold_minutes?: number | null
           peak_pnl_percent?: number | null
           quantity: number
           side: Database["public"]["Enums"]["trade_side"]
+          stop_loss_pct?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
           symbol: string
+          take_profit_pct?: number | null
+          trailing_enabled?: boolean
           unrealized_pnl?: number | null
           updated_at?: string | null
           user_id?: string | null
@@ -1687,11 +1695,15 @@ export type Database = {
           id?: string
           is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
+          max_hold_minutes?: number | null
           peak_pnl_percent?: number | null
           quantity?: number
           side?: Database["public"]["Enums"]["trade_side"]
+          stop_loss_pct?: number | null
           strategy?: Database["public"]["Enums"]["strategy_type"] | null
           symbol?: string
+          take_profit_pct?: number | null
+          trailing_enabled?: boolean
           unrealized_pnl?: number | null
           updated_at?: string | null
           user_id?: string | null
@@ -1777,6 +1789,7 @@ export type Database = {
           trailing_drop_pct: number
           updated_at: string
           user_id: string
+          wide_stop_mode: boolean
         }
         Insert: {
           chase_guard_minutes?: number
@@ -1802,6 +1815,7 @@ export type Database = {
           trailing_drop_pct?: number
           updated_at?: string
           user_id: string
+          wide_stop_mode?: boolean
         }
         Update: {
           chase_guard_minutes?: number
@@ -1827,6 +1841,7 @@ export type Database = {
           trailing_drop_pct?: number
           updated_at?: string
           user_id?: string
+          wide_stop_mode?: boolean
         }
         Relationships: []
       }

@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
+  solveWideGeometry,
+  WIDE_MAX_HOLD_MINUTES,
   describeGeometry,
   exitPricesForLong,
   requiredGrossTakeProfit,
@@ -68,6 +70,9 @@ const SCALP_CFG_DEFAULTS = {
   max_concurrent_positions: 12,
   target_position_size_usd: 50,
   max_capital_usage_pct: 80,
+  // WIDE-STOP SWING MODE — when on, entries taken while the tape gate is open use
+  // 8% TP / 2.5×ATR stop / 48h hold instead of the locked 3.36%/0.80% geometry.
+  wide_stop_mode: false,
 };
 type ScalpCfg = typeof SCALP_CFG_DEFAULTS;
 
@@ -114,8 +119,15 @@ const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
 const REACH_SAFETY = 1.5;
 
 function targetReachability(coin: MarketData, cfg: ScalpCfg) {
-  const requiredGross = requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
-  const needRangePct = requiredGross * REACH_SAFETY;
+  const wide = !!(cfg as any).wide_stop_mode;
+  const requiredGross = wide
+    ? solveWideGeometry((coin as any).atrPct).takeProfitPct
+    : requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
+  // Wide mode targets 8% over a 48h hold, so the 24h range only has to show the asset
+  // moves enough to travel it in two sessions — the walk-forward gate was a 5% range.
+  const needRangePct = wide
+    ? Math.max(SWING_MIN_24H_RANGE_PCT, requiredGross * 0.6)
+    : requiredGross * REACH_SAFETY;
   const rangePct =
     coin.high24h > 0 && coin.low24h > 0 && coin.price > 0
       ? ((coin.high24h - coin.low24h) / coin.price) * 100
@@ -156,7 +168,9 @@ function clamp(v: number, lo: number, hi: number) {
 }
 
 function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
-  const geo = solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
+  const geo = (cfg as any).wide_stop_mode
+    ? solveWideGeometry((coin as any).atrPct)
+    : solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
   const breakevenProb = geo.netLossPct / (geo.netWinPct + geo.netLossPct);
   const reach = targetReachability(coin, cfg);
 
@@ -505,7 +519,7 @@ async function validateTradeWithRiskManager(
     positionValue: number;
     stopLoss?: number;
     takeProfit?: number;
-
+    wideStop?: boolean;
   },
   currentEquity: number,
   openPositionsCount: number,
@@ -4550,10 +4564,23 @@ serve(async (req) => {
       // 🔒 STRICT EXIT GEOMETRY: solved NET of the 0.8% round trip by the shared module,
       // so the levels stored on the trade are exactly the levels auto-take-profit fires
       // and the winner's net gain is MIN_REWARD_RISK × the loser's net cost.
-      const entryGeometry = solveExitGeometry(
-        Number(scalpCfg.take_profit_pct),
-        Number(scalpCfg.hard_stop_loss_pct),
-      );
+      // WIDE-STOP MODE: only reachable while the tape gate is open (the gate stands the
+      // whole cycle down otherwise), so the wide geometry is regime-conditional by
+      // construction. Stop scales with the asset's own ATR, target is fixed at 8%.
+      const wideMode = !!scalpCfg.wide_stop_mode;
+      const candidateAtrPct = Number((coinData as any)?.atrPct) > 0
+        ? Number((coinData as any).atrPct)
+        : undefined;
+      const entryGeometry = wideMode
+        ? solveWideGeometry(candidateAtrPct)
+        : solveExitGeometry(
+            Number(scalpCfg.take_profit_pct),
+            Number(scalpCfg.hard_stop_loss_pct),
+          );
+      const entryHoldMinutes = wideMode ? WIDE_MAX_HOLD_MINUTES : null;
+      if (wideMode) {
+        console.log(`🪃 WIDE-STOP MODE (tape open): ${decision.symbol} ATR ${(candidateAtrPct ?? 0).toFixed(2)}% → ${describeGeometry(entryGeometry)} | hold ≤${WIDE_MAX_HOLD_MINUTES / 60}h | no trailing`);
+      }
       const strictHardStopPct = entryGeometry.stopLossPct;
       const strictTakeProfitPct = entryGeometry.takeProfitPct;
       console.log(`📐 Entry geometry (${decision.symbol}): ${describeGeometry(entryGeometry)}`);
@@ -4577,6 +4604,7 @@ serve(async (req) => {
           positionValue: prePositionValue,
           stopLoss: defaultStopLoss,
           takeProfit: defaultTakeProfit,
+          wideStop: wideMode,
         },
 
         currentEquityForRisk,
@@ -4703,6 +4731,12 @@ serve(async (req) => {
           is_paper: isPaperMode,
           strategy: strategyType,
           unrealized_pnl: 0,
+          // Per-position exit contract — auto-take-profit executes THESE levels, so a
+          // wide-mode swing is never closed on the locked 0.80% stop.
+          stop_loss_pct: Number(entryGeometry.stopLossPct.toFixed(4)),
+          take_profit_pct: Number(entryGeometry.takeProfitPct.toFixed(4)),
+          max_hold_minutes: entryHoldMinutes,
+          trailing_enabled: !wideMode,
         });
 
         if (positionError) {

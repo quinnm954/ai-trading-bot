@@ -1090,15 +1090,25 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // Rotation is a winner exit. It must clear the SAME net take-profit bar as a cash exit,
     // otherwise it harvests +0.4% net winners while stops keep booking -1.6% net losers —
     // which is exactly what flattened realized expectancy.
-    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), cfgTakeProfitPct);
+    // ── PER-POSITION EXIT CONTRACT ──────────────────────────────────────────
+    // Wide-stop swing entries store their own ATR-scaled stop, 8% target, 48h hold and
+    // trailing flag at open time. Those levels win over the account-level geometry so a
+    // wide swing is never stopped out on the locked 0.80% line.
+    const posStopPct = Number(position.stop_loss_pct) > 0 ? Math.abs(Number(position.stop_loss_pct)) : stopPct;
+    const posTakeProfitPct = Number(position.take_profit_pct) > 0 ? Number(position.take_profit_pct) : cfgTakeProfitPct;
+    const posNetLossPct = posStopPct + COINBASE_ROUND_TRIP_FEE;
+    const posTrailingEnabled = position.trailing_enabled !== false;
+    const posHoldMinutes = Number(position.max_hold_minutes) > 0 ? Number(position.max_hold_minutes) : null;
+
+    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), posTakeProfitPct);
     // EXACT stop: the hard stop fires at the configured level (default -0.8%) with NO
     // latency widening. Widening the stop is what let losers run past -0.8% and shrink
     // scalp expectancy below the 1.6:1 geometry.
-    const adjustedStopLoss = cfgHardStopLossPct;
+    const adjustedStopLoss = -posStopPct;
     // Price that corresponds to exactly the stop level — used as the paper fill price.
     const stopPrice = position.side === 'buy'
-      ? entryPrice * (1 + cfgHardStopLossPct / 100)
-      : entryPrice * (1 - cfgHardStopLossPct / 100);
+      ? entryPrice * (1 - posStopPct / 100)
+      : entryPrice * (1 + posStopPct / 100);
 
 
     // TRAILING STOP — a protective exit for a gain that is already big enough to pay for a
@@ -1111,9 +1121,9 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // Gross level at which the net gain equals one net loss.
     const trailingProfitFloorPct = Math.max(
       COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
-      COINBASE_ROUND_TRIP_FEE + netLossPct
+      COINBASE_ROUND_TRIP_FEE + posNetLossPct
     );
-    const trailingStopActive = newPeakPnl >= trailingProfitFloorPct;
+    const trailingStopActive = posTrailingEnabled && newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
     // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
     // land below the net-profit floor.
@@ -1123,12 +1133,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       givebackCap
     );
     const hitTrailingStop =
+      posTrailingEnabled &&
       trailingStopActive &&
       givebackCap > 0 &&
       pnlPercent >= trailingProfitFloorPct &&
       dropFromPeak >= allowedGiveback;
 
-    const hitHardTakeProfit = pnlPercent >= cfgTakeProfitPct;
+    const hitHardTakeProfit = pnlPercent >= posTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
 
@@ -1139,7 +1150,9 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // A stale trade sitting in the fee dead-zone (0 < gross < round-trip fee) would book a
     // net loss if closed, so it gets the extended window before the slot is reclaimed.
     const inFeeDeadZone = pnlPercent > 0 && pnlPercent < COINBASE_ROUND_TRIP_FEE;
-    const holdLimitMinutes = inFeeDeadZone ? MAX_HOLD_EXTENDED_MINUTES : MAX_HOLD_MINUTES;
+    const holdLimitMinutes = posHoldMinutes !== null
+      ? (inFeeDeadZone ? posHoldMinutes * 2 : posHoldMinutes)
+      : (inFeeDeadZone ? MAX_HOLD_EXTENDED_MINUTES : MAX_HOLD_MINUTES);
     const hitMaxHold =
       !hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop &&
       positionAgeMinutes >= holdLimitMinutes;
@@ -1188,7 +1201,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         }
       }
 
-      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${holdLimitMinutes}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
+      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${posTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${holdLimitMinutes}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}% (intended stop ${adjustedStopLoss.toFixed(2)}%, stop price $${stopPrice.toFixed(6)})`);
       
       let actualExitPrice = currentPrice;
@@ -1328,18 +1341,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         ? ((actualExitPrice - entryPrice) / entryPrice) * 100
         : ((entryPrice - actualExitPrice) / entryPrice) * 100;
       const isStopExit = hitStopLoss;
-      const slippagePct = isStopExit ? Math.max(0, cfgHardStopLossPct - realizedPctGross) : 0;
+      const slippagePct = isStopExit ? Math.max(0, adjustedStopLoss - realizedPctGross) : 0;
       if (isStopExit && slippagePct > 0.05) {
-        console.warn(`🚨 STOP SLIPPAGE ${position.symbol}: filled at ${realizedPctGross.toFixed(3)}% vs stop ${cfgHardStopLossPct.toFixed(2)}% (${slippagePct.toFixed(3)}% past)`);
+        console.warn(`🚨 STOP SLIPPAGE ${position.symbol}: filled at ${realizedPctGross.toFixed(3)}% vs stop ${adjustedStopLoss.toFixed(2)}% (${slippagePct.toFixed(3)}% past)`);
         await supabase.from('risk_events').insert({
           user_id: userId,
           event_type: 'stop_slippage',
           severity: slippagePct > 0.4 ? 'high' : 'medium',
-          message: `${position.symbol} stop slipped ${slippagePct.toFixed(2)}% past the -${Math.abs(cfgHardStopLossPct).toFixed(2)}% stop (filled at ${realizedPctGross.toFixed(2)}%)`,
+          message: `${position.symbol} stop slipped ${slippagePct.toFixed(2)}% past the -${Math.abs(adjustedStopLoss).toFixed(2)}% stop (filled at ${realizedPctGross.toFixed(2)}%)`,
           details: {
             symbol: position.symbol,
             mode: isPaperMode ? 'paper' : 'live',
-            stop_pct: cfgHardStopLossPct,
+            stop_pct: adjustedStopLoss,
             realized_pct: realizedPctGross,
             slippage_pct: slippagePct,
             entry_price: entryPrice,
@@ -1385,7 +1398,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
       const decisionType = hitStopLoss ? 'auto_stop_loss' : hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitMaxHold ? 'max_hold' : 'trailing_stop';
       const reasoningText = hitHardTakeProfit
-        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${cfgTakeProfitPct}%)`
+        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${posTakeProfitPct}%)`
         : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
         : hitTrailingStop 

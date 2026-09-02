@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ReinvestProfitsToggle } from './ReinvestProfitsToggle';
+import { WideStopModeToggle } from './WideStopModeToggle';
 
 // =============================================================================
 // Risk Settings Panel — STRICT, NON-ADJUSTABLE PARAMETERS
@@ -154,6 +155,7 @@ export function RiskSettingsPanel() {
 
       {/* Capital basis — profits stay out of play unless explicitly reinvested */}
       <ReinvestProfitsToggle />
+      <WideStopModeToggle />
 
       <div className={cn('mt-4 p-3 rounded-lg border text-xs space-y-1', 'bg-success/10 border-success/30 text-success')}>
         <p className="font-medium">
