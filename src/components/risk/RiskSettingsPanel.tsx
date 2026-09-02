@@ -29,7 +29,7 @@ export const STRICT_RISK = {
   weeklyLossLimit: 12,
   maxDrawdown: 25,
   maxConcurrentTrades: 12,
-  maxCapitalUsage: 80,
+  maxCapitalUsage: 85,
   maxLeverage: 1,
   take_profit_pct: 3.36,
   trailing_drop_pct: 0.4,
@@ -49,7 +49,7 @@ type LockedRow = {
 
 const CAPITAL_ROWS: LockedRow[] = [
   { label: 'Max position size', value: '15% of equity', description: 'Hard notional cap per position. The engine never exceeds it.' },
-  { label: 'Max capital usage', value: '80%', description: 'Total deployable capital across all open positions.' },
+  { label: 'Max capital usage', value: '85%', description: 'Total deployable capital across all open positions (of the capital basis).' },
   { label: 'Max concurrent trades', value: '12', description: 'Simultaneous open AI positions.', aiRange: 'AI may reduce to 6 in poor regimes' },
   { label: 'Max leverage', value: '1x (spot)', description: 'Leverage is disabled to keep drawdown bounded.' },
 ];
@@ -169,6 +169,32 @@ export function RiskSettingsPanel() {
       <Section title="Loss limits" rows={LOSS_ROWS} />
       <Section title="Exit geometry" rows={EXIT_ROWS} />
       <Section title="Entry quality" rows={ENTRY_ROWS} />
+
+      {/* Goal alignment — what the locked numbers imply per $10k of capital basis */}
+      {(() => {
+        const perTradePctOfBasis = (STRICT_RISK.maxCapitalUsage / 100) * (STRICT_RISK.maxPositionSize / 100) * 100;
+        const basis = 10000;
+        const stake = basis * (perTradePctOfBasis / 100);
+        const winUsd = stake * (netTp / 100);
+        const lossUsd = stake * (netStop / 100);
+        // Expected value per trade at the break-even win rate + a 10pt edge
+        const wr = (breakEvenWr + 10) / 100;
+        const evPerTrade = wr * winUsd - (1 - wr) * lossUsd;
+        return (
+          <div className="mt-5 p-3 rounded-lg border border-primary/30 bg-primary/10 text-xs space-y-1">
+            <p className="font-medium text-foreground">Goal alignment (per $10,000 capital basis)</p>
+            <p className="text-muted-foreground">
+              Each trade stakes {perTradePctOfBasis.toFixed(1)}% of basis (${stake.toFixed(0)}): a win nets
+              <strong> +${winUsd.toFixed(2)}</strong>, a loss costs <strong>-${lossUsd.toFixed(2)}</strong>.
+              At a {(breakEvenWr + 10).toFixed(0)}% win rate that is ~${evPerTrade.toFixed(2)} expected per trade,
+              so hitting a $200/day target needs roughly {Math.max(1, Math.ceil(200 / Math.max(evPerTrade, 0.01)))} completed
+              trades per day at this basis — fewer as the basis grows. Sizing, slots and capital usage are set to the
+              maximum the risk caps allow so the target stays reachable without loosening the stop.
+            </p>
+          </div>
+        );
+      })()}
+
 
       {tuned && (
         <div className="mt-5 p-3 rounded-lg bg-secondary/40 text-xs text-muted-foreground">
