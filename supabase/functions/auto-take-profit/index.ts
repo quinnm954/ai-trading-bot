@@ -1628,18 +1628,12 @@ serve(async (req) => {
       // Update balance if paper mode (return the original stake plus net P&L)
       if (position.is_paper) {
         const originalInvestment = position.avg_entry_price * position.quantity;
-        const { data: paperData } = await supabase
-          .from('paper_account')
-          .select('balance')
-          .eq('user_id', position.user_id)
-          .single();
-
-        if (paperData) {
-          await supabase.from('paper_account')
-            .update({ balance: Number(paperData.balance) + originalInvestment + pnl })
-            .eq('user_id', position.user_id);
-        }
+        await supabase.rpc('adjust_paper_balance', {
+          p_user_id: position.user_id,
+          p_delta: originalInvestment + pnl,
+        });
       }
+
 
 
       // Delete the position
