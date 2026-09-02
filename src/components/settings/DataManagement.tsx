@@ -105,8 +105,6 @@ export function DataManagement() {
         .eq('is_paper', true);
       if (tradeError) throw tradeError;
 
-      await supabase.from('equity_history').delete().eq('user_id', user.id).eq('is_paper', true);
-
       toast.success('Paper trading history cleared');
       setDialogOpen(false);
       loadCounts();

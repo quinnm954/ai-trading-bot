@@ -21,23 +21,28 @@ import { PasswordChange } from '@/components/settings/PasswordChange';
 import { ResetPaperBalance } from '@/components/settings/ResetPaperBalance';
 import { CryptoWalletSettings } from '@/components/settings/CryptoWalletSettings';
 import { LiveInvestmentBasis } from '@/components/settings/LiveInvestmentBasis';
+import { DataManagement } from '@/components/settings/DataManagement';
+import {
+  loadNotificationPrefs,
+  saveNotificationPrefs,
+  type NotificationPrefs,
+} from '@/lib/notificationPrefs';
 
 export default function Settings() {
-  const [notifications, setNotifications] = useState({
-    trades: true,
-    profits: true,
-    losses: true,
-    aiDecisions: true,
-  });
+  const [notifications, setNotifications] = useState<NotificationPrefs>(() => loadNotificationPrefs());
 
-  const [general, setGeneral] = useState({
-    timezone: 'America/New_York',
-    currency: 'USD',
-    defaultLeverage: 1,
+  const [general, setGeneral] = useState(() => {
+    try {
+      const raw = localStorage.getItem('titan_general_prefs');
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return { timezone: 'America/New_York', currency: 'USD', defaultLeverage: 1 };
   });
 
   const handleSave = () => {
-    toast.success('Settings saved successfully!');
+    saveNotificationPrefs(notifications);
+    localStorage.setItem('titan_general_prefs', JSON.stringify(general));
+    toast.success('Settings saved');
   };
 
   return (
@@ -178,32 +183,7 @@ export default function Settings() {
             </div>
 
             {/* Data & Storage */}
-            <div className="glass-panel p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <Database className="w-5 h-5 text-primary" />
-                <h3 className="text-lg font-semibold text-foreground">Data & Storage</h3>
-              </div>
-
-              <div className="space-y-4">
-                <div className="p-4 rounded-lg bg-secondary/30">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-foreground">Trade History</span>
-                    <span className="text-sm text-muted-foreground">156 trades</span>
-                  </div>
-                  <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full" style={{ width: '45%' }} />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">45% of storage used</p>
-                </div>
-
-                <Button variant="outline" className="w-full">
-                  Export All Data
-                </Button>
-                <Button variant="destructive" className="w-full">
-                  Clear Paper Trading History
-                </Button>
-              </div>
-            </div>
+            <DataManagement />
 
             {/* Onboarding & Help */}
             <div className="glass-panel p-6">
