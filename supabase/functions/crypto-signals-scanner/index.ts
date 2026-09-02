@@ -429,7 +429,7 @@ async function generateCopyTradeSignals(supabase: any, marketData: any[]): Promi
       // Swing traders follow momentum
       action = priceChange24h > 0 ? 'buy' : 'sell';
     } else if (trader.trading_style === 'momentum') {
-      // Whales accumulate on dips
+      // Momentum traders accumulate on dips
       action = priceChange24h < -3 ? 'buy' : (Math.random() > 0.7 ? 'sell' : 'buy');
     } else {
       // Holders mainly buy
