@@ -1,6 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
+import {
+  solveExitGeometry,
+  describeGeometry,
+  netRewardRiskOf,
+  MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
+  TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
+  MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
+  ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
+} from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,23 +19,19 @@ const corsHeaders = {
 // ROTATION MODE - Actively rotate profits from winners into rising assets
 // Sell positions with gains and rotate into assets showing upward momentum
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
-const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
+const COINBASE_ROUND_TRIP_FEE = SHARED_ROUND_TRIP_FEE_PCT; // 0.4% buy + 0.4% sell (limit orders)
   // Rotation threshold: when a position gains X%, rotate into a rising asset.
   // Rotation is a WINNER exit, so it may never fire below the net take-profit level —
   // otherwise it books a small net gain while stops book a full fee-loaded net loss.
   const ROTATION_PROFIT_THRESHOLD = 1.4; // floor only; raised to the net-R:R TP per user
 
   // ── Expectancy-first exit geometry, measured NET of fees ──────────────────────
-  // The round trip costs ~0.8%. That fee lands on BOTH sides of the trade:
-  //   net win  = grossTP   - fees
-  //   net loss = grossStop + fees
-  // A "1.4% TP / 0.8% stop" grid therefore realizes +0.6% against -1.6% — a 0.375:1
-  // realized payoff that needs a ~73% win rate just to break even. All geometry below
-  // is enforced on the NET numbers so the 1.6:1 target survives fees.
-  const MIN_REWARD_RISK = 1.6;          // minimum NET reward:risk on any scalp
-  const TP_FLOOR_GROSS_PCT = 1.4;       // absolute gross TP floor
-  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose (gross)
-  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop
+  // All constants come from _shared/exit-geometry.ts so sizing, the risk gate and this
+  // exit engine can never drift apart (that drift is what produced the 0.375:1 net).
+  const MIN_REWARD_RISK = SHARED_MIN_REWARD_RISK;    // minimum NET reward:risk
+  const TP_FLOOR_GROSS_PCT = SHARED_TP_FLOOR_GROSS_PCT;
+  const MAX_RISK_PCT = SHARED_MAX_RISK_PCT;
+  const BASE_STOP_LOSS_PERCENT = -SHARED_MAX_RISK_PCT; // default stop
   // Trailing stop: arms only once the gain covers a full net loss, then gives back
   // a fraction of the peak so runners keep running.
   const TRAILING_STOP_DROP = 0.35;      // absolute floor on giveback
@@ -860,24 +865,21 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     ? Math.abs(Number(scalpRow.hard_stop_loss_pct))
     : Math.abs(BASE_STOP_LOSS_PERCENT);
 
-  // 📐 EXIT GEOMETRY ENFORCEMENT — enforced on NET (post-fee) numbers
-  // Gross R:R is a mirage: the 0.8% round trip is subtracted from the winner AND added
-  // to the loser, so a 1.4/0.8 grid realizes +0.6 vs -1.6. We therefore solve the TP
-  // from the fee-loaded loss:
-  //     netLoss = stop + fees
-  //     grossTP = fees + MIN_REWARD_RISK * netLoss
-  const stopPct = Math.min(rawStopPct, MAX_RISK_PCT);
-  const netLossPct = stopPct + COINBASE_ROUND_TRIP_FEE;
-  const tpFloorFromNetRR = COINBASE_ROUND_TRIP_FEE + MIN_REWARD_RISK * netLossPct;
-  const cfgTakeProfitPct = Math.max(rawTakeProfitPct, TP_FLOOR_GROSS_PCT, tpFloorFromNetRR);
+  // 📐 EXIT GEOMETRY ENFORCEMENT — solved by the shared module used by the sizing path
+  // (ai-trading-engine) and the risk gate (risk-manager), so the levels stored on the
+  // trade are exactly the levels executed here. Measured NET of the round trip:
+  //     netLoss = stop + fees ; grossTP = fees + MIN_REWARD_RISK * netLoss
+  const geo = solveExitGeometry(rawTakeProfitPct, rawStopPct);
+  const stopPct = geo.stopLossPct;
+  const netLossPct = geo.netLossPct;
+  const cfgTakeProfitPct = geo.takeProfitPct;
   const cfgHardStopLossPct = -stopPct;
   const cfgTrailingDropPct = Number(scalpRow?.trailing_drop_pct) > 0 ? Number(scalpRow.trailing_drop_pct) : TRAILING_STOP_DROP;
-  const netWinPct = cfgTakeProfitPct - COINBASE_ROUND_TRIP_FEE;
-  const netRewardRisk = netWinPct / netLossPct;
-  const geometryAdjusted = cfgTakeProfitPct > rawTakeProfitPct + 1e-9 || stopPct < rawStopPct - 1e-9;
-  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct.toFixed(2)}% gross (net +${netWinPct.toFixed(2)}%) | Stop=-${stopPct.toFixed(2)}% gross (net -${netLossPct.toFixed(2)}%) | NET R:R=${netRewardRisk.toFixed(2)}:1 | TrailDrop=${cfgTrailingDropPct}% | fees ${COINBASE_ROUND_TRIP_FEE}% round trip (charged in ${isPaperMode ? 'paper too' : 'live'})`);
-  if (geometryAdjusted) {
-    const oldNetRR = (rawTakeProfitPct - COINBASE_ROUND_TRIP_FEE) / (rawStopPct + COINBASE_ROUND_TRIP_FEE);
+  const netWinPct = geo.netWinPct;
+  const netRewardRisk = geo.netRewardRisk;
+  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): ${describeGeometry(geo)} | TrailDrop=${cfgTrailingDropPct}% | fees ${COINBASE_ROUND_TRIP_FEE}% round trip (charged in ${isPaperMode ? 'paper too' : 'live'})`);
+  if (geo.adjusted) {
+    const oldNetRR = netRewardRiskOf(rawTakeProfitPct, rawStopPct);
     console.log(`🔧 Geometry corrected: config TP ${rawTakeProfitPct}% / Stop ${rawStopPct}% realized only ${oldNetRR.toFixed(2)}:1 net (needs ${MIN_REWARD_RISK}:1) → TP raised to ${cfgTakeProfitPct.toFixed(2)}%`);
   }
 
