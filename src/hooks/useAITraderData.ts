@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import type { RiskSettings } from '@/types/trading';
+import { closeAllPositions } from '@/lib/closeAllPositions';
 
 type TradingMode = 'paper' | 'live';
 type BotStatus = 'idle' | 'learning' | 'trading' | 'paused' | 'error';
