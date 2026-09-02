@@ -60,7 +60,7 @@ export default function CryptoSignals() {
     executeCopyTrades 
   } = useCopyTradeSignals();
 
-  });
+
 
   // Fetch sentiment signals
   const { data: sentimentSignals, isLoading: loadingSentiment } = useQuery({
