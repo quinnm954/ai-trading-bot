@@ -5,6 +5,7 @@ import {
   solveExitGeometry,
   describeGeometry,
   exitPricesForLong,
+  requiredGrossTakeProfit,
   MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
   TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
@@ -103,15 +104,44 @@ const ENTRY_CONFIRM_MIN_24H_PCT = SCALP_CFG_DEFAULTS.entry_min_24h_pct;
 const CHASE_GUARD_WINDOW_MINUTES = SCALP_CFG_DEFAULTS.chase_guard_minutes;
 const REENTRY_BREAKOUT_CONFIRM_PCT = SCALP_CFG_DEFAULTS.reentry_breakout_pct;
 
+// ── TARGET REACHABILITY ──────────────────────────────────────────────────────
+// Diagnosis of every closed trade: not one ever reached the solved gross target
+// (+3.36% on the default 0.8% stop) — the best exit on record was +1.16% — while
+// losers ran the full stop. The geometry is right; the candidates were wrong. An
+// asset can only pay a 3.36% target if it actually travels that far, so a
+// candidate must show a 24h true range of at least the target distance
+// (×REACH_SAFETY) before it can be entered.
+const REACH_SAFETY = 1.5;
+
+function targetReachability(coin: MarketData, cfg: ScalpCfg) {
+  const requiredGross = requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
+  const needRangePct = requiredGross * REACH_SAFETY;
+  const rangePct =
+    coin.high24h > 0 && coin.low24h > 0 && coin.price > 0
+      ? ((coin.high24h - coin.low24h) / coin.price) * 100
+      : 0;
+  return { ok: rangePct >= needRangePct, rangePct, needRangePct, requiredGross };
+}
+
 function getEntryMomentumStatus(coin: MarketData, cfg: ScalpCfg) {
   const c5 = coin.change5m;
   const c1h = coin.change1h ?? 0;
   const c24 = coin.change24h ?? 0;
+  const reach = targetReachability(coin, cfg);
   const strict = c5 !== undefined && c5 >= cfg.entry_min_5m_pct && c1h >= cfg.entry_min_1h_pct && c24 >= cfg.entry_min_24h_pct;
   const steady = c5 !== undefined && c5 >= 0.03 && c1h >= 0;
-  // Loose: AI is allowed to enter on any single positive short-window confirmation
-  const loose = (c5 !== undefined && c5 > 0) || c1h > 0.1 || c24 > 0.5;
-  return { ok: strict || steady || loose, mode: strict ? 'strict' : steady ? 'steady' : loose ? 'loose' : 'blocked', c5, c1h, c24 };
+  // No "loose" pass any more: a single positive tick on a coin that cannot travel
+  // the target distance is exactly the noise entry that produced +0.0–0.4% exits.
+  const momentumOk = strict || steady;
+  return {
+    ok: momentumOk && reach.ok,
+    mode: !reach.ok ? 'unreachable' : strict ? 'strict' : steady ? 'steady' : 'blocked',
+    c5,
+    c1h,
+    c24,
+    rangePct: reach.rangePct,
+    needRangePct: reach.needRangePct,
+  };
 }
 
 function tradeKey(symbol: string, side: TradeSide) {
@@ -897,6 +927,7 @@ async function tryLossRotation(
     strategy: 'scalp',
     pnl: realizedPnl,
     is_paper: isPaperMode,
+    exit_reason: 'loss_rotation',
     ai_reasoning: `Loss rotation: freed capital for ${topCandidate.symbol} (5m +${candC5.toFixed(2)}% vs held ${c5.toFixed(2)}%)`,
   });
   await supabase.from('ai_decisions').insert({
@@ -3778,7 +3809,7 @@ serve(async (req) => {
         if (!coin) return false;
         const momentumStatus = getEntryMomentumStatus(coin, scalpCfg);
         if (!momentumStatus.ok) {
-          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} — needs rising short-window confirmation, got 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%`);
+          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} (${momentumStatus.mode}) — 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}% to reach target)`);
           return false;
         }
       }
@@ -4015,6 +4046,12 @@ serve(async (req) => {
     const EXPECTANCY_MIN_SAMPLE = 10;
     const EXPECTANCY_PROBATION_SIZE_MULT = 0.5;
     const probationStrategies = new Set<string>();
+    // Win rate at which the solved geometry breaks even: netLoss / (netWin + netLoss).
+    // With the default 0.8% stop that is 1.60 / (2.56 + 1.60) = 38.5%.
+    const _geoForBreakeven = solveExitGeometry(scalpCfg.take_profit_pct, scalpCfg.hard_stop_loss_pct);
+    const BREAKEVEN_WIN_RATE =
+      (_geoForBreakeven.netLossPct / (_geoForBreakeven.netWinPct + _geoForBreakeven.netLossPct)) * 100;
+    let winRateBelowBreakeven = false;
     try {
       const { data: expRows } = await supabase
         .from('strategy_expectancy')
@@ -4024,14 +4061,18 @@ serve(async (req) => {
       for (const row of (expRows || []) as any[]) {
         const sample = Number(row.sample_size || 0);
         const exp = Number(row.expectancy_per_trade || 0);
-        if (sample >= EXPECTANCY_MIN_SAMPLE && exp <= 0) {
+        const wr = Number(row.win_rate || 0);
+        const belowBreakeven = sample >= EXPECTANCY_MIN_SAMPLE && wr < BREAKEVEN_WIN_RATE;
+        if (sample >= EXPECTANCY_MIN_SAMPLE && (exp <= 0 || belowBreakeven)) {
           probationStrategies.add(String(row.strategy));
+          if (String(row.strategy) === 'scalp' && belowBreakeven) winRateBelowBreakeven = true;
           console.log(
             `📉 PROBATION: strategy "${row.strategy}" expectancy $${exp.toFixed(4)}/trade over last ${sample} trades ` +
-            `(win rate ${row.win_rate}%, avg win $${row.avg_win}, avg loss $${row.avg_loss}) — throttling to 1 slot @ ${EXPECTANCY_PROBATION_SIZE_MULT * 100}% size`
+            `(win rate ${wr.toFixed(1)}% vs breakeven ${BREAKEVEN_WIN_RATE.toFixed(1)}%, avg win $${row.avg_win}, avg loss $${row.avg_loss}) ` +
+            `— throttling to 1 slot @ ${EXPECTANCY_PROBATION_SIZE_MULT * 100}% size`
           );
         } else if (sample >= EXPECTANCY_MIN_SAMPLE) {
-          console.log(`✅ Expectancy OK for "${row.strategy}": $${exp.toFixed(4)}/trade over last ${sample} trades (win rate ${row.win_rate}%)`);
+          console.log(`✅ Expectancy OK for "${row.strategy}": $${exp.toFixed(4)}/trade over last ${sample} trades (win rate ${wr.toFixed(1)}% ≥ breakeven ${BREAKEVEN_WIN_RATE.toFixed(1)}%)`);
         }
       }
     } catch (e) {
@@ -4042,6 +4083,37 @@ serve(async (req) => {
     if (scalpOnProbation && remainingSlots > 1) {
       console.log(`📉 Expectancy probation: slots ${remainingSlots} → 1`);
       remainingSlots = 1;
+    }
+    // Surface probation in the Agent Console so a negative-expectancy account is visible,
+    // not silently throttled. Best-effort: never blocks the cycle.
+    if (scalpOnProbation) {
+      try {
+        await supabase.from('agent_messages').insert({
+          user_id: user.id,
+          from_agent: 'trader',
+          to_agent: 'risk',
+          message_type: 'alert',
+          subject: 'Scalp expectancy on probation',
+          priority: winRateBelowBreakeven ? 'high' : 'normal',
+          payload: {
+            mode: isPaperMode ? 'paper' : 'live',
+            breakeven_win_rate_pct: Number(BREAKEVEN_WIN_RATE.toFixed(2)),
+            win_rate_below_breakeven: winRateBelowBreakeven,
+            net_win_pct: Number(_geoForBreakeven.netWinPct.toFixed(2)),
+            net_loss_pct: Number(_geoForBreakeven.netLossPct.toFixed(2)),
+            action: `1 slot @ ${EXPECTANCY_PROBATION_SIZE_MULT * 100}% size`,
+          },
+        });
+        await supabase.from('risk_events').insert({
+          user_id: user.id,
+          event_type: 'expectancy_probation',
+          severity: winRateBelowBreakeven ? 'high' : 'medium',
+          message: winRateBelowBreakeven
+            ? `Trailing win rate is below the ${BREAKEVEN_WIN_RATE.toFixed(1)}% breakeven for the current exit geometry — size throttled to ${EXPECTANCY_PROBATION_SIZE_MULT * 100}% on 1 slot.`
+            : `Scalp expectancy is negative over the trailing sample — size throttled to ${EXPECTANCY_PROBATION_SIZE_MULT * 100}% on 1 slot.`,
+          details: { mode: isPaperMode ? 'paper' : 'live', breakeven_win_rate_pct: Number(BREAKEVEN_WIN_RATE.toFixed(2)) },
+        });
+      } catch { /* non-fatal */ }
     }
 
     // Execute trades (limited to available slots AND the uniform per-cycle allowance)
@@ -4138,7 +4210,7 @@ serve(async (req) => {
         }
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
         if (!momentumStatus.ok) {
-          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price is not rising enough now (5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%)`);
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
           continue;
         }
         coinData.change5m = momentumStatus.c5;

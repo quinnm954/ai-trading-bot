@@ -125,6 +125,7 @@ serve(async (req) => {
         status: 'closed',
         exit_price: price,
         pnl,
+        exit_reason: 'close_all',
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', pos.symbol).eq('is_paper', true).eq('status', 'open');
 

@@ -42,6 +42,10 @@ const COINBASE_ROUND_TRIP_FEE = SHARED_ROUND_TRIP_FEE_PCT; // 0.4% buy + 0.4% se
   const HARD_TAKE_PROFIT_PCT = 1.4;
   // Stale-position guard: a scalp that never resolved must not sit for hours holding a slot
   const MAX_HOLD_MINUTES = 90;
+  // Dead-zone extension: closing a position that sits between breakeven and the fee line
+  // books a LOSS (max-hold exits averaged +0.685% gross = -0.115% net). When a stale trade
+  // is in that band we give it extra time to clear the fee instead of paying to exit.
+  const MAX_HOLD_EXTENDED_MINUTES = 240;
 
   // Minimum momentum for target asset (must be rising)
   const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
@@ -1131,9 +1135,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // market so it can't freeze a trade slot (and drift into a full stop) overnight.
     const openedAtMs = position.created_at ? new Date(position.created_at).getTime() : Date.now();
     const positionAgeMinutes = (Date.now() - openedAtMs) / 60000;
+    // A stale trade sitting in the fee dead-zone (0 < gross < round-trip fee) would book a
+    // net loss if closed, so it gets the extended window before the slot is reclaimed.
+    const inFeeDeadZone = pnlPercent > 0 && pnlPercent < COINBASE_ROUND_TRIP_FEE;
+    const holdLimitMinutes = inFeeDeadZone ? MAX_HOLD_EXTENDED_MINUTES : MAX_HOLD_MINUTES;
     const hitMaxHold =
       !hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop &&
-      positionAgeMinutes >= MAX_HOLD_MINUTES;
+      positionAgeMinutes >= holdLimitMinutes;
 
 
 
@@ -1179,7 +1187,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         }
       }
 
-      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${MAX_HOLD_MINUTES}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
+      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${holdLimitMinutes}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}% (intended stop ${adjustedStopLoss.toFixed(2)}%, stop price $${stopPrice.toFixed(6)})`);
       
       let actualExitPrice = currentPrice;
@@ -1347,7 +1355,14 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         fees_estimate: roundTripFee,
         slippage_estimate: slippagePct,
         stop_loss_price: stopPrice,
-        exit_reason: isStopExit ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss') : hitMaxHold ? 'max_hold' : undefined,
+        // Every exit records why it fired — null reasons made the expectancy diagnosis blind.
+        exit_reason: isStopExit
+          ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss')
+          : hitMaxHold ? 'max_hold'
+          : hitHardTakeProfit ? 'take_profit'
+          : hitTrailingStop ? 'trailing_stop'
+          : hitRotationTarget ? 'rotation'
+          : 'exit',
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
 
