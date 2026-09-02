@@ -123,26 +123,135 @@ function targetReachability(coin: MarketData, cfg: ScalpCfg) {
   return { ok: rangePct >= needRangePct, rangePct, needRangePct, requiredGross };
 }
 
+// ── DIRECTIONAL EDGE MODEL ───────────────────────────────────────────────────
+// A candidate is only worth entering if the probability it reaches the target
+// BEFORE the stop is high enough to beat the geometry's break-even win rate.
+// With TP +3.36% / stop -0.80% and a 0.8% round trip, break-even sits at ~38.5%,
+// so a coin that merely "ticked up" (a coin-flip on a 4:1 distance ratio ≈ 20%)
+// is a guaranteed long-run loser no matter how good the exit rules are.
+// Every feature below is a directional predictor scored into a logistic model,
+// and only candidates with a POSITIVE modelled expectancy may be traded.
+const UP_PROB_ABS_FLOOR = 0.50;   // never trade a coin the model rates below this
+const UP_PROB_EDGE_MARGIN = 0.08; // must beat break-even by 8 percentage points
+const MIN_EXPECTANCY_PCT = 0.25;  // required modelled net % per trade
+
+export interface UpEdge {
+  prob: number;
+  expectancyPct: number;
+  breakevenProb: number;
+  required: number;
+  ok: boolean;
+  label: string;
+}
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
+  const geo = solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
+  const breakevenProb = geo.netLossPct / (geo.netWinPct + geo.netLossPct);
+  const reach = targetReachability(coin, cfg);
+
+  const c5 = coin.change5m ?? 0;
+  const c1h = coin.change1h ?? 0;
+  const c24 = coin.change24h ?? 0;
+  const c7d = coin.change7d ?? 0;
+  const tech = coin.techScore ?? 50;
+  const vol = coin.volScore ?? 50;
+  const rsi = coin.rsi14;
+  const pB = coin.percentB;
+  const liq = coin.volume24h ?? coin.volume ?? 0;
+  const spread = coin.spreadPercent ?? 0;
+
+  const parts: Array<[string, number]> = [];
+  const add = (name: string, w: number) => { if (Math.abs(w) > 0.001) parts.push([name, w]); return w; };
+
+  // Base prior is negative: an unremarkable coin does NOT reach a 3.36% target.
+  let z = -1.05;
+
+  // Multi-timeframe momentum alignment — the single strongest short-horizon signal.
+  z += add('5m', clamp(c5, -1.5, 1.5) * 0.85);
+  z += add('1h', clamp(c1h, -3, 3) * 0.40);
+  z += add('24h', clamp(c24, -6, 8) * 0.10);
+  z += add('7d', clamp(c7d, -20, 20) * 0.025);
+  // Stacked alignment bonus: all horizons pointing up is a real trend, not noise.
+  if (c5 > 0 && c1h > 0 && c24 > 0) z += add('aligned', 0.45);
+  if (c5 <= 0 || c1h < 0) z += add('misaligned', -0.55);
+
+  // Reachability headroom: how much bigger the 24h range is than the distance needed.
+  z += add('reach', clamp(reach.rangePct / Math.max(0.01, reach.needRangePct) - 1, -0.6, 1.2) * 0.75);
+
+  // Setup quality + volatility fit.
+  z += add('tech', ((tech - 50) / 50) * 0.85);
+  z += add('volfit', ((vol - 50) / 50) * 0.45);
+
+  // Location: buying near support / lower band beats chasing extension.
+  const supportW =
+    coin.supportContext === 'at_support' ? 0.40 :
+    coin.supportContext === 'near_support' ? 0.20 :
+    coin.supportContext === 'mid_range' ? 0 :
+    coin.supportContext === 'below_support' ? -0.55 : -0.45;
+  z += add('support', supportW);
+
+  if (rsi !== undefined) {
+    if (rsi < 32 && c5 > 0) z += add('rsi_reclaim', 0.35);
+    else if (rsi >= 45 && rsi <= 62) z += add('rsi_trend', 0.25);
+    else if (rsi > 70) z += add('rsi_hot', -0.55);
+  }
+  if (pB !== undefined) {
+    if (pB >= 0.15 && pB <= 0.6) z += add('bb_room', 0.25);
+    else if (pB > 0.9) z += add('bb_extended', -0.45);
+  }
+
+  // Liquidity helps fills; wide spreads eat the whole edge.
+  z += add('liquidity', clamp(Math.log10(Math.max(1, liq)) - 5.5, 0, 1.5) * 0.18);
+  if (spread > 0.15) z += add('spread', -clamp(spread, 0, 1) * 1.2);
+
+  // Cannot travel the required distance at all → no edge, regardless of the rest.
+  if (!reach.ok) z -= 1.5;
+
+  const prob = 1 / (1 + Math.exp(-z));
+  const expectancyPct = prob * geo.netWinPct - (1 - prob) * geo.netLossPct;
+  const required = Math.max(UP_PROB_ABS_FLOOR, breakevenProb + UP_PROB_EDGE_MARGIN);
+  const ok = reach.ok && prob >= required && expectancyPct >= MIN_EXPECTANCY_PCT;
+
+  const top = parts.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 4)
+    .map(([n, w]) => `${n}${w > 0 ? '+' : ''}${w.toFixed(2)}`).join(' ');
+  return {
+    prob,
+    expectancyPct,
+    breakevenProb,
+    required,
+    ok,
+    label: `P(up)=${(prob * 100).toFixed(1)}% (need ${(required * 100).toFixed(1)}%) exp ${expectancyPct >= 0 ? '+' : ''}${expectancyPct.toFixed(2)}% | ${top}`,
+  };
+}
+
 function getEntryMomentumStatus(coin: MarketData, cfg: ScalpCfg) {
   const c5 = coin.change5m;
   const c1h = coin.change1h ?? 0;
   const c24 = coin.change24h ?? 0;
   const reach = targetReachability(coin, cfg);
   const strict = c5 !== undefined && c5 >= cfg.entry_min_5m_pct && c1h >= cfg.entry_min_1h_pct && c24 >= cfg.entry_min_24h_pct;
-  const steady = c5 !== undefined && c5 >= 0.03 && c1h >= 0;
-  // No "loose" pass any more: a single positive tick on a coin that cannot travel
-  // the target distance is exactly the noise entry that produced +0.0–0.4% exits.
-  const momentumOk = strict || steady;
+  // The old "steady" pass (any positive 5m tick with a flat hour) admitted coins with
+  // no directional edge — replaced by the modelled probability of reaching the target.
+  const edge = coin.upEdge ?? computeUpEdge(coin, cfg);
+  const momentumOk = strict || edge.ok;
   return {
-    ok: momentumOk && reach.ok,
-    mode: !reach.ok ? 'unreachable' : strict ? 'strict' : steady ? 'steady' : 'blocked',
+    ok: momentumOk && reach.ok && edge.ok,
+    mode: !reach.ok ? 'unreachable' : !edge.ok ? 'no_edge' : strict ? 'strict' : 'modelled',
     c5,
     c1h,
     c24,
+    prob: edge.prob,
+    expectancyPct: edge.expectancyPct,
+    edgeLabel: edge.label,
     rangePct: reach.rangePct,
     needRangePct: reach.needRangePct,
   };
 }
+
 
 function tradeKey(symbol: string, side: TradeSide) {
   return `${symbol.toUpperCase()}:${side}`;
@@ -1076,6 +1185,10 @@ interface MarketData {
   supportPrice?: number;          // nearest swing-low support below current price
   distanceToSupportPct?: number;  // (price - support)/price * 100
   supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
+  volume24h?: number;
+  // Modelled probability that this coin reaches the target before the stop.
+  upEdge?: UpEdge;
+
 }
 
 interface AITradingDecision {
