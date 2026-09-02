@@ -170,6 +170,32 @@ export function RiskSettingsPanel() {
       <Section title="Exit geometry" rows={EXIT_ROWS} />
       <Section title="Entry quality" rows={ENTRY_ROWS} />
 
+      {/* Goal alignment — what the locked numbers imply per $10k of capital basis */}
+      {(() => {
+        const perTradePctOfBasis = (STRICT_RISK.maxCapitalUsage / 100) * (STRICT_RISK.maxPositionSize / 100) * 100;
+        const basis = 10000;
+        const stake = basis * (perTradePctOfBasis / 100);
+        const winUsd = stake * (netTp / 100);
+        const lossUsd = stake * (netStop / 100);
+        // Expected value per trade at the break-even win rate + a 10pt edge
+        const wr = (breakEvenWr + 10) / 100;
+        const evPerTrade = wr * winUsd - (1 - wr) * lossUsd;
+        return (
+          <div className="mt-5 p-3 rounded-lg border border-primary/30 bg-primary/10 text-xs space-y-1">
+            <p className="font-medium text-foreground">Goal alignment (per $10,000 capital basis)</p>
+            <p className="text-muted-foreground">
+              Each trade stakes {perTradePctOfBasis.toFixed(1)}% of basis (${stake.toFixed(0)}): a win nets
+              <strong> +${winUsd.toFixed(2)}</strong>, a loss costs <strong>-${lossUsd.toFixed(2)}</strong>.
+              At a {(breakEvenWr + 10).toFixed(0)}% win rate that is ~${evPerTrade.toFixed(2)} expected per trade,
+              so hitting a $200/day target needs roughly {Math.max(1, Math.ceil(200 / Math.max(evPerTrade, 0.01)))} completed
+              trades per day at this basis — fewer as the basis grows. Sizing, slots and capital usage are set to the
+              maximum the risk caps allow so the target stays reachable without loosening the stop.
+            </p>
+          </div>
+        );
+      })()}
+
+
       {tuned && (
         <div className="mt-5 p-3 rounded-lg bg-secondary/40 text-xs text-muted-foreground">
           <p className="font-medium text-foreground mb-1 flex items-center gap-1">
