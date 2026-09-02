@@ -14,7 +14,6 @@ import {
   RefreshCw,
   X,
   Shield,
-  Rocket,
   ShieldCheck,
   ChevronDown,
   ChevronRight,

@@ -24,7 +24,7 @@ export const PLAN_FEATURES = [
   'Crypto, 24/7 automated execution',
   'All 8 trading strategies + AI regime detection',
   'Advanced risk management & kill switch',
-  'Moonshot Scanner & crypto signals',
+  'Crypto signals & sentiment',
   'AI Learning Engine & strategy optimization',
   'Copy trading and position rotation',
   'Titan Fusion conviction engine',

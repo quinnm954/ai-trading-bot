@@ -37,8 +37,8 @@ serve(async (req) => {
     const { scanType = 'all' } = await req.json().catch(() => ({}));
     const results: any = {};
 
-    // Fetch live CoinGecko data for sentiment and whale approximation
-    if (scanType === 'all' || scanType === 'sentiment' || scanType === 'whale') {
+    // Fetch live CoinGecko data for sentiment
+    if (scanType === 'all' || scanType === 'sentiment') {
       logStep("Fetching live CoinGecko market data");
       const marketData = await fetchCoinGeckoMarketData();
       
@@ -53,14 +53,6 @@ serve(async (req) => {
         logStep("Sentiment signals saved from CoinGecko", { count: sentimentSignals.length });
       }
 
-      if (scanType === 'all' || scanType === 'whale') {
-        const whaleSignals = detectWhaleActivityFromVolume(marketData);
-        for (const signal of whaleSignals) {
-          await supabase.from('whale_signals').insert(signal);
-        }
-        results.whaleSignals = whaleSignals.length;
-        logStep("Whale signals detected from volume anomalies", { count: whaleSignals.length });
-      }
     }
 
     // Fetch live DeFi yields from DefiLlama
@@ -196,47 +188,6 @@ function generateSentimentFromMarketData(marketData: any[]): any[] {
           },
         ]),
         analyzed_at: new Date().toISOString(),
-      });
-    }
-  }
-  
-  return signals;
-}
-
-// Detect whale activity from volume anomalies
-function detectWhaleActivityFromVolume(marketData: any[]): any[] {
-  const signals: any[] = [];
-  
-  for (const coin of marketData) {
-    const symbol = coin.symbol?.toUpperCase() || 'UNKNOWN';
-    const volumeToMcap = coin.total_volume / coin.market_cap;
-    const priceChange24h = coin.price_change_percentage_24h || 0;
-    const priceChange1h = coin.price_change_percentage_1h_in_currency || 0;
-    
-    // Detect potential whale activity based on volume spikes
-    const isVolumeSpike = volumeToMcap > 0.15; // Volume > 15% of market cap
-    const isPriceSpike = Math.abs(priceChange1h) > 3; // >3% move in 1 hour
-    
-    if (isVolumeSpike || isPriceSpike) {
-      // Determine action based on price movement
-      let action = 'transfer';
-      if (priceChange24h > 5) action = 'accumulation';
-      else if (priceChange24h < -5) action = 'distribution';
-      
-      // Estimate whale amount based on volume
-      const estimatedWhaleVolume = coin.total_volume * 0.1; // Assume whales = 10% of volume
-      
-      signals.push({
-        symbol,
-        whale_address: `0x${generateRandomHex(40)}`, // Placeholder - would need on-chain API
-        action,
-        amount: estimatedWhaleVolume / coin.current_price,
-        amount_usd: estimatedWhaleVolume,
-        transaction_hash: null, // Would need on-chain API for real tx hash
-        from_exchange: action === 'distribution',
-        to_exchange: action === 'accumulation' && priceChange24h < 0,
-        confidence: Math.min(95, 60 + volumeToMcap * 100 + Math.abs(priceChange1h) * 5),
-        detected_at: new Date().toISOString(),
       });
     }
   }
@@ -382,7 +333,7 @@ async function scanMEVOpportunities(): Promise<any[]> {
 // Top traders with trade signal generation
 async function scanTopTraders(supabase: any): Promise<any[]> {
   const traders: any[] = [];
-  const styles = ['scalper', 'swing', 'holder', 'whale'];
+  const styles = ['scalper', 'swing', 'holder', 'momentum'];
   const symbols = ['BTC', 'ETH', 'SOL', 'ARB', 'OP', 'AVAX', 'LINK', 'MATIC'];
   
   // Get existing traders to update them
@@ -477,8 +428,8 @@ async function generateCopyTradeSignals(supabase: any, marketData: any[]): Promi
     } else if (trader.trading_style === 'swing') {
       // Swing traders follow momentum
       action = priceChange24h > 0 ? 'buy' : 'sell';
-    } else if (trader.trading_style === 'whale') {
-      // Whales accumulate on dips
+    } else if (trader.trading_style === 'momentum') {
+      // Momentum traders accumulate on dips
       action = priceChange24h < -3 ? 'buy' : (Math.random() > 0.7 ? 'sell' : 'buy');
     } else {
       // Holders mainly buy

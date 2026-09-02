@@ -9,7 +9,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
-  Fish, 
   MessageSquare, 
   Zap, 
   Users, 
@@ -41,7 +40,7 @@ const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
 export default function CryptoSignals() {
   const queryClient = useQueryClient();
   const [isScanning, setIsScanning] = useState(false);
-  const [activeTab, setActiveTab] = useState('whale');
+  const [activeTab, setActiveTab] = useState('sentiment');
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
   const [nextScanIn, setNextScanIn] = useState(AUTO_REFRESH_INTERVAL / 1000);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -61,20 +60,7 @@ export default function CryptoSignals() {
     executeCopyTrades 
   } = useCopyTradeSignals();
 
-  // Fetch whale signals
-  const { data: whaleSignals, isLoading: loadingWhale } = useQuery({
-    queryKey: ['whale-signals'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('whale_signals')
-        .select('*')
-        .order('detected_at', { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return data;
-    },
-    refetchInterval: 30000,
-  });
+
 
   // Fetch sentiment signals
   const { data: sentimentSignals, isLoading: loadingSentiment } = useQuery({
@@ -157,7 +143,6 @@ export default function CryptoSignals() {
       }
       
       // Refresh all queries
-      queryClient.invalidateQueries({ queryKey: ['whale-signals'] });
       queryClient.invalidateQueries({ queryKey: ['sentiment-signals'] });
       queryClient.invalidateQueries({ queryKey: ['mev-opportunities'] });
       queryClient.invalidateQueries({ queryKey: ['top-traders'] });
@@ -216,14 +201,14 @@ export default function CryptoSignals() {
   }
 
   return (
-    <FeatureGate feature="moonshot_scanner">
+    <FeatureGate feature="ai_learning_engine">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Crypto Signals</h1>
             <p className="text-muted-foreground">
-              Real-time whale tracking, sentiment analysis, MEV opportunities, and more
+              Sentiment analysis, MEV opportunities, and more
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -275,22 +260,10 @@ export default function CryptoSignals() {
         </div>
 
           {/* Stats Overview */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card className="bg-card/50 border-border/50">
               <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-blue-500/20">
-                    <Fish className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold">{whaleSignals?.length || 0}</p>
-                    <p className="text-xs text-muted-foreground">Whale Moves</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="bg-card/50 border-border/50">
-              <CardContent className="p-4">
+
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-purple-500/20">
                     <MessageSquare className="w-5 h-5 text-purple-400" />
@@ -346,9 +319,6 @@ export default function CryptoSignals() {
           {/* Main Content Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList className="bg-muted/50">
-              <TabsTrigger value="whale" className="gap-2">
-                <Fish className="w-4 h-4" /> Whale Tracking
-              </TabsTrigger>
               <TabsTrigger value="sentiment" className="gap-2">
                 <MessageSquare className="w-4 h-4" /> Sentiment
               </TabsTrigger>
@@ -366,79 +336,6 @@ export default function CryptoSignals() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Whale Tracking Tab */}
-            <TabsContent value="whale">
-              <Card className="bg-card/50 border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Fish className="w-5 h-5 text-blue-400" />
-                    Whale Movements
-                  </CardTitle>
-                  <CardDescription>
-                    Track large wallet transactions and whale accumulation/distribution patterns
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[500px]">
-                    {loadingWhale ? (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : whaleSignals?.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        No whale signals detected. Click "Scan Now" to find whale movements.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {whaleSignals?.map((signal: any) => (
-                          <div 
-                            key={signal.id} 
-                            className="p-4 rounded-lg bg-muted/30 border border-border/50 hover:border-blue-500/50 transition-colors"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-3">
-                                <Badge variant={signal.action === 'accumulation' ? 'default' : signal.action === 'distribution' ? 'destructive' : 'secondary'}>
-                                  {signal.action}
-                                </Badge>
-                                <span className="font-bold text-lg">{signal.symbol}</span>
-                              </div>
-                              <span className="text-sm text-muted-foreground">
-                                {formatDistanceToNow(new Date(signal.detected_at), { addSuffix: true })}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                              <div>
-                                <p className="text-muted-foreground">Amount</p>
-                                <p className="font-medium">{signal.amount?.toLocaleString()} {signal.symbol}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Value</p>
-                                <p className="font-medium text-green-400">${signal.amount_usd?.toLocaleString()}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Flow</p>
-                                <p className="font-medium">
-                                  {signal.from_exchange && 'From Exchange'}
-                                  {signal.to_exchange && 'To Exchange'}
-                                  {!signal.from_exchange && !signal.to_exchange && 'Wallet to Wallet'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Confidence</p>
-                                <div className="flex items-center gap-2">
-                                  <Progress value={signal.confidence} className="h-2 flex-1" />
-                                  <span className="font-medium">{signal.confidence?.toFixed(0)}%</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </TabsContent>
 
             {/* Sentiment Tab */}
             <TabsContent value="sentiment">
@@ -818,7 +715,7 @@ export default function CryptoSignals() {
                                     </Button>
                                   )}
                                 </div>
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                   <div>
                                     <p className="text-muted-foreground">Win Rate</p>
                                     <p className="font-medium text-green-400">{trader.win_rate?.toFixed(1)}%</p>
@@ -909,7 +806,7 @@ export default function CryptoSignals() {
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground mb-3">{yield_.pool_name}</p>
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                               <div>
                                 <p className="text-muted-foreground">Total APY</p>
                                 <p className="font-bold text-2xl text-emerald-400">{yield_.total_apy?.toFixed(2)}%</p>
