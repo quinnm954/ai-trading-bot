@@ -27,12 +27,13 @@ export function ExpectancyCard({ isPaper }: Props) {
   const { user } = useAuth();
   const [rows, setRows] = useState<ExpectancyRow[]>([]);
   const [tradesPerDay, setTradesPerDay] = useState(0);
+  const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!user) return;
 
-    const [{ data: expData }, { data: tradeData }] = await Promise.all([
+    const [{ data: expData }, { data: tradeData }, { data: posData }] = await Promise.all([
       supabase
         .from('strategy_expectancy')
         .select('strategy, sample_size, win_rate, avg_win, avg_loss, net_pnl, expectancy_per_trade')
@@ -46,9 +47,15 @@ export function ExpectancyCard({ isPaper }: Props) {
         .eq('status', 'closed')
         .not('closed_at', 'is', null)
         .order('closed_at', { ascending: true }),
+      supabase
+        .from('positions')
+        .select('symbol, side, quantity, avg_entry_price, strategy')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaper),
     ]);
 
     setRows((expData ?? []) as ExpectancyRow[]);
+    setOpenPositions((posData ?? []) as OpenPosition[]);
 
     const closes = (tradeData ?? []).map(t => new Date(t.closed_at as string).getTime());
     if (closes.length >= 2) {
@@ -63,9 +70,55 @@ export function ExpectancyCard({ isPaper }: Props) {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 30_000);
+    const id = setInterval(load, 15_000);
     return () => clearInterval(id);
   }, [load]);
+
+  // Realtime: any trade or position change re-reads expectancy immediately.
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`expectancy-live-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trades', filter: `user_id=eq.${user.id}` }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'positions', filter: `user_id=eq.${user.id}` }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, load]);
+
+  // Live market rates for every open position — expectancy is marked to market,
+  // not to the cached current_price column.
+  const { prices, updatedAt } = useLivePrices(openPositions.map(p => p.symbol), 15_000);
+
+  // Blend open positions (at live prices) into each strategy's stats so win rate
+  // and expectancy move with the ticker instead of only on trade close.
+  const liveRows: LiveRow[] = rows.map((r) => {
+    const strategyPositions = openPositions.filter(
+      p => (p.strategy ?? 'scalp').toLowerCase() === r.strategy.toLowerCase(),
+    );
+
+    let openPnl = 0;
+    let openCount = 0;
+    let openWins = 0;
+    for (const p of strategyPositions) {
+      const price = prices[p.symbol.toUpperCase()];
+      if (!price) continue;
+      const entry = Number(p.avg_entry_price);
+      const qty = Number(p.quantity);
+      const pnl = p.side === 'sell' ? (entry - price) * qty : (price - entry) * qty;
+      openPnl += pnl;
+      openCount += 1;
+      if (pnl > 0) openWins += 1;
+    }
+
+    const closedSample = Number(r.sample_size || 0);
+    const closedWins = (Number(r.win_rate || 0) / 100) * closedSample;
+    const sample = closedSample + openCount;
+    const liveWinRate = sample > 0 ? ((closedWins + openWins) / sample) * 100 : Number(r.win_rate || 0);
+    const closedNet = Number(r.expectancy_per_trade || 0) * closedSample;
+    const liveExpectancy = sample > 0 ? (closedNet + openPnl) / sample : Number(r.expectancy_per_trade || 0);
+
+    return { ...r, liveWinRate, liveExpectancy, liveSample: sample, openCount, openPnl };
+  });
 
   const totalTrades = rows.reduce((s, r) => s + Number(r.sample_size || 0), 0);
   const blendedExpectancy = totalTrades > 0
