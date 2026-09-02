@@ -40,12 +40,13 @@ const COINBASE_ROUND_TRIP_FEE = SHARED_ROUND_TRIP_FEE_PCT; // 0.4% buy + 0.4% se
   const MIN_NET_EXIT_PCT = 0.3;
   // Hard take-profit floor before net-R:R enforcement raises it
   const HARD_TAKE_PROFIT_PCT = 1.4;
-  // Stale-position guard: a scalp that never resolved must not sit for hours holding a slot
-  const MAX_HOLD_MINUTES = 90;
+  // SWING HOLD WINDOW — the +3.36% target needs a 12–24h horizon, not minutes.
+  // A position that has not resolved after 12h is closed at the market unless it is
+  // still working (positive but inside the fee dead zone), which gets the full 24h.
+  const MAX_HOLD_MINUTES = 720;   // 12 hours
   // Dead-zone extension: closing a position that sits between breakeven and the fee line
-  // books a LOSS (max-hold exits averaged +0.685% gross = -0.115% net). When a stale trade
-  // is in that band we give it extra time to clear the fee instead of paying to exit.
-  const MAX_HOLD_EXTENDED_MINUTES = 240;
+  // books a LOSS, so a trade still grinding upward gets the full swing window.
+  const MAX_HOLD_EXTENDED_MINUTES = 1440; // 24 hours
 
   // Minimum momentum for target asset (must be rising)
   const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
