@@ -81,7 +81,7 @@ export function useNotifications() {
     const items: AppNotification[] = [];
 
     for (const t of tradesRes.data ?? []) {
-      const closed = t.status === 'closed' || t.status === 'stopped_out';
+      const closed = t.status === 'closed';
       const pnl = Number(t.pnl ?? 0);
       const when = (closed ? t.closed_at : t.created_at) || t.created_at || since;
       if (closed) {
