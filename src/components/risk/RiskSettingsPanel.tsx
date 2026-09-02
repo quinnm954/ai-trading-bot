@@ -49,7 +49,7 @@ type LockedRow = {
 
 const CAPITAL_ROWS: LockedRow[] = [
   { label: 'Max position size', value: '15% of equity', description: 'Hard notional cap per position. The engine never exceeds it.' },
-  { label: 'Max capital usage', value: '80%', description: 'Total deployable capital across all open positions.' },
+  { label: 'Max capital usage', value: '85%', description: 'Total deployable capital across all open positions (of the capital basis).' },
   { label: 'Max concurrent trades', value: '12', description: 'Simultaneous open AI positions.', aiRange: 'AI may reduce to 6 in poor regimes' },
   { label: 'Max leverage', value: '1x (spot)', description: 'Leverage is disabled to keep drawdown bounded.' },
 ];
