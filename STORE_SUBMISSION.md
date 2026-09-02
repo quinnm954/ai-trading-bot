@@ -1,20 +1,40 @@
 # TitanAI Trader — App Store & Google Play submission guide
 
-The app is now wired for native builds with Capacitor. Everything below runs on
-your own machine (the Lovable sandbox can't build native binaries).
+The native projects are now committed in the repo: `ios/` (Xcode) and `android/`
+(Gradle), with app icons and splash screens generated for every required size.
+Compiling the signed binaries has to happen on your own machine — Apple requires
+Xcode on macOS and Google Play requires a Gradle/JDK toolchain, neither of which
+exists in the Lovable sandbox.
 
 ## 1. Get the project locally
 
 1. Export to GitHub from Lovable, then `git clone` / `git pull`.
 2. `npm install`
-3. `npm run build`
-4. `npx cap add ios` and/or `npx cap add android` (first time only)
-5. `npx cap sync`
+3. `npm run mobile:sync` — builds the web app and copies it into `ios/` + `android/`.
 
-Repeat steps 3 + 5 after every code change you want in the app.
+Repeat step 3 after every code change you want inside the app.
 
+Open the native IDEs: `npm run mobile:ios` or `npm run mobile:android`.
 Run on a device/emulator: `npx cap run ios` or `npx cap run android`.
 For live reload against the Lovable preview: `CAP_LIVE_RELOAD=1 npx cap run android`.
+
+## 1b. Produce the store binaries
+
+**iOS (App Store Connect)**
+1. `npm run mobile:ios` to open Xcode.
+2. Signing & Capabilities → select your Apple Developer team (automatic signing).
+3. Bump `CFBundleShortVersionString` / `CFBundleVersion` in `ios/App/App/Info.plist`.
+4. Product → Destination "Any iOS Device", then Product → Archive → Distribute App
+   → App Store Connect.
+
+**Android (Google Play)**
+1. Create an upload keystore once:
+   `keytool -genkey -v -keystore titanai-upload.jks -alias titanai -keyalg RSA -keysize 2048 -validity 10000`
+2. Put the keystore path/passwords in `android/keystore.properties` (git-ignored) and
+   reference it from a `signingConfigs` release block in `android/app/build.gradle`.
+3. Bump `versionCode` / `versionName` in `android/app/build.gradle` for every upload.
+4. `cd android && ./gradlew bundleRelease` → upload
+   `android/app/build/outputs/bundle/release/app-release.aab` to Play Console.
 
 ## 2. App identity (already configured)
 
