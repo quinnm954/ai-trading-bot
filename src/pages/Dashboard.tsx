@@ -49,6 +49,8 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+
   const [isClosingPaper, setIsClosingPaper] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
@@ -126,7 +128,9 @@ export default function Dashboard() {
         description: 'Paper balance reset to $100,000 and all associated data cleared.',
       });
       setResetDialogOpen(false);
+      setResetKey((k) => k + 1);
       refetch();
+
     } catch (error) {
       console.error('Reset error:', error);
       toast({ title: 'Reset failed', variant: 'destructive' });
@@ -362,9 +366,10 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
         <div className="lg:col-span-2 space-y-4 lg:space-y-6">
-          <MilestoneProgressCard />
-          <ExpectancyCard isPaper={!isLiveMode} />
-          <EquityChart />
+          <MilestoneProgressCard key={`milestone-${resetKey}`} />
+          <ExpectancyCard key={`expectancy-${resetKey}`} isPaper={!isLiveMode} />
+          <EquityChart key={`equity-${resetKey}`} />
+
           <PositionsTable positions={positions} isLoading={isLoading} isLiveMode={isLiveMode} onRefresh={refetch} />
         </div>
 

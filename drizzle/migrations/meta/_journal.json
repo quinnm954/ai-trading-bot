@@ -43,6 +43,13 @@
       "when": 1788354637491,
       "tag": "0005_schedule_remaining_background_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788355128388,
+      "tag": "0006_reset_paper_account_function",
+      "breakpoints": true
     }
   ]
 }

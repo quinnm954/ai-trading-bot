@@ -2454,6 +2454,7 @@ export type Database = {
         Args: { p_admin_notes?: string; p_claim_id: string }
         Returns: undefined
       }
+      reset_paper_account: { Args: { p_balance?: number }; Returns: Json }
     }
     Enums: {
       app_role: "admin" | "user"

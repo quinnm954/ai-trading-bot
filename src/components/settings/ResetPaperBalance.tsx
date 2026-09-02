@@ -49,30 +49,11 @@ export function ResetPaperBalance() {
     }
     setIsSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error('Not authenticated');
-        return;
-      }
-      const { error } = await supabase
-        .from('paper_account')
-        .update({ balance: value })
-        .eq('user_id', user.id);
-      if (error) throw error;
-
-      // Keep peak_equity in sync so drawdown math doesn't go negative
-      await supabase
-        .from('ai_settings')
-        .update({ peak_equity: value })
-        .eq('user_id', user.id)
-        .gt('peak_equity', value);
-
-      await supabase
-        .from('equity_history')
-        .insert({ user_id: user.id, equity: value });
-
+      // Same full wipe as a reset, just with a custom starting balance, so
+      // expectancy, today's trades and P&L all start from a clean slate.
+      await resetPaperAccount(value);
       setCurrentBalance(value);
-      toast.success(`Paper balance set to $${value.toLocaleString()}`);
+      toast.success(`Paper balance set to $${value.toLocaleString()} and all associated data cleared`);
     } catch (e) {
       console.error('Set balance error:', e);
       toast.error('Failed to update paper balance');
@@ -80,6 +61,7 @@ export function ResetPaperBalance() {
       setIsSaving(false);
     }
   };
+
 
   const handleReset = async () => {
     setIsResetting(true);
@@ -159,11 +141,13 @@ export function ResetPaperBalance() {
             <p className="font-medium text-foreground">Set Custom Paper Balance (Testing)</p>
           </div>
           <p className="text-sm text-muted-foreground">
-            Override your paper balance to any amount. Useful for testing strategies at different equity levels.
+            Set your paper balance to any amount. This starts a clean slate: paper trades, positions,
+            equity history, today's P&amp;L and strategy expectancy are all cleared.
             {currentBalance !== null && (
               <> Current: <span className="text-foreground font-medium">${currentBalance.toLocaleString()}</span></>
             )}
           </p>
+
           <div className="space-y-2">
             <Label htmlFor="customBalance" className="text-xs text-muted-foreground">New balance (USD)</Label>
             <div className="flex gap-2">
