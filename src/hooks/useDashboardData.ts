@@ -239,15 +239,16 @@ export function useDashboardData() {
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - 7);
       
+      // Pull every trade (any status) so "today's trades" counts entries opened
+      // today, not just the ones that already closed.
       const { data: allTrades } = await supabase
         .from('trades')
-        .select('pnl, closed_at, created_at')
+        .select('pnl, status, closed_at, created_at')
         .eq('user_id', user.id)
-        .eq('is_paper', tradingMode === 'paper')
-        .eq('status', 'closed');
+        .eq('is_paper', tradingMode === 'paper');
 
-      // Calculate P&L from trades
-      let dailyPnl = 0;
+      // Calculate realized P&L from closed trades
+      let realizedToday = 0;
       let weeklyPnl = 0;
       let totalPnl = 0;
       let todayTradesCount = 0;
@@ -256,13 +257,17 @@ export function useDashboardData() {
         allTrades.forEach(trade => {
           const pnl = Number(trade.pnl) || 0;
           const closedAt = trade.closed_at ? new Date(trade.closed_at) : null;
-          
+          const createdAt = trade.created_at ? new Date(trade.created_at) : null;
+
+          if (createdAt && createdAt >= today) todayTradesCount++;
+
+          if (trade.status !== 'closed') return;
+
           totalPnl += pnl;
-          
+
           if (closedAt) {
             if (closedAt >= today) {
-              dailyPnl += pnl;
-              todayTradesCount++;
+              realizedToday += pnl;
             }
             if (closedAt >= weekStart) {
               weeklyPnl += pnl;
@@ -270,6 +275,10 @@ export function useDashboardData() {
           }
         });
       }
+
+      // Today's P&L = realized today + unrealized on currently open positions
+      const dailyPnl = realizedToday + unrealizedPnl;
+
 
       // Cash balance per mode (no cross-mode fallback)
       let cashBalance = 0;
