@@ -1,4 +1,4 @@
-import { Bell, Search, User, LogOut, Menu } from 'lucide-react';
+import { Search, User, LogOut, Menu, CornerDownLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -10,7 +10,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useMemo, useRef, useState } from 'react';
+import { NotificationsPanel } from '@/components/layout/NotificationsPanel';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -33,10 +35,34 @@ const ROUTE_TITLES: Record<string, string> = {
   '/admin': 'Admin',
 };
 
+const SEARCH_TARGETS: { label: string; path: string; keywords: string[] }[] = [
+  { label: 'Home / Dashboard', path: '/dashboard', keywords: ['equity', 'pnl', 'overview', 'balance'] },
+  { label: 'AI Trader', path: '/ai-trader', keywords: ['bot', 'start', 'stop', 'autonomous'] },
+  { label: 'AI Advisor', path: '/ai-advisor', keywords: ['recommendation', 'advice'] },
+  { label: 'Learning Engine', path: '/ai-learning', keywords: ['backtest', 'optimize', 'learning'] },
+  { label: 'Risk Management', path: '/risk-management', keywords: ['stop loss', 'risk', 'drawdown', 'kill switch'] },
+  { label: 'Trades / Journal', path: '/trades', keywords: ['history', 'journal', 'positions', 'expectancy'] },
+  { label: 'Agent Console', path: '/agents', keywords: ['agents', 'watcher', 'healer', 'analyst'] },
+  { label: 'Strategy Control', path: '/strategy-control', keywords: ['strategy', 'scalp', 'grid', 'momentum'] },
+  { label: 'Crypto Signals', path: '/crypto-signals', keywords: ['signals', 'sentiment', 'copy trading'] },
+  { label: 'Titan Fusion', path: '/fusion', keywords: ['fusion', 'conviction'] },
+  { label: 'Leverage', path: '/leverage', keywords: ['leverage', 'margin'] },
+  { label: 'Backtesting', path: '/backtesting', keywords: ['backtest', 'simulate'] },
+  { label: 'Market Depth', path: '/market-depth', keywords: ['order book', 'depth', 'liquidity'] },
+  { label: 'Wallet', path: '/wallet', keywords: ['usdc', 'wallet', 'payment', 'deposit'] },
+  { label: 'API Keys', path: '/api-keys', keywords: ['coinbase', 'broker', 'connect', 'api'] },
+  { label: 'Settings', path: '/settings', keywords: ['notifications', 'preferences', 'export', 'reset'] },
+  { label: 'Pricing & Subscription', path: '/pricing', keywords: ['price', 'billing', 'subscription', '29'] },
+];
+
 export function Header({ onMenuClick }: HeaderProps) {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
   const location = useLocation();
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const blurTimer = useRef<number | null>(null);
   const title = ROUTE_TITLES[location.pathname] ?? 'Titan AI';
 
   const handleSignOut = async () => {
@@ -53,6 +79,20 @@ export function Header({ onMenuClick }: HeaderProps) {
         description: 'You have been successfully signed out.',
       });
     }
+  };
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return SEARCH_TARGETS.filter(
+      (t) => t.label.toLowerCase().includes(q) || t.keywords.some((k) => k.includes(q))
+    ).slice(0, 6);
+  }, [query]);
+
+  const goTo = (path: string) => {
+    setQuery('');
+    setSearchOpen(false);
+    navigate(path);
   };
 
   const initial = (user?.email?.[0] || 'T').toUpperCase();
@@ -100,9 +140,44 @@ export function Header({ onMenuClick }: HeaderProps) {
           <div className="relative w-80 hidden md:block ml-2">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search symbols, strategies..."
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              onBlur={() => {
+                blurTimer.current = window.setTimeout(() => setSearchOpen(false), 120);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && results[0]) goTo(results[0].path);
+                if (e.key === 'Escape') setSearchOpen(false);
+              }}
+              placeholder="Search pages, strategies, risk..."
               className="pl-10 bg-secondary border-border"
+              aria-label="Search the app"
             />
+            {searchOpen && query.trim() && (
+              <div className="absolute left-0 right-0 top-full mt-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-50">
+                {results.length === 0 ? (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">No matches</p>
+                ) : (
+                  results.map((r) => (
+                    <button
+                      key={r.path}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-secondary text-left"
+                      onMouseDown={() => {
+                        if (blurTimer.current) window.clearTimeout(blurTimer.current);
+                        goTo(r.path);
+                      }}
+                    >
+                      <span>{r.label}</span>
+                      <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -113,10 +188,7 @@ export function Header({ onMenuClick }: HeaderProps) {
 
         {/* Right: notifications + desktop user */}
         <div className="flex items-center gap-1 lg:gap-3 justify-end flex-1">
-          <Button variant="ghost" size="icon" className="tap relative" aria-label="Notifications">
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />
-          </Button>
+          <NotificationsPanel />
 
           {/* Desktop-only user chip */}
           <div className="hidden lg:flex items-center gap-3 pl-3 border-l border-border">

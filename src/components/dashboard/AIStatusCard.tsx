@@ -2,6 +2,7 @@ import { Bot, Zap, Activity, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAISettings } from '@/hooks/useAISettings';
 import { useLastExitCheck } from '@/hooks/useLastExitCheck';
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
 export function AIStatusCard() {
@@ -68,11 +69,12 @@ export function AIStatusCard() {
             </div>
           </div>
         </div>
-        <Button 
+        <Button
+          asChild
           variant={settings.enabled ? 'glow-success' : 'outline'}
           size="sm"
         >
-          {settings.enabled ? 'Running' : 'Start'}
+          <Link to="/ai-trader">{settings.enabled ? 'Manage' : 'Start'}</Link>
         </Button>
       </div>
 
