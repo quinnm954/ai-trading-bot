@@ -58,11 +58,19 @@ export const HookScene: React.FC<{ beat: PlacedBeat }> = ({ beat }) => {
 
   return (
     <AbsoluteFill style={{ transform: `translateX(${shake}px)` }}>
-      <AbsoluteFill style={{ justifyContent: "space-between", paddingTop: 120, paddingBottom: 120, opacity: tickerFade }}>
+      <AbsoluteFill style={{ justifyContent: "space-between", paddingTop: 120, paddingBottom: 120, opacity: tickerFade * 0.7 }}>
         {Array.from({ length: 9 }).map((_, r) => (
           <TickerRow key={r} row={r} />
         ))}
       </AbsoluteFill>
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(78% 34% at 50% 50%, rgba(2,3,8,0.96) 0%, rgba(2,3,8,0.85) 55%, transparent 100%)",
+        }}
+      />
+
+
 
       <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", padding: "0 90px", gap: 26 }}>
         {frame < fps * 1.55 ? (
