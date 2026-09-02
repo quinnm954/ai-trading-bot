@@ -1094,18 +1094,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       : entryPrice * (1 - cfgHardStopLossPct / 100);
 
 
-    // TRAILING STOP — arms only past breakeven+fees, then gives back a FRACTION of the gain
-    // so winners keep running instead of being cut at a fixed tiny giveback.
+    // TRAILING STOP — a protective exit for a gain that is already big enough to pay for a
+    // full losing trade. It arms only once the NET gain covers one net loss (1:1), so a
+    // trailed winner can never be smaller than the loser it has to offset. Below that level
+    // the trade is left alone to reach the take-profit.
     const previousPeakPnl = Number(position.peak_pnl_percent || 0);
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
-    const trailingArmPct = COINBASE_ROUND_TRIP_FEE + TRAILING_ARM_BUFFER_PCT;
-    const trailingStopActive = newPeakPnl >= trailingArmPct;
+    // Gross level at which the net gain equals one net loss.
+    const trailingProfitFloorPct = Math.max(
+      COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
+      COINBASE_ROUND_TRIP_FEE + netLossPct
+    );
+    const trailingStopActive = newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // 🚦 A trailing exit must still be a NET WINNER after the 0.8% round-trip fee.
-    // Previously the trail could fire at +0.50% gross, which is -0.30% net — that alone
-    // turned genuine winners into recorded losses.
-    const trailingProfitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
     // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
     // land below the net-profit floor.
     const givebackCap = Math.max(0, newPeakPnl - trailingProfitFloorPct);
