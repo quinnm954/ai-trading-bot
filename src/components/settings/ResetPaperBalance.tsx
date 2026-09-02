@@ -141,11 +141,13 @@ export function ResetPaperBalance() {
             <p className="font-medium text-foreground">Set Custom Paper Balance (Testing)</p>
           </div>
           <p className="text-sm text-muted-foreground">
-            Override your paper balance to any amount. Useful for testing strategies at different equity levels.
+            Set your paper balance to any amount. This starts a clean slate: paper trades, positions,
+            equity history, today's P&amp;L and strategy expectancy are all cleared.
             {currentBalance !== null && (
               <> Current: <span className="text-foreground font-medium">${currentBalance.toLocaleString()}</span></>
             )}
           </p>
+
           <div className="space-y-2">
             <Label htmlFor="customBalance" className="text-xs text-muted-foreground">New balance (USD)</Label>
             <div className="flex gap-2">
