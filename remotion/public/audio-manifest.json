@@ -1,0 +1,12 @@
+{
+  "introSeconds": 0.5,
+  "outroSeconds": 1.2,
+  "gapSeconds": 0.8,
+  "scenes": [
+    { "id": "scene-01", "audio": "voiceover/scene-01.mp3", "durationSeconds": 3.552 },
+    { "id": "scene-02", "audio": "voiceover/scene-02.mp3", "durationSeconds": 5.112 },
+    { "id": "scene-03", "audio": "voiceover/scene-03.mp3", "durationSeconds": 8.232 },
+    { "id": "scene-04", "audio": "voiceover/scene-04.mp3", "durationSeconds": 4.416 },
+    { "id": "scene-05", "audio": "voiceover/scene-05.mp3", "durationSeconds": 3.888 }
+  ]
+}
