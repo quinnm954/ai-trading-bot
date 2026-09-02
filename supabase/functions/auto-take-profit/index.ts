@@ -1201,7 +1201,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         }
       }
 
-      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${holdLimitMinutes}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
+      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${posTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${holdLimitMinutes}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}% (intended stop ${adjustedStopLoss.toFixed(2)}%, stop price $${stopPrice.toFixed(6)})`);
       
       let actualExitPrice = currentPrice;
@@ -1341,18 +1341,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         ? ((actualExitPrice - entryPrice) / entryPrice) * 100
         : ((entryPrice - actualExitPrice) / entryPrice) * 100;
       const isStopExit = hitStopLoss;
-      const slippagePct = isStopExit ? Math.max(0, cfgHardStopLossPct - realizedPctGross) : 0;
+      const slippagePct = isStopExit ? Math.max(0, adjustedStopLoss - realizedPctGross) : 0;
       if (isStopExit && slippagePct > 0.05) {
-        console.warn(`🚨 STOP SLIPPAGE ${position.symbol}: filled at ${realizedPctGross.toFixed(3)}% vs stop ${cfgHardStopLossPct.toFixed(2)}% (${slippagePct.toFixed(3)}% past)`);
+        console.warn(`🚨 STOP SLIPPAGE ${position.symbol}: filled at ${realizedPctGross.toFixed(3)}% vs stop ${adjustedStopLoss.toFixed(2)}% (${slippagePct.toFixed(3)}% past)`);
         await supabase.from('risk_events').insert({
           user_id: userId,
           event_type: 'stop_slippage',
           severity: slippagePct > 0.4 ? 'high' : 'medium',
-          message: `${position.symbol} stop slipped ${slippagePct.toFixed(2)}% past the -${Math.abs(cfgHardStopLossPct).toFixed(2)}% stop (filled at ${realizedPctGross.toFixed(2)}%)`,
+          message: `${position.symbol} stop slipped ${slippagePct.toFixed(2)}% past the -${Math.abs(adjustedStopLoss).toFixed(2)}% stop (filled at ${realizedPctGross.toFixed(2)}%)`,
           details: {
             symbol: position.symbol,
             mode: isPaperMode ? 'paper' : 'live',
-            stop_pct: cfgHardStopLossPct,
+            stop_pct: adjustedStopLoss,
             realized_pct: realizedPctGross,
             slippage_pct: slippagePct,
             entry_price: entryPrice,
@@ -1398,7 +1398,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
       const decisionType = hitStopLoss ? 'auto_stop_loss' : hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitMaxHold ? 'max_hold' : 'trailing_stop';
       const reasoningText = hitHardTakeProfit
-        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${cfgTakeProfitPct}%)`
+        ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${posTakeProfitPct}%)`
         : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
         : hitTrailingStop 
