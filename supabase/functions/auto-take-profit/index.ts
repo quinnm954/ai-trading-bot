@@ -1080,7 +1080,10 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     }
 
     // Rotation may never fire below the fee-clearing floor, or it books losses as "wins"
-    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), COINBASE_ROUND_TRIP_FEE + 0.4);
+    // Rotation is a winner exit. It must clear the SAME net take-profit bar as a cash exit,
+    // otherwise it harvests +0.4% net winners while stops keep booking -1.6% net losers —
+    // which is exactly what flattened realized expectancy.
+    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), cfgTakeProfitPct);
     // EXACT stop: the hard stop fires at the configured level (default -0.8%) with NO
     // latency widening. Widening the stop is what let losers run past -0.8% and shrink
     // scalp expectancy below the 1.6:1 geometry.
