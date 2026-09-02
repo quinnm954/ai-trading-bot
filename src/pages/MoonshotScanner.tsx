@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -125,7 +123,6 @@ export default function MoonshotScanner() {
   const [signals, setSignals] = useState<MoonshotSignal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
-  const [prioritizeMoonshots, setPrioritizeMoonshots] = useState(false);
   const { toast } = useToast();
 
   const fetchSignals = async () => {
@@ -147,25 +144,6 @@ export default function MoonshotScanner() {
       });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const fetchSettings = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from('ai_settings')
-        .select('prioritize_moonshots')
-        .eq('user_id', user.id)
-        .single();
-
-      if (data) {
-        setPrioritizeMoonshots(data.prioritize_moonshots || false);
-      }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
     }
   };
 
@@ -196,34 +174,8 @@ export default function MoonshotScanner() {
     }
   };
 
-  const togglePrioritizeMoonshots = async (enabled: boolean) => {
-    setPrioritizeMoonshots(enabled);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase
-        .from('ai_settings')
-        .update({ prioritize_moonshots: enabled })
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      toast({
-        title: enabled ? 'Moonshot Priority Enabled' : 'Moonshot Priority Disabled',
-        description: enabled 
-          ? 'AI will prioritize coins with high pump probability' 
-          : 'AI will use standard trading criteria',
-      });
-    } catch (error) {
-      console.error('Error updating settings:', error);
-      setPrioritizeMoonshots(!enabled);
-    }
-  };
-
   useEffect(() => {
     fetchSignals();
-    fetchSettings();
 
     // Set up realtime subscription
     const channel = supabase
@@ -256,17 +208,6 @@ export default function MoonshotScanner() {
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="prioritize-moonshots"
-              checked={prioritizeMoonshots}
-              onCheckedChange={togglePrioritizeMoonshots}
-            />
-            <Label htmlFor="prioritize-moonshots" className="text-sm">
-              Prioritize in AI Trading
-            </Label>
-          </div>
-          
           <Button onClick={runScanner} disabled={isScanning}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isScanning ? 'animate-spin' : ''}`} />
             {isScanning ? 'Scanning...' : 'Scan Now'}
