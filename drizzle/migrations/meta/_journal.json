@@ -50,6 +50,13 @@
       "when": 1788355128388,
       "tag": "0006_reset_paper_account_function",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788384957658,
+      "tag": "0007_wide_stop_mode",
+      "breakpoints": true
     }
   ]
 }
