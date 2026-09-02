@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
-import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock } from 'lucide-react';
+import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PromoReel } from '@/components/marketing/PromoReel';
+
 
 export default function Landing() {
   return (
