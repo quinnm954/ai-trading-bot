@@ -1789,6 +1789,19 @@ async function filterByTrend(
   const minPrice = memeOnly ? MEME_MIN_PRICE_USD : MIN_PRICE_USD;
   const maxPrice = memeOnly ? MEME_MAX_PRICE_USD : MAX_PRICE_USD;
 
+  // ── AGGREGATE TAPE GATE ────────────────────────────────────────────────────
+  // Long-only swings are beta trades: the 60-day walk-forward shows the whole
+  // strategy family is negative when the broad crypto tape is flat or falling,
+  // and only turns positive while the tape is rising. So the engine does not
+  // open ANY swing unless the market as a whole is climbing.
+  const tape = computeAggregateTape(marketData);
+  if (!tape.rising) {
+    console.log(`🌐 TAPE GATE — STAND DOWN: ${tape.label}`);
+    return { tradeable: [], trendAnalysis: [] };
+  }
+  console.log(`🌐 TAPE GATE — OPEN: ${tape.label}`);
+
+
   // Pre-filter: stablecoins out, keep only coins within price band, 24h not deep red / not parabolic.
   // When memeOnly is true, restrict to the meme allowlist.
   const eligibleCoins = marketData.filter(coin => {
