@@ -308,6 +308,7 @@ export default function Dashboard() {
           title="Today's P&L"
           value={`${stats.dailyPnl >= 0 ? '+' : ''}$${stats.dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           change={stats.dailyPnlPercent}
+          changeLabel="Realized + open positions"
           trend={stats.dailyPnl >= 0 ? 'up' : 'down'}
           icon={TrendingUp}
         />
@@ -319,6 +320,7 @@ export default function Dashboard() {
           trend={stats.weeklyPnlPercent >= 0 ? 'up' : 'down'}
           icon={Activity}
         />
+
       </div>
 
 
