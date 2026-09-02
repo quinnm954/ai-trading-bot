@@ -868,15 +868,10 @@ async function tryLossRotation(
       return false;
     }
   } else {
-    // Paper: credit the paper account balance
-    const { data: paperAcct } = await supabase
-      .from('paper_account').select('balance').eq('user_id', userId).maybeSingle();
-    if (paperAcct) {
-      await supabase.from('paper_account')
-        .update({ balance: Number(paperAcct.balance) + proceeds, updated_at: new Date().toISOString() })
-        .eq('user_id', userId);
-    }
+    // Paper: credit the paper account balance (atomic delta)
+    await supabase.rpc('adjust_paper_balance', { p_user_id: userId, p_delta: proceeds });
   }
+
 
   // Close the position row + record trade + decision + risk event
   await supabase.from('positions').delete().eq('id', pos.id);
