@@ -54,3 +54,26 @@ export function expectancyPctPerTrade(winRatePct: number, geo: ExitGeometry): nu
   const w = Math.min(Math.max(winRatePct, 0), 100) / 100;
   return w * geo.netWinPct - (1 - w) * geo.netLossPct;
 }
+
+// ── Wide-stop swing mode (mirror of supabase/functions/_shared/exit-geometry.ts) ──
+export const WIDE_TP_GROSS_PCT = 8.0;
+export const WIDE_STOP_ATR_MULT = 2.5;
+export const WIDE_STOP_MIN_PCT = 1.2;
+export const WIDE_STOP_MAX_PCT = 3.5;
+export const WIDE_MAX_HOLD_MINUTES = 2880;
+
+export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
+  const atr = Number(atrPct) > 0 ? Number(atrPct) : WIDE_STOP_MIN_PCT / WIDE_STOP_ATR_MULT;
+  const stopLossPct = Math.min(WIDE_STOP_MAX_PCT, Math.max(WIDE_STOP_MIN_PCT, atr * WIDE_STOP_ATR_MULT));
+  const takeProfitPct = WIDE_TP_GROSS_PCT;
+  const netLossPct = stopLossPct + ROUND_TRIP_FEE_PCT;
+  const netWinPct = takeProfitPct - ROUND_TRIP_FEE_PCT;
+  return {
+    takeProfitPct,
+    stopLossPct,
+    netWinPct,
+    netLossPct,
+    netRewardRisk: netWinPct / netLossPct,
+    breakevenWinRatePct: (netLossPct / (netWinPct + netLossPct)) * 100,
+  };
+}

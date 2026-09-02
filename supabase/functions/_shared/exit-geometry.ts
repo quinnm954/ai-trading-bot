@@ -98,3 +98,36 @@ export function describeGeometry(geo: ExitGeometry): string {
     `NET R:R ${geo.netRewardRisk.toFixed(2)}:1 (gross ${geo.grossRewardRisk.toFixed(2)}:1)`
   );
 }
+
+// ── WIDE-STOP SWING MODE (regime-conditional) ────────────────────────────────
+// The locked 3.36%/0.80% geometry books a stop on ~68% of swings because 0.80% is
+// inside one 15m ATR of noise. The walk-forward on 60 days of real Coinbase candles
+// showed a wide target with an ATR-scaled stop and a 48h hold is the only variant
+// that turns positive — but ONLY while the aggregate tape is rising, so this mode is
+// gated by the tape read and stands down otherwise.
+export const WIDE_TP_GROSS_PCT = 8.0;      // gross take-profit
+export const WIDE_STOP_ATR_MULT = 2.5;     // stop = 2.5 × ATR%
+export const WIDE_STOP_MIN_PCT = 1.2;      // never tighter than noise
+export const WIDE_STOP_MAX_PCT = 3.5;      // keeps NET R:R ≥ 1.67:1 at an 8% target
+export const WIDE_MAX_HOLD_MINUTES = 2880; // 48h
+
+/** ATR-scaled wide geometry. Stop is clamped so net R:R still clears MIN_REWARD_RISK. */
+export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
+  const atr = Number(atrPct) > 0 ? Number(atrPct) : WIDE_STOP_MIN_PCT / WIDE_STOP_ATR_MULT;
+  const stopLossPct = Math.min(
+    WIDE_STOP_MAX_PCT,
+    Math.max(WIDE_STOP_MIN_PCT, atr * WIDE_STOP_ATR_MULT),
+  );
+  const takeProfitPct = WIDE_TP_GROSS_PCT;
+  const netLossPct = stopLossPct + ROUND_TRIP_FEE_PCT;
+  const netWinPct = takeProfitPct - ROUND_TRIP_FEE_PCT;
+  return {
+    takeProfitPct,
+    stopLossPct,
+    netWinPct,
+    netLossPct,
+    netRewardRisk: netWinPct / netLossPct,
+    grossRewardRisk: takeProfitPct / stopLossPct,
+    adjusted: false,
+  };
+}
