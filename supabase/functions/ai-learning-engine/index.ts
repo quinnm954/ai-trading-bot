@@ -477,9 +477,15 @@ serve(async (req) => {
 
     console.log(`🧠 AI Learning Engine for user: ${userId}`);
 
-    // Fetch historical prices
+    // Fetch REAL price history (no fabricated fallback)
     const priceData = await fetchHistoricalPrices();
-    console.log(`📈 Fetched ${priceData.length} assets for analysis`);
+    console.log(`📈 Fetched ${priceData.length} assets with real hourly history`);
+    if (priceData.length === 0) {
+      return new Response(JSON.stringify({ error: 'No live market data — learning cycle skipped' }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Run backtests
     const backtestResults = runBacktests(priceData);
