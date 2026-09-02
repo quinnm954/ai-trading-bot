@@ -997,7 +997,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   let conversions = 0;
 
   for (const position of positions) {
-    const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+    let currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
     if (!currentPrice) continue;
 
     const entryPrice = Number(position.avg_entry_price);
