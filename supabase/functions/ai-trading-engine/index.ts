@@ -1778,6 +1778,40 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
   }
 }
 
+// ── AGGREGATE TAPE (broad market breadth/trend) ──────────────────────────────
+// Equal-weighted average 24h and 1h return of the most liquid non-stable assets,
+// plus breadth (% of names up on 24h). Long swings only run with the tape.
+const TAPE_MIN_24H_PCT = 1.0;    // market must be up at least this much over 24h
+const TAPE_MIN_1H_PCT = 0.0;     // and still rising right now
+const TAPE_MIN_BREADTH = 0.55;   // majority of liquid names participating
+
+function computeAggregateTape(marketData: MarketData[]): {
+  rising: boolean; avg24h: number; avg1h: number; breadth: number; label: string;
+} {
+  const universe = marketData
+    .filter(c => !STABLECOINS.includes(c.symbol.toUpperCase()) && (c.price ?? 0) > 0)
+    .sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0))
+    .slice(0, 40);
+
+  if (universe.length < 8) {
+    return { rising: false, avg24h: 0, avg1h: 0, breadth: 0, label: 'insufficient market data for tape read' };
+  }
+
+  const avg24h = universe.reduce((s, c) => s + (c.change24h ?? 0), 0) / universe.length;
+  const avg1h = universe.reduce((s, c) => s + (c.change1h ?? 0), 0) / universe.length;
+  const breadth = universe.filter(c => (c.change24h ?? 0) > 0).length / universe.length;
+
+  const rising = avg24h >= TAPE_MIN_24H_PCT && avg1h >= TAPE_MIN_1H_PCT && breadth >= TAPE_MIN_BREADTH;
+  const label =
+    `tape 24h ${avg24h >= 0 ? '+' : ''}${avg24h.toFixed(2)}% (need ≥${TAPE_MIN_24H_PCT}%), ` +
+    `1h ${avg1h >= 0 ? '+' : ''}${avg1h.toFixed(2)}% (need ≥${TAPE_MIN_1H_PCT}%), ` +
+    `breadth ${(breadth * 100).toFixed(0)}% (need ≥${TAPE_MIN_BREADTH * 100}%) across ${universe.length} liquid names`;
+
+  return { rising, avg24h, avg1h, breadth, label };
+}
+
+
+
 // SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
 // Async because we fetch short-window candles for the survivors of the pre-filter.
 async function filterByTrend(
