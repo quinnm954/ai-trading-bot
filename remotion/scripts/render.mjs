@@ -1,32 +1,51 @@
-import { execSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { bundle } from "@remotion/bundler";
+import { renderMedia, renderStill, selectComposition, openBrowser } from "@remotion/renderer";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "..");
-const outDir = join(root, "out");
-mkdirSync(outDir, { recursive: true });
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, "..");
 
-process.env.REMOTION_CHROME_PATH = "/bin/chromium";
-process.env.REMOTION_FFMPEG_PATH = "/bin/ffmpeg";
-process.env.REMOTION_FFPROBE_PATH = "/bin/ffprobe";
-process.env.REMOTION_LOG_LEVEL = "verbose";
+// usage: node scripts/render.mjs <compositionId> <outPath> [--still=frame]
+const compId = process.argv[2] ?? "TitanAIReel";
+const outPath = process.argv[3] ?? "/mnt/documents/titanai-reel.mp4";
+const stillArg = process.argv.find((a) => a.startsWith("--still="));
 
+const serveUrl = await bundle({
+  entryPoint: path.resolve(root, "src/index.ts"),
+  webpackOverride: (c) => c,
+});
 
-const cmd = [
-  "bunx",
-  "remotion",
-  "render",
-  "src/index.ts",
-  "TitanAIPromo",
-  "out/titanai-promo.mp4",
-  "--codec=h264",
-  "--browser-executable=/bin/chromium",
-  "--log=verbose",
-].join(" ");
+const browser = await openBrowser("chrome", {
+  browserExecutable: process.env.PUPPETEER_EXECUTABLE_PATH ?? "/bin/chromium",
+  chromiumOptions: { args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"] },
+  chromeMode: "chrome-for-testing",
+});
 
+const composition = await selectComposition({ serveUrl, id: compId, puppeteerInstance: browser });
+console.log(`composition ${compId}: ${composition.durationInFrames} frames (${(composition.durationInFrames / composition.fps).toFixed(2)}s)`);
 
-console.log("Rendering:", cmd);
-execSync(cmd, { stdio: "inherit", cwd: root, env: process.env });
-console.log("Done.", join(outDir, "titanai-promo.mp4"));
+if (stillArg) {
+  const frames = stillArg.split("=")[1].split(",").map(Number);
+  for (const frame of frames) {
+    const out = outPath.replace(/\.png$/, "") + `-${frame}.png`;
+    await renderStill({ composition, serveUrl, output: out, frame, puppeteerInstance: browser });
+    console.log("still", out);
+  }
+} else {
+  await renderMedia({
+    composition,
+    serveUrl,
+    codec: "h264",
+    crf: 18,
+    outputLocation: outPath,
+    puppeteerInstance: browser,
+    concurrency: 2,
+    onProgress: ({ progress }) => {
+      if (Math.round(progress * 100) % 20 === 0) console.log(`${Math.round(progress * 100)}%`);
+    },
+  });
+  console.log("rendered", outPath);
+}
+
+await browser.close({ silent: false });
