@@ -3,7 +3,6 @@ import {
   Settings as SettingsIcon, 
   Bell, 
   Shield, 
-  Database,
   Clock,
   Save,
   Scale,
@@ -28,10 +27,16 @@ import {
   type NotificationPrefs,
 } from '@/lib/notificationPrefs';
 
+interface GeneralPrefs {
+  timezone: string;
+  currency: string;
+  defaultLeverage: number;
+}
+
 export default function Settings() {
   const [notifications, setNotifications] = useState<NotificationPrefs>(() => loadNotificationPrefs());
 
-  const [general, setGeneral] = useState(() => {
+  const [general, setGeneral] = useState<GeneralPrefs>(() => {
     try {
       const raw = localStorage.getItem('titan_general_prefs');
       if (raw) return JSON.parse(raw);
