@@ -18,6 +18,9 @@ const DIVERSITY_LOOKBACK_MINUTES = 90;       // window used to penalise recently
 const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window triggers the rotation penalty
 const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 5; // hard cap: never more than 5 simultaneous scalps
+// Same allowance for every strategy path (AI momentum, rules, grid) so all accounts
+// fill open slots at an identical rate instead of one path dumping every level at once.
+const MAX_NEW_ENTRIES_PER_CYCLE = 2;
 
 // ── Expectancy-first exit geometry (must match auto-take-profit / risk-manager) ──
 // Every loser has to cost less than every winner earns, after the 0.8% maker round trip.
@@ -2965,7 +2968,13 @@ serve(async (req) => {
       }
     }
 
+    // Internal fan-out target (set by the cron dispatcher below, service-role only).
+    if (userIds.length === 0 && typeof body.userId === 'string' && body.userId.length > 0) {
+      userIds = [body.userId];
+    }
+
     // If no specific user, process ALL users with AI enabled
+    let isCronDispatch = false;
     if (userIds.length === 0) {
       console.log('🔄 Cron job: Processing all users with AI enabled');
       const { data: aiSettings } = await supabase
@@ -2976,6 +2985,7 @@ serve(async (req) => {
       if (aiSettings) {
         userIds = aiSettings.map((s: any) => s.user_id);
       }
+      isCronDispatch = true;
     }
 
     if (userIds.length === 0) {
@@ -2985,8 +2995,41 @@ serve(async (req) => {
     }
 
     console.log(`🤖 AI Trading Engine processing ${userIds.length} user(s)`);
-    
-    // Process first user (for now - can be expanded to loop through all)
+
+    // 🌐 SERVER-SIDE FAN-OUT
+    // A cron tick must run a full cycle for EVERY enabled account, not just the
+    // first one — otherwise accounts only trade while their browser tab is open.
+    // Each user gets its own isolated invocation so one failure can't starve the rest.
+    if (isCronDispatch && userIds.length > 1) {
+      const fanOutUrl = `${supabaseUrl}/functions/v1/ai-trading-engine`;
+      const results: Array<{ userId: string; ok: boolean; error?: string }> = [];
+
+      for (const targetId of userIds) {
+        try {
+          const res = await fetch(fanOutUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({ userId: targetId }),
+          });
+          results.push({ userId: targetId, ok: res.ok, error: res.ok ? undefined : `HTTP ${res.status}` });
+        } catch (e) {
+          results.push({ userId: targetId, ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
+      const failed = results.filter(r => !r.ok);
+      console.log(`🌐 Fan-out complete: ${results.length - failed.length}/${results.length} accounts cycled`);
+      return new Response(JSON.stringify({
+        status: 'fanned_out',
+        accountsProcessed: results.length,
+        failures: failed,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const userId = userIds[0];
     const user = { id: userId };
 
@@ -3801,9 +3844,17 @@ serve(async (req) => {
       });
     }
     
-    // Only take as many decisions as we have slots for
-    const limitedDecisions = decisions.slice(0, remainingSlots);
-    console.log(`✅ Generated ${decisions.length} trading decisions, executing ${limitedDecisions.length} (limited by ${remainingSlots} slots) using ${bestStrategy} strategy`);
+    // 🎚️ UNIFORM FILL RATE (identical for AI-momentum and rule/grid paths)
+    // Both paths previously behaved differently: the AI path typically surfaced one
+    // candidate per cycle while the grid fallback filled every free slot at once.
+    // Now every path is ranked by score and capped by the same per-cycle allowance,
+    // so two accounts in the same regime fill slots at the same rate.
+    decisions = [...decisions].sort(
+      (a, b) => ((b as any)._score ?? (b.confidence ?? 0) * 100) - ((a as any)._score ?? (a.confidence ?? 0) * 100)
+    );
+    const perCycleAllowance = Math.min(remainingSlots, MAX_NEW_ENTRIES_PER_CYCLE);
+    const limitedDecisions = decisions.slice(0, perCycleAllowance);
+    console.log(`✅ Generated ${decisions.length} ranked decisions, executing ${limitedDecisions.length} (slots=${remainingSlots}, per-cycle cap=${MAX_NEW_ENTRIES_PER_CYCLE}) via ${bestStrategy}`);
 
     // 🎛️ EXECUTION MODE CHECK - Patent: Selectable Execution Control Modes
     // If user_confirmed mode, queue trades for approval instead of executing
@@ -4020,12 +4071,13 @@ serve(async (req) => {
       remainingSlots = 1;
     }
 
-    // Execute trades (limited to available slots)
+    // Execute trades (limited to available slots AND the uniform per-cycle allowance)
+    const cycleEntryLimit = Math.min(remainingSlots, MAX_NEW_ENTRIES_PER_CYCLE);
     for (const decision of limitedDecisions) {
 
       // Double-check we haven't exceeded the limit during this loop
-      if (tradesExecuted >= remainingSlots) {
-        console.log(`🛑 Stopping: Reached max_concurrent_trades limit (${settings.max_concurrent_trades})`);
+      if (tradesExecuted >= cycleEntryLimit) {
+        console.log(`🛑 Stopping: reached cycle entry limit (${cycleEntryLimit}; slots=${remainingSlots}, cap=${MAX_NEW_ENTRIES_PER_CYCLE})`);
         break;
       }
       
