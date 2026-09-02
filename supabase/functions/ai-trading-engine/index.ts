@@ -1185,6 +1185,10 @@ interface MarketData {
   supportPrice?: number;          // nearest swing-low support below current price
   distanceToSupportPct?: number;  // (price - support)/price * 100
   supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
+  volume24h?: number;
+  // Modelled probability that this coin reaches the target before the stop.
+  upEdge?: UpEdge;
+
 }
 
 interface AITradingDecision {
