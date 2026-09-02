@@ -13,16 +13,17 @@ export const SolutionScene: React.FC<{ beat: PlacedBeat }> = ({ beat }) => {
 
   return (
     <AbsoluteFill>
-      <AbsoluteFill style={{ alignItems: "center", justifyContent: "flex-end", top: 300 }}>
-        <div style={{ transform: "scale(0.86)" }}>
+      <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", paddingTop: 120 }}>
+        <div style={{ transform: "scale(0.74)" }}>
           <PhoneMockup screen={beat.screen!} focusY={beat.focusY} zoom={beat.zoom} delay={0.35} sweep />
         </div>
       </AbsoluteFill>
       <AbsoluteFill
         style={{
-          background: `linear-gradient(180deg, ${theme.bgDeep} 8%, rgba(5,7,15,0.55) 34%, transparent 60%)`,
+          background: `linear-gradient(180deg, rgba(2,3,8,0.96) 0%, rgba(2,3,8,0.6) 22%, rgba(2,3,8,0.12) 40%, rgba(2,3,8,0.55) 74%, rgba(2,3,8,0.97) 100%)`,
         }}
       />
+
 
       <AbsoluteFill style={{ padding: "150px 80px", gap: 26, alignItems: "flex-start" }}>
         {beat.kicker ? <Kicker label={beat.kicker} delay={0} /> : null}
