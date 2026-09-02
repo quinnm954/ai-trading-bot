@@ -303,15 +303,29 @@ export function MilestoneProgressCard() {
           </p>
         </div>
 
-        <div className="p-3 rounded-lg bg-secondary/30">
+        <div
+          className="p-3 rounded-lg bg-secondary/30"
+          title={
+            hasVelocity
+              ? `Realized profit per hour over the last ${data.velocityWindow === 'since start' ? 'period since trading started' : data.velocityWindow}`
+              : 'No closed trades yet, so no velocity can be measured'
+          }
+        >
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
             <TrendingUp className="w-4 h-4" />
-            <span className="text-xs">Velocity</span>
+            <span className="text-xs">
+              Velocity{hasVelocity ? ` (${data.velocityWindow})` : ''}
+            </span>
           </div>
-          <p className={`font-bold ${data.recentProfitRate >= 0 ? 'text-profit' : 'text-loss'}`}>
-            {data.recentProfitRate >= 0 ? '+' : ''}${data.recentProfitRate.toFixed(2)}/hr
-          </p>
+          {hasVelocity ? (
+            <p className={`font-bold ${data.recentProfitRate >= 0 ? 'text-profit' : 'text-loss'}`}>
+              {data.recentProfitRate >= 0 ? '+' : ''}${data.recentProfitRate.toFixed(2)}/hr
+            </p>
+          ) : (
+            <p className="font-bold text-muted-foreground">--</p>
+          )}
         </div>
+
 
         <div className="p-3 rounded-lg bg-secondary/30">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
