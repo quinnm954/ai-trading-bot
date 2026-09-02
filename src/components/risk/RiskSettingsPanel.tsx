@@ -29,7 +29,7 @@ export const STRICT_RISK = {
   weeklyLossLimit: 12,
   maxDrawdown: 25,
   maxConcurrentTrades: 12,
-  maxCapitalUsage: 80,
+  maxCapitalUsage: 85,
   maxLeverage: 1,
   take_profit_pct: 3.36,
   trailing_drop_pct: 0.4,
