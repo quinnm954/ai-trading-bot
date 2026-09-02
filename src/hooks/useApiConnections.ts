@@ -207,16 +207,12 @@ export function useApiConnections() {
         .eq('user_id', user.id)
         .eq('provider', provider);
 
-      // Zero out live_account for this provider so stale balance disappears
-      // (RLS forbids deleting live_account rows)
+      // Remove the live_account row entirely. Zeroing it out was not enough: live equity is
+      // computed by summing every live_account row, so a leftover row keeps polluting
+      // balances (and a stale one can carry an old, wildly wrong equity figure).
       await supabase
         .from('live_account')
-        .update({
-          balance: 0,
-          buying_power: 0,
-          equity: 0,
-          last_synced_at: new Date().toISOString(),
-        })
+        .delete()
         .eq('user_id', user.id)
         .eq('provider', provider);
 
