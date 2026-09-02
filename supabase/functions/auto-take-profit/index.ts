@@ -31,6 +31,8 @@ const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders
   const MIN_NET_EXIT_PCT = 0.3;
   // Hard take-profit: lock in once gain hits this level regardless of peak/trail
   const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
+  // Stale-position guard: a scalp that never resolved must not sit for hours holding a slot
+  const MAX_HOLD_MINUTES = 90;
 
   // Minimum momentum for target asset (must be rising)
   const MIN_TARGET_MOMENTUM = 0.5; // Target must have at least 0.5% 24h gain
@@ -1111,6 +1113,16 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const hitRotationTarget = pnlPercent >= rotationThreshold;
     const hitStopLoss = pnlPercent <= adjustedStopLoss;
 
+    // ⏳ MAX HOLD — a scalp that resolved neither way for MAX_HOLD_MINUTES is closed at
+    // market so it can't freeze a trade slot (and drift into a full stop) overnight.
+    const openedAtMs = position.created_at ? new Date(position.created_at).getTime() : Date.now();
+    const positionAgeMinutes = (Date.now() - openedAtMs) / 60000;
+    const hitMaxHold =
+      !hitStopLoss && !hitHardTakeProfit && !hitRotationTarget && !hitTrailingStop &&
+      positionAgeMinutes >= MAX_HOLD_MINUTES;
+
+
+
 
     // Log position status for monitoring (even when not triggering)
     const statusIcon = hitStopLoss ? '🛑' : hitHardTakeProfit ? '💰' : hitRotationTarget ? '🔄' : hitTrailingStop ? '📉' : '👀';
@@ -1119,9 +1131,9 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const peakInfo = trailingStopActive ? ` | Peak: ${newPeakPnl.toFixed(2)}% (drop: ${dropFromPeak.toFixed(2)}%)` : '';
     console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%${peakInfo}`);
 
-    // Trigger sell on: hard take-profit, rotation target, trailing stop, or hard stop loss
-    if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss) {
-      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
+    // Trigger sell on: hard take-profit, rotation target, trailing stop, hard stop loss, or max hold
+    if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss || hitMaxHold) {
+      const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${MAX_HOLD_MINUTES}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
       console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
       
       let actualExitPrice = currentPrice;
@@ -1289,7 +1301,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         fees_estimate: roundTripFee,
         slippage_estimate: slippagePct,
         stop_loss_price: stopPrice,
-        exit_reason: isStopExit ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss') : undefined,
+        exit_reason: isStopExit ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss') : hitMaxHold ? 'max_hold' : undefined,
         closed_at: new Date().toISOString(),
       }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
 
@@ -1309,14 +1321,16 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
 
       const conversionNote = didDirectConversion ? ` → converted to ${conversionTarget}` : '';
-      const decisionType = hitStopLoss ? 'auto_stop_loss' : hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : 'trailing_stop';
+      const decisionType = hitStopLoss ? 'auto_stop_loss' : hitHardTakeProfit ? 'hard_tp' : hitRotationTarget ? 'rotation' : hitMaxHold ? 'max_hold' : 'trailing_stop';
       const reasoningText = hitHardTakeProfit
         ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${cfgTakeProfitPct}%)`
         : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
         : hitTrailingStop 
           ? `📉 Trailing stop: peak was ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}% to ${pnlPercent.toFixed(2)}%`
-          : `🛑 Stop loss at ${pnlPercent.toFixed(3)}%`;
+          : hitMaxHold
+            ? `⏳ Max hold reached (${positionAgeMinutes.toFixed(0)}m) — closed at ${pnlPercent.toFixed(3)}% to free the slot`
+            : `🛑 Stop loss at ${pnlPercent.toFixed(3)}%`;
       
       await supabase.from('ai_decisions').insert({
         user_id: userId,
@@ -1326,7 +1340,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         reasoning: `${reasoningText}${conversionNote}`,
       });
 
-      if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop) takeProfitCount++;
+      if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || (hitMaxHold && actualPnl >= 0)) takeProfitCount++;
       else stopLossCount++;
     } else {
       // Update position with current price AND peak PnL for trailing stop tracking

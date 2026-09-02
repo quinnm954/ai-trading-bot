@@ -1,10 +1,12 @@
 import { Bot, Zap, Activity, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAISettings } from '@/hooks/useAISettings';
+import { useLastExitCheck } from '@/hooks/useLastExitCheck';
 import { cn } from '@/lib/utils';
 
 export function AIStatusCard() {
   const { settings, isLoading } = useAISettings();
+  const { lastCheck, hasOpenPositions, isStale } = useLastExitCheck();
 
   if (isLoading || !settings) {
     return (
@@ -92,9 +94,16 @@ export function AIStatusCard() {
               <p className="text-sm font-medium text-foreground capitalize">{settings.tradingMode}</p>
             </div>
             <div className="p-3 rounded-lg bg-secondary/30">
-              <p className="text-xs text-muted-foreground mb-1">Last Updated</p>
-              <p className="text-sm font-medium text-foreground">
-                {settings.updatedAt.toLocaleTimeString()}
+              <p className="text-xs text-muted-foreground mb-1">Last Exit Check</p>
+              <p className={cn(
+                'text-sm font-medium',
+                !hasOpenPositions ? 'text-muted-foreground' : isStale ? 'text-destructive' : 'text-success'
+              )}>
+                {!hasOpenPositions
+                  ? 'No open positions'
+                  : lastCheck
+                    ? lastCheck.toLocaleTimeString()
+                    : '—'}
               </p>
             </div>
           </div>
