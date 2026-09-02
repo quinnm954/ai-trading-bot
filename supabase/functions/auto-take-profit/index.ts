@@ -1028,16 +1028,11 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           await supabase.from('positions').delete().eq('id', position.id);
           takeProfitCount++;
 
-          // Credit paper balance with realized proceeds
+          // Credit paper balance with realized proceeds (atomic delta)
           if (isPaperMode) {
-            const { data: paperAccount } = await supabase.from('paper_account').select('balance').eq('user_id', userId).single();
-            if (paperAccount) {
-              await supabase.from('paper_account').update({
-                balance: Number(paperAccount.balance) + soldValue,
-                updated_at: new Date().toISOString(),
-              }).eq('user_id', userId);
-            }
+            await supabase.rpc('adjust_paper_balance', { p_user_id: userId, p_delta: soldValue });
           }
+
 
           await supabase.from('ai_decisions').insert({
             user_id: userId,
