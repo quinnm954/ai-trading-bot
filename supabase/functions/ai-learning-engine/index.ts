@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { fetchLiveMarket } from "../_shared/market-feed.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,72 +33,74 @@ interface StrategyScore {
 }
 
 // Fetch historical price data for backtesting
-async function fetchHistoricalPrices(): Promise<any[]> {
-  try {
-    const cryptos = [
-      'bitcoin', 'ethereum', 'solana', 'xrp', 'dogecoin', 'cardano', 'avalanche-2', 
-      'chainlink', 'polkadot', 'litecoin', 'near', 'arbitrum', 'optimism'
-    ];
-    
-    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cryptos.join(',')}&order=market_cap_desc&sparkline=true&price_change_percentage=1h,24h,7d`;
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      console.log('CoinGecko rate limited, using simulated data');
-      return generateSimulatedPriceData();
+// ── REAL PRICE HISTORY ──────────────────────────────────────────────────────
+// The backtest that scores every strategy MUST run on real market history.
+// Fabricated random walks produced fake win rates, which then biased which
+// strategies the trading engine chose. If no live feed answers we return an
+// empty set and the caller skips the learning cycle instead of learning noise.
+async function fetchCoinbaseHourly(symbol: string): Promise<number[]> {
+  // 168 hourly candles ≈ 7 days (Coinbase caps a request at 300 candles).
+  for (const quote of ['USD', 'USDC']) {
+    try {
+      const end = Math.floor(Date.now() / 1000);
+      const start = end - 168 * 3600;
+      const url =
+        `https://api.exchange.coinbase.com/products/${symbol}-${quote}/candles` +
+        `?granularity=3600&start=${new Date(start * 1000).toISOString()}&end=${new Date(end * 1000).toISOString()}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'titanai-learning' } });
+      if (!res.ok) continue;
+      const rows = await res.json();
+      if (!Array.isArray(rows) || rows.length < 48) continue;
+      // Coinbase returns [time, low, high, open, close, volume] newest-first.
+      return rows
+        .slice()
+        .sort((a: number[], b: number[]) => a[0] - b[0])
+        .map((r: number[]) => Number(r[4]))
+        .filter((p) => Number.isFinite(p) && p > 0);
+    } catch (_e) {
+      // try the next quote currency
     }
-    
-    const data = await response.json();
-    return data.map((coin: any) => ({
-      symbol: coin.symbol.toUpperCase(),
-      currentPrice: coin.current_price,
-      change1h: coin.price_change_percentage_1h_in_currency || 0,
-      change24h: coin.price_change_percentage_24h || 0,
-      change7d: coin.price_change_percentage_7d_in_currency || 0,
-      high24h: coin.high_24h,
-      low24h: coin.low_24h,
-      volume: coin.total_volume,
-      sparkline: coin.sparkline_in_7d?.price || [],
-    }));
-  } catch (error) {
-    console.error('Error fetching prices:', error);
-    return generateSimulatedPriceData();
   }
+  return [];
 }
 
-function generateSimulatedPriceData(): any[] {
-  const symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT', 'LTC'];
-  const basePrices: Record<string, number> = {
-    'BTC': 95000, 'ETH': 3500, 'SOL': 180, 'XRP': 2.2, 'DOGE': 0.35,
-    'ADA': 0.95, 'AVAX': 38, 'LINK': 23, 'DOT': 7, 'LTC': 105
-  };
-  
-  return symbols.map(symbol => {
-    const basePrice = basePrices[symbol] || 100;
-    const volatility = Math.random() * 0.1;
-    const change24h = (Math.random() - 0.5) * 10;
-    
-    // Generate sparkline (168 hours = 7 days)
-    const sparkline: number[] = [];
-    let price = basePrice * (1 - volatility);
-    for (let i = 0; i < 168; i++) {
-      price *= 1 + (Math.random() - 0.48) * 0.02;
-      sparkline.push(price);
-    }
-    
-    return {
-      symbol,
-      currentPrice: basePrice,
-      change1h: (Math.random() - 0.5) * 2,
-      change24h,
-      change7d: (Math.random() - 0.5) * 15,
-      high24h: basePrice * 1.03,
-      low24h: basePrice * 0.97,
-      volume: Math.random() * 10000000000,
-      sparkline,
-    };
-  });
+async function fetchHistoricalPrices(): Promise<any[]> {
+  const { quotes, source } = await fetchLiveMarket();
+  if (quotes.length === 0) {
+    console.error('❌ No live market feed available — skipping learning cycle (never backtest on fabricated prices)');
+    return [];
+  }
+  console.log(`📡 Live feed: ${quotes.length} quotes from ${source}`);
+
+  // Backtest the most liquid names; each needs real hourly candles.
+  const universe = quotes
+    .filter((q) => !['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD'].includes(q.symbol))
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 15);
+
+  const withHistory = await Promise.all(
+    universe.map(async (q) => {
+      const sparkline = await fetchCoinbaseHourly(q.symbol);
+      if (sparkline.length < 48) return null;
+      return {
+        symbol: q.symbol,
+        currentPrice: q.price,
+        change1h: q.change1h,
+        change24h: q.change24h,
+        change7d: q.change7d,
+        high24h: q.high24h,
+        low24h: q.low24h,
+        volume: q.volume,
+        sparkline,
+      };
+    }),
+  );
+
+  const usable = withHistory.filter((c): c is NonNullable<typeof c> => c !== null);
+  console.log(`📊 Real hourly history for ${usable.length}/${universe.length} symbols`);
+  return usable;
 }
+
 
 // Detect market regime from price data
 function detectRegime(priceData: any): string {
@@ -395,15 +398,21 @@ serve(async (req) => {
       console.log(`🧠 Running learning for ${activeSettings.length} users`);
       
       const allResults: any[] = [];
-      
+
+      // One real-market pull per run, shared by every user (feeds are rate limited).
+      const priceData = await fetchHistoricalPrices();
+      if (priceData.length === 0) {
+        return new Response(JSON.stringify({ error: 'No live market data — learning cycle skipped' }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const backtestResults = runBacktests(priceData);
+      const backtestScores = calculateStrategyScores(backtestResults);
+
       for (const settings of activeSettings) {
         try {
-          // Fetch historical prices
-          const priceData = await fetchHistoricalPrices();
-          
-          // Run backtests
-          const backtestResults = runBacktests(priceData);
-          const backtestScores = calculateStrategyScores(backtestResults);
+
           
           // Learn from real trades
           const realTradeScores = await learnFromRealTrades(supabase, settings.user_id);
@@ -468,9 +477,15 @@ serve(async (req) => {
 
     console.log(`🧠 AI Learning Engine for user: ${userId}`);
 
-    // Fetch historical prices
+    // Fetch REAL price history (no fabricated fallback)
     const priceData = await fetchHistoricalPrices();
-    console.log(`📈 Fetched ${priceData.length} assets for analysis`);
+    console.log(`📈 Fetched ${priceData.length} assets with real hourly history`);
+    if (priceData.length === 0) {
+      return new Response(JSON.stringify({ error: 'No live market data — learning cycle skipped' }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Run backtests
     const backtestResults = runBacktests(priceData);
