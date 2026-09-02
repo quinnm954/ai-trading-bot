@@ -86,15 +86,19 @@ export function MilestoneProgressCard() {
           .eq('user_id', user.id)
           .eq('is_paper', !isLiveMode);
 
-        // Get recent closed trades to calculate profit rate
-        const { data: recentTrades } = await supabase
+        // Realized P&L over a wall-clock window (7d fetched, 24h derived)
+        const now = Date.now();
+        const HOUR_MS = 60 * 60 * 1000;
+        const weekAgo = new Date(now - 7 * 24 * HOUR_MS);
+        const { data: windowTrades } = await supabase
           .from('trades')
-          .select('pnl, closed_at, created_at')
+          .select('pnl, closed_at')
           .eq('user_id', user.id)
           .eq('is_paper', !isLiveMode)
           .eq('status', 'closed')
-          .order('closed_at', { ascending: false })
-          .limit(50);
+          .gte('closed_at', weekAgo.toISOString())
+          .order('closed_at', { ascending: false });
+
 
         const positionsValue = positions?.reduce((sum, p) => {
           const price = p.current_price || p.avg_entry_price;
