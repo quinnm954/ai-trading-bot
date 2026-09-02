@@ -49,6 +49,8 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+
   const [isClosingPaper, setIsClosingPaper] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
