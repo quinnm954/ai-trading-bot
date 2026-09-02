@@ -2844,7 +2844,7 @@ function analyzeWithRules(
 //   maximum profit while clamping inside safe bounds. Persists a `risk_event`
 //   row (`adaptive_tune`) with the diff so the user can audit every change.
 // =============================================================================
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+// `clamp` is declared once near the top of this file (line ~166) and reused here.
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 async function adaptParametersFromRecentTrades(
