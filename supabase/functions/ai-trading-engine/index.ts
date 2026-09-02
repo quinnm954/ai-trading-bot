@@ -3316,39 +3316,7 @@ serve(async (req) => {
 
     console.log(`✅ Tradeable coins: ${tradeable.map(c => c.symbol).join(', ') || 'NONE - All in downtrend'}`);
 
-    // 🚀 MOONSHOT PRIORITY - Boost coins with high pump probability
     let prioritizedTradeable = tradeable;
-    if (settings.prioritize_moonshots) {
-      console.log('🚀 Moonshot Priority ENABLED - fetching pump probability scores...');
-      
-      const { data: moonshotSignals } = await supabase
-        .from('moonshot_signals')
-        .select('symbol, pump_probability, signal_tags')
-        .gte('pump_probability', 60) // Only consider high probability signals
-        .order('pump_probability', { ascending: false });
-      
-      if (moonshotSignals && moonshotSignals.length > 0) {
-        console.log(`🎯 Found ${moonshotSignals.length} high-probability moonshots:`);
-        moonshotSignals.forEach((s: any) => console.log(`   ${s.symbol}: ${s.pump_probability}% - ${(s.signal_tags || []).join(', ')}`));
-        
-        // Create a map of symbol -> pump_probability
-        const moonshotMap = new Map(moonshotSignals.map((s: any) => [s.symbol, s.pump_probability]));
-        
-        // Sort tradeable coins by moonshot priority (high pump probability first)
-        prioritizedTradeable = [...tradeable].sort((a, b) => {
-          const aPump = moonshotMap.get(a.symbol) || 0;
-          const bPump = moonshotMap.get(b.symbol) || 0;
-          return bPump - aPump; // Higher pump probability first
-        });
-        
-        console.log(`📊 Prioritized order: ${prioritizedTradeable.map(c => {
-          const pump = moonshotMap.get(c.symbol);
-          return pump ? `${c.symbol}(🚀${pump}%)` : c.symbol;
-        }).join(', ')}`);
-      } else {
-        console.log('📊 No high-probability moonshots found, using standard order');
-      }
-    }
 
     // 🧠 TITAN FUSION PRIORITY — multi-signal conviction (Coinbase + news + liquidations + technicals)
     // Re-rank and softly gate tradeable list by latest fusion conviction.
