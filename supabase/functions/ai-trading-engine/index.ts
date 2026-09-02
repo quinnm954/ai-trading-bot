@@ -1928,18 +1928,18 @@ async function filterByTrend(
   console.log(`🎯 EDGE POOL: ${scalpQualified.length}/${scalpCandidates.length} candidates with positive expectancy`);
 
 
-  const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
+  const trendAnalysis: TrendAnalysis[] = scalpQualified.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
     return {
       ...analysis,
       shouldTrade: true,
-      reason: `⚡ ENTRY: 5m +${(coin.change5m ?? 0).toFixed(2)}% | RSI ${(coin.rsi14 ?? 50).toFixed(0)} | %B ${(coin.percentB ?? 0.5).toFixed(2)} | ${coin.techSetup ?? 'neutral'}`,
+      reason: `🌊 SWING ENTRY: ${coin.upEdge?.label ?? ''} | RSI ${(coin.rsi14 ?? 50).toFixed(0)} | %B ${(coin.percentB ?? 0.5).toFixed(2)} | ${coin.techSetup ?? 'neutral'}`,
     };
   });
 
-  console.log(`📈 Tradeable scalp candidates: ${scalpCandidates.length}`);
+  console.log(`📈 Tradeable swing candidates: ${scalpQualified.length}`);
 
-  return { tradeable: scalpCandidates, trendAnalysis };
+  return { tradeable: scalpQualified, trendAnalysis };
 }
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
