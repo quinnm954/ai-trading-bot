@@ -2,7 +2,25 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import type { LearningState, MarketRegime } from '@/types/trading';
-import { mockLearningState } from '@/lib/mockData';
+
+// Real empty state — never seed the UI with invented scores or backtest counts.
+const emptyLearningState: LearningState = {
+  isLearning: false,
+  currentPhase: 'idle',
+  progress: 0,
+  lastUpdate: new Date(),
+  bestStrategy: '—',
+  bestParams: {},
+  regimePerformance: {
+    trending: { strategy: '—', score: 0 },
+    ranging: { strategy: '—', score: 0 },
+    high_volatility: { strategy: '—', score: 0 },
+    low_volatility: { strategy: '—', score: 0 },
+    news_driven: { strategy: '—', score: 0 },
+  },
+  totalBacktests: 0,
+  improvementPercent: 0,
+};
 import { toast } from 'sonner';
 
 interface RegimePerformance {
