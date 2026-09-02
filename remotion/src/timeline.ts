@@ -36,8 +36,8 @@ export interface BeatDef {
   accent?: string;
 }
 
-export const GAP_SECONDS = 0.12;
-const DEFAULT_TAIL = 0.28;
+export const GAP_SECONDS = 0.07;
+const DEFAULT_TAIL = 0.18;
 
 export const MAIN_BEATS: BeatDef[] = [
   {
@@ -90,9 +90,9 @@ export const MAIN_BEATS: BeatDef[] = [
     headline: "Your rules. Enforced.",
     sub: "Size caps, leverage caps, daily loss limit, kill switch.",
     screen: "screens/risk.png",
-    focusY: 0.4,
-    zoom: 1.04,
-    highlight: { top: 0.38, height: 0.24 },
+    focusY: 0.52,
+    zoom: 1.02,
+    highlight: { top: 0.44, height: 0.24 },
     accent: "#f59e0b",
   },
   {
@@ -176,7 +176,7 @@ export const ADS_BEATS: BeatDef[] = [
     headline: "1.6 : 1, net of fees",
     sub: "Hard stops. Kill switch. Non-custodial.",
     screen: "screens/risk.png",
-    focusY: 0.38,
+    focusY: 0.52,
     zoom: 1.04,
     highlight: { top: 0.36, height: 0.24 },
     accent: "#f59e0b",
