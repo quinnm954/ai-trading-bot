@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import type { RiskSettings } from '@/types/trading';
+import { closeAllPositions } from '@/lib/closeAllPositions';
 
 type TradingMode = 'paper' | 'live';
 type BotStatus = 'idle' | 'learning' | 'trading' | 'paused' | 'error';
@@ -369,13 +370,33 @@ export function useAITraderData() {
         title: 'AI Trading Enabled',
         description: 'AI will now analyze markets and execute trades automatically.',
       });
+      return;
+    }
+
+    // Turning the auto trader OFF must leave the account flat —
+    // liquidate every open position for the active mode.
+    toast({
+      title: 'AI Trading Disabled',
+      description: 'Closing all open positions at market…',
+    });
+
+    const result = await closeAllPositions(aiSettings.tradingMode === 'live' ? 'live' : 'paper');
+
+    if (result.success) {
+      toast({
+        title: result.closed > 0 ? `✅ Closed ${result.closed} position${result.closed === 1 ? '' : 's'}` : 'No open positions',
+        description: 'Auto trader stopped and account is flat.',
+      });
     } else {
       toast({
-        title: 'AI Trading Disabled',
-        description: 'AI trading has been paused.',
+        title: 'Bot stopped, but close-out failed',
+        description: `${result.error ?? 'Unknown error'} — review open positions manually.`,
+        variant: 'destructive',
       });
     }
-  }, [aiSettings.enabled, updateSettings, toast]);
+
+    await fetchData();
+  }, [aiSettings.enabled, aiSettings.tradingMode, updateSettings, toast, fetchData]);
 
   // Get current balance based on mode
   const getCurrentBalance = useCallback(() => {
