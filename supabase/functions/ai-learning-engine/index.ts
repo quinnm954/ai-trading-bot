@@ -362,28 +362,21 @@ serve(async (req) => {
     let userId: string | null = null;
     let isCronJob = false;
 
-    // Check if this is a cron job or user request
+    // Distinguish a signed-in user request from a scheduled (cron) invocation.
+    // Anything that does not resolve to a real user is treated as cron fan-out,
+    // so schedules work with only an apikey header and no browser session.
     const authHeader = req.headers.get('authorization');
+    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-    const apiKeyHeader = req.headers.get('apikey');
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-
-      // Anon/service-role token => scheduled fan-out
-      if (token === anonKey || token === supabaseKey) {
-        isCronJob = true;
-        console.log('🔄 Cron job: Running learning for all active users');
-      } else {
-        const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (!error && user) {
-          userId = user.id;
-        }
-      }
-    } else if (!authHeader && (apiKeyHeader === anonKey || apiKeyHeader === supabaseKey || !apiKeyHeader)) {
-      // pg_cron calls with only an apikey header (no bearer token)
-      isCronJob = true;
-      console.log('🔄 Cron job (apikey only): Running learning for all active users');
+    if (bearer && bearer !== anonKey && bearer !== supabaseKey) {
+      const { data: { user } } = await supabase.auth.getUser(bearer);
+      if (user) userId = user.id;
     }
+    if (!userId) {
+      isCronJob = true;
+      console.log('🔄 Cron mode: running learning for all active users');
+    }
+
 
 
     // For cron jobs, process all users with AI enabled
