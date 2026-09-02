@@ -30,8 +30,9 @@ const TickerRow: React.FC<{ row: number }> = ({ row }) => {
             <span>{s}</span>
             <span style={{ color: down ? "#7f1d1d" : "#14532d" }}>
               {down ? "-" : "+"}
-              {((i * 37 + row * 11) % 90) / 10 + 0.4}%
+              {(((i * 37 + row * 11) % 90) / 10 + 0.4).toFixed(1)}%
             </span>
+
           </span>
         );
       })}
