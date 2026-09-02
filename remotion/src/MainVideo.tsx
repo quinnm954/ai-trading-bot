@@ -29,8 +29,14 @@ export const MainVideo: React.FC<{ manifest: AudioManifest }> = ({ manifest }) =
       <PersistentAccents />
       <Audio src={staticFile("audio/ambient.mp3")} volume={0.25} />
 
-      {manifest.scenes.map((scene) => (
-        <Audio key={scene.id} src={staticFile(scene.audio)} volume={1} />
+      {manifest.scenes.map((scene, i) => (
+        <Sequence
+          key={scene.id}
+          from={sceneStarts[i]}
+          durationInFrames={Math.round(scene.durationSeconds * fps) + 2}
+        >
+          <Audio src={staticFile(scene.audio)} volume={1} />
+        </Sequence>
       ))}
 
       <Sequence from={0} durationInFrames={totalFrames}>
