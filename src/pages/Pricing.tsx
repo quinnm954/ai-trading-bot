@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Brain, Check, Sparkles, Crown, X, Wallet, Shield, Bot, Globe, ChevronDown } from 'lucide-react';
+import { Brain, Check, Sparkles, Crown, X, Wallet, Shield, Bot, Globe, ChevronDown, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,6 +7,8 @@ import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useCurrency } from '@/hooks/useCurrency';
 import { useSubscription } from '@/hooks/useSubscription';
 import { CryptoPayButton } from '@/components/subscription/CryptoPayButton';
+import { PromoReel } from '@/components/marketing/PromoReel';
+
 import {
   MONTHLY_PRICE_USD,
   PLAN_NAME,
