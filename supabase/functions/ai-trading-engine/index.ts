@@ -2699,8 +2699,9 @@ async function adaptParametersFromRecentTrades(
 
     // 2) Trailing drop — tighten in hot streaks, loosen in cold
     let td = Number(ss.trailing_drop_pct);
-    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.3, 1.5);
-    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.3, 1.5);
+    // Ceiling 0.6%: a wider trail hands back more than half of the net win on a 3.36% target.
+    if (winRate >= 65 && expectancy > 0) td = clamp(td * 0.9, 0.3, 0.6);
+    else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.3, 0.6);
     if (Math.abs(td - Number(ss.trailing_drop_pct)) >= 0.05) next.trailing_drop_pct = round2(td);
 
     // 3) Hard stop loss — may only tighten. Widening it past MAX_RISK_PCT is what made
@@ -2724,13 +2725,14 @@ async function adaptParametersFromRecentTrades(
     let e15 = Number(ss.entry_min_15m_pct);
     let e1h = Number(ss.entry_min_1h_pct);
     if (streak <= -3) {
-      e5 = clamp(e5 + 0.05, 0.1, 1.2);
-      e15 = clamp(e15 + 0.05, 0.1, 1.2);
-      e1h = clamp(e1h + 0.05, 0.1, 1.5);
+      // Ceilings kept low enough that a cold streak slows entries instead of stopping them.
+      e5 = clamp(e5 + 0.05, 0.1, 0.6);
+      e15 = clamp(e15 + 0.05, 0.1, 0.6);
+      e1h = clamp(e1h + 0.05, 0.1, 0.8);
     } else if (streak >= 3 && expectancy > 0) {
-      e5 = clamp(e5 - 0.05, 0.1, 1.2);
-      e15 = clamp(e15 - 0.05, 0.1, 1.2);
-      e1h = clamp(e1h - 0.05, 0.1, 1.5);
+      e5 = clamp(e5 - 0.05, 0.1, 0.6);
+      e15 = clamp(e15 - 0.05, 0.1, 0.6);
+      e1h = clamp(e1h - 0.05, 0.1, 0.8);
     }
     if (Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
     if (Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
@@ -2744,8 +2746,9 @@ async function adaptParametersFromRecentTrades(
 
     // 6) Concurrent positions — expand on positive expectancy, contract on negative
     let maxPos = Number(ss.max_concurrent_positions);
-    if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 4, 18);
-    else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 4, 18);
+    // Floor 6 / ceiling 12 (= SCALP_MAX_CONCURRENT): never starve the account of slots.
+    if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 6, SCALP_MAX_CONCURRENT);
+    else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 6, SCALP_MAX_CONCURRENT);
     if (maxPos !== Number(ss.max_concurrent_positions)) next.max_concurrent_positions = Math.round(maxPos);
 
     if (Object.keys(next).length > 0) {
@@ -2757,8 +2760,9 @@ async function adaptParametersFromRecentTrades(
     if (as_) {
       const nextAi: Record<string, number> = {};
       let mdl = Number(as_.max_daily_loss ?? 2);
-      if (expectancy < -0.3) mdl = clamp(mdl * 0.85, 1, 10);
-      else if (expectancy > 0.5 && winRate >= 60) mdl = clamp(mdl * 1.05, 1, 10);
+      // Floor 3%: below that two stopped-out scalps end the trading day.
+      if (expectancy < -0.3) mdl = clamp(mdl * 0.85, 3, 10);
+      else if (expectancy > 0.5 && winRate >= 60) mdl = clamp(mdl * 1.05, 3, 10);
       if (Math.abs(mdl - Number(as_.max_daily_loss ?? 2)) >= 0.1) nextAi.max_daily_loss = round2(mdl);
       if (Object.keys(nextAi).length > 0) {
         await supabase.from('ai_settings').update({ ...nextAi, updated_at: new Date().toISOString() }).eq('user_id', userId);
