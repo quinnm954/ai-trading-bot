@@ -370,6 +370,7 @@ export default function Dashboard() {
 
         <div className="space-y-4 lg:space-y-6">
           <AIStatusCard />
+          <CapitalBasisCard isLiveMode={isLiveMode} />
           <SubscriptionStatusCard />
           <SubscriptionCostCard />
           <RecentTradesCard />
