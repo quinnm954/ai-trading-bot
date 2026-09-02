@@ -1145,8 +1145,40 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     // Trigger sell on: hard take-profit, rotation target, trailing stop, hard stop loss, or max hold
     if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss || hitMaxHold) {
+      // 🔁 PRE-EXIT PRICE REFRESH (stops only)
+      // The batch price snapshot can be a few seconds stale. Before booking a loss we
+      // re-read this one symbol: if the price has recovered back above the stop it was a
+      // stale tick and the position keeps running; if it is still breached we exit on the
+      // fresher price so the recorded fill matches reality.
+      if (hitStopLoss) {
+        const fresh = await fetchLivePrices([position.symbol]);
+        const freshPrice = fresh[position.symbol.toUpperCase()];
+        if (freshPrice && freshPrice > 0) {
+          const freshPnlPercent = position.side === 'buy'
+            ? ((freshPrice - entryPrice) / entryPrice) * 100
+            : ((entryPrice - freshPrice) / entryPrice) * 100;
+          if (freshPnlPercent > adjustedStopLoss) {
+            console.log(`↩️ STOP STOOD DOWN ${position.symbol}: stale tick showed ${pnlPercent.toFixed(3)}%, fresh price is ${freshPnlPercent.toFixed(3)}% (stop ${adjustedStopLoss.toFixed(2)}%) — holding`);
+            await supabase.from('positions').update({
+              current_price: freshPrice,
+              peak_pnl_percent: Math.max(previousPeakPnl, freshPnlPercent),
+              updated_at: new Date().toISOString(),
+            }).eq('id', position.id);
+            continue;
+          }
+          if (Math.abs(freshPnlPercent - pnlPercent) > 0.01) {
+            console.log(`🔁 Stop price refreshed ${position.symbol}: ${pnlPercent.toFixed(3)}% → ${freshPnlPercent.toFixed(3)}%`);
+          }
+          currentPrice = freshPrice;
+          pnlPercent = freshPnlPercent;
+          pnl = position.side === 'buy'
+            ? (freshPrice - entryPrice) * quantity
+            : (entryPrice - freshPrice) * quantity;
+        }
+      }
+
       const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${MAX_HOLD_MINUTES}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
-      console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+      console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}% (intended stop ${adjustedStopLoss.toFixed(2)}%, stop price $${stopPrice.toFixed(6)})`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;
