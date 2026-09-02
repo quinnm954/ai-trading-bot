@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 
 const LIVE_STARTING_EQUITY_FALLBACK = 100;
 
+type VelocityWindow = '24h' | '7d' | 'since start' | null;
+
 interface MilestoneData {
   currentEquity: number;
   cashBalance: number;
@@ -13,7 +15,8 @@ interface MilestoneData {
   targetMilestone: number;
   startingBalance: number;
   tradingStartTime: Date | null;
-  recentProfitRate: number; // profit per hour
+  recentProfitRate: number; // realized profit per hour
+  velocityWindow: VelocityWindow;
 }
 
 export function MilestoneProgressCard() {
@@ -26,8 +29,10 @@ export function MilestoneProgressCard() {
     startingBalance: 100000,
     tradingStartTime: null,
     recentProfitRate: 0,
+    velocityWindow: null,
   });
   const [isLoading, setIsLoading] = useState(true);
+
 
   useEffect(() => {
     if (!user) return;
@@ -81,15 +86,19 @@ export function MilestoneProgressCard() {
           .eq('user_id', user.id)
           .eq('is_paper', !isLiveMode);
 
-        // Get recent closed trades to calculate profit rate
-        const { data: recentTrades } = await supabase
+        // Realized P&L over a wall-clock window (7d fetched, 24h derived)
+        const now = Date.now();
+        const HOUR_MS = 60 * 60 * 1000;
+        const weekAgo = new Date(now - 7 * 24 * HOUR_MS);
+        const { data: windowTrades } = await supabase
           .from('trades')
-          .select('pnl, closed_at, created_at')
+          .select('pnl, closed_at')
           .eq('user_id', user.id)
           .eq('is_paper', !isLiveMode)
           .eq('status', 'closed')
-          .order('closed_at', { ascending: false })
-          .limit(50);
+          .gte('closed_at', weekAgo.toISOString())
+          .order('closed_at', { ascending: false });
+
 
         const positionsValue = positions?.reduce((sum, p) => {
           const price = p.current_price || p.avg_entry_price;
@@ -99,22 +108,55 @@ export function MilestoneProgressCard() {
           cashBalance = Math.max(0, liveEquity - positionsValue);
         }
         const currentEquity = isLiveMode && liveEquity > 0 ? liveEquity : cashBalance + positionsValue;
-        
-        // Calculate profit rate from recent trades
+
+        // Velocity = realized P&L per hour of actual elapsed time.
+        // Window preference: last 24h -> last 7d -> since trading started.
+        const trades = (windowTrades || []).filter((t) => t.closed_at);
+        const sumPnl = (rows: typeof trades) =>
+          rows.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+        const dayAgoMs = now - 24 * HOUR_MS;
+        const last24h = trades.filter((t) => new Date(t.closed_at!).getTime() >= dayAgoMs);
+        // Elapsed hours inside a window, capped by how long the account has existed,
+        // with a 1-hour floor so simultaneous closes can never explode the rate.
+        const elapsedIn = (windowHours: number) => {
+          const sinceStart = tradingStartTime
+            ? (now - tradingStartTime.getTime()) / HOUR_MS
+            : windowHours;
+          return Math.max(1, Math.min(windowHours, sinceStart));
+        };
+
         let profitRate = 0;
-        if (recentTrades && recentTrades.length > 1) {
-          const totalProfit = recentTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-          const oldestTrade = recentTrades[recentTrades.length - 1];
-          const newestTrade = recentTrades[0];
-          
-          if (oldestTrade?.closed_at && newestTrade?.closed_at) {
-            const timeSpanMs = new Date(newestTrade.closed_at).getTime() - new Date(oldestTrade.closed_at).getTime();
-            const timeSpanHours = timeSpanMs / (1000 * 60 * 60);
-            if (timeSpanHours > 0) {
-              profitRate = totalProfit / timeSpanHours;
-            }
+        let velocityWindow: VelocityWindow = null;
+
+        if (last24h.length > 0) {
+          velocityWindow = '24h';
+          profitRate = sumPnl(last24h) / elapsedIn(24);
+        } else if (trades.length > 0) {
+          velocityWindow = '7d';
+          profitRate = sumPnl(trades) / elapsedIn(7 * 24);
+        } else {
+
+          // Nothing closed in the last week - fall back to lifetime realized P&L
+          const { data: allTrades } = await supabase
+            .from('trades')
+            .select('pnl, closed_at')
+            .eq('user_id', user.id)
+            .eq('is_paper', !isLiveMode)
+            .eq('status', 'closed')
+            .order('closed_at', { ascending: true });
+
+          const lifetime = (allTrades || []).filter((t) => t.closed_at);
+          if (lifetime.length > 0) {
+            const startMs = tradingStartTime
+              ? tradingStartTime.getTime()
+              : new Date(lifetime[0].closed_at!).getTime();
+            // Floor of 1 hour so simultaneous closes can never explode the rate
+            const elapsedHours = Math.max(1, (now - startMs) / HOUR_MS);
+            velocityWindow = 'since start';
+            profitRate = sumPnl(lifetime) / elapsedHours;
           }
         }
+
 
         // Calculate target milestone - $1M for live, $200K increments for paper
         const TARGET_EQUITY = isLiveMode ? 1000000 : 200000;
@@ -132,7 +174,9 @@ export function MilestoneProgressCard() {
           startingBalance,
           tradingStartTime,
           recentProfitRate: profitRate,
+          velocityWindow,
         });
+
       } catch (error) {
         console.error('Error fetching milestone data:', error);
       } finally {
@@ -167,9 +211,14 @@ export function MilestoneProgressCard() {
   const totalPnl = data.currentEquity - data.startingBalance;
   const pnlPercent = (totalPnl / data.startingBalance) * 100;
 
-  // Calculate estimated time to milestone
-  let estimatedTime = 'Calculating...';
-  if (data.recentProfitRate > 0 && remaining > 0) {
+  // Estimated time to milestone, based on the same windowed velocity
+  const hasVelocity = data.velocityWindow !== null;
+  let estimatedTime = 'Not enough data';
+  if (remaining <= 0) {
+    estimatedTime = 'Milestone reached!';
+  } else if (!hasVelocity) {
+    estimatedTime = 'Not enough data';
+  } else if (data.recentProfitRate > 0) {
     const hoursToMilestone = remaining / data.recentProfitRate;
     if (hoursToMilestone < 1) {
       estimatedTime = `${Math.round(hoursToMilestone * 60)} minutes`;
@@ -180,11 +229,10 @@ export function MilestoneProgressCard() {
     } else {
       estimatedTime = `${(hoursToMilestone / 168).toFixed(1)} weeks`;
     }
-  } else if (data.recentProfitRate <= 0) {
+  } else {
     estimatedTime = 'Need profitable trades';
-  } else if (remaining <= 0) {
-    estimatedTime = 'Milestone reached!';
   }
+
 
   if (isLoading) {
     return (
@@ -241,7 +289,7 @@ export function MilestoneProgressCard() {
             <span className="text-xs">Remaining</span>
           </div>
           <p className="font-bold text-foreground">
-            ${remaining.toLocaleString(undefined, { minimumFractionDigits: 0 })}
+            ${remaining.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
           </p>
         </div>
 
@@ -255,15 +303,29 @@ export function MilestoneProgressCard() {
           </p>
         </div>
 
-        <div className="p-3 rounded-lg bg-secondary/30">
+        <div
+          className="p-3 rounded-lg bg-secondary/30"
+          title={
+            hasVelocity
+              ? `Realized profit per hour over the last ${data.velocityWindow === 'since start' ? 'period since trading started' : data.velocityWindow}`
+              : 'No closed trades yet, so no velocity can be measured'
+          }
+        >
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
             <TrendingUp className="w-4 h-4" />
-            <span className="text-xs">Velocity</span>
+            <span className="text-xs">
+              Velocity{hasVelocity ? ` (${data.velocityWindow})` : ''}
+            </span>
           </div>
-          <p className={`font-bold ${data.recentProfitRate >= 0 ? 'text-profit' : 'text-loss'}`}>
-            {data.recentProfitRate >= 0 ? '+' : ''}${data.recentProfitRate.toFixed(2)}/hr
-          </p>
+          {hasVelocity ? (
+            <p className={`font-bold ${data.recentProfitRate >= 0 ? 'text-profit' : 'text-loss'}`}>
+              {data.recentProfitRate >= 0 ? '+' : ''}${data.recentProfitRate.toFixed(2)}/hr
+            </p>
+          ) : (
+            <p className="font-bold text-muted-foreground">--</p>
+          )}
         </div>
+
 
         <div className="p-3 rounded-lg bg-secondary/30">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
