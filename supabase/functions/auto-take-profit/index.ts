@@ -11,26 +11,30 @@ const corsHeaders = {
 // Sell positions with gains and rotate into assets showing upward momentum
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
- // Rotation threshold: when a position gains X%, rotate into a rising asset.
-  // Must never sit below the gross TP floor, or rotation would book a net loss
-  // after the 0.8% maker round trip. Kept in lockstep with TP_FLOOR_GROSS_PCT.
-  const ROTATION_PROFIT_THRESHOLD = 1.4;
+  // Rotation threshold: when a position gains X%, rotate into a rising asset.
+  // Rotation is a WINNER exit, so it may never fire below the net take-profit level —
+  // otherwise it books a small net gain while stops book a full fee-loaded net loss.
+  const ROTATION_PROFIT_THRESHOLD = 1.4; // floor only; raised to the net-R:R TP per user
 
-  // ── Expectancy-first exit geometry ───────────────────────────────────────────
-  // Every loser must cost less than every winner earns, after fees.
-  const MIN_REWARD_RISK = 1.6;          // minimum reward:risk on any scalp
-  const TP_FLOOR_GROSS_PCT = 1.4;       // gross TP floor; clears the 0.8% round trip with edge left
-  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose
-  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop (tightened from -1.5)
-  // Trailing stop: only arms once the trade is past breakeven+fees, then gives back
-  // a fraction of the gain so winners can actually run.
+  // ── Expectancy-first exit geometry, measured NET of fees ──────────────────────
+  // The round trip costs ~0.8%. That fee lands on BOTH sides of the trade:
+  //   net win  = grossTP   - fees
+  //   net loss = grossStop + fees
+  // A "1.4% TP / 0.8% stop" grid therefore realizes +0.6% against -1.6% — a 0.375:1
+  // realized payoff that needs a ~73% win rate just to break even. All geometry below
+  // is enforced on the NET numbers so the 1.6:1 target survives fees.
+  const MIN_REWARD_RISK = 1.6;          // minimum NET reward:risk on any scalp
+  const TP_FLOOR_GROSS_PCT = 1.4;       // absolute gross TP floor
+  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose (gross)
+  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop
+  // Trailing stop: arms only once the gain covers a full net loss, then gives back
+  // a fraction of the peak so runners keep running.
   const TRAILING_STOP_DROP = 0.35;      // absolute floor on giveback
   const TRAILING_GIVEBACK_FRACTION = 0.4; // trail at 40% of the current peak gain
-  const TRAILING_ARM_BUFFER_PCT = 0.2;  // arm at fees + this buffer
   // Minimum NET profit (after the round-trip fee) any profit-taking exit must realize
   const MIN_NET_EXIT_PCT = 0.3;
-  // Hard take-profit: lock in once gain hits this level regardless of peak/trail
-  const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
+  // Hard take-profit floor before net-R:R enforcement raises it
+  const HARD_TAKE_PROFIT_PCT = 1.4;
   // Stale-position guard: a scalp that never resolved must not sit for hours holding a slot
   const MAX_HOLD_MINUTES = 90;
 
