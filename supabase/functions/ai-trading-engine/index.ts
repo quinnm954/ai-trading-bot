@@ -1790,7 +1790,7 @@ function computeAggregateTape(marketData: MarketData[]): {
 } {
   const universe = marketData
     .filter(c => !STABLECOINS.includes(c.symbol.toUpperCase()) && (c.price ?? 0) > 0)
-    .sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0))
+    .sort((a, b) => (b.volume24h ?? b.volume ?? 0) - (a.volume24h ?? a.volume ?? 0))
     .slice(0, 40);
 
   if (universe.length < 8) {
