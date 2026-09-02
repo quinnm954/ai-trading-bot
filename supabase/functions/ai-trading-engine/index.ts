@@ -4071,12 +4071,13 @@ serve(async (req) => {
       remainingSlots = 1;
     }
 
-    // Execute trades (limited to available slots)
+    // Execute trades (limited to available slots AND the uniform per-cycle allowance)
+    const cycleEntryLimit = Math.min(remainingSlots, MAX_NEW_ENTRIES_PER_CYCLE);
     for (const decision of limitedDecisions) {
 
       // Double-check we haven't exceeded the limit during this loop
-      if (tradesExecuted >= remainingSlots) {
-        console.log(`🛑 Stopping: Reached max_concurrent_trades limit (${settings.max_concurrent_trades})`);
+      if (tradesExecuted >= cycleEntryLimit) {
+        console.log(`🛑 Stopping: reached cycle entry limit (${cycleEntryLimit}; slots=${remainingSlots}, cap=${MAX_NEW_ENTRIES_PER_CYCLE})`);
         break;
       }
       
