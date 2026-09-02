@@ -1951,7 +1951,7 @@ async function filterByTrend(
 
 // Strategy-specific trading logic descriptions - OPTIMIZED FOR FAST SCALPING
 const strategyDescriptions: Record<string, string> = {
-  scalp: 'SCALP: Short-window momentum entries (0.5%–3% over last few minutes) for fast trending markets. Trailing stop arms at +1%, exits on 1.5% drop from peak; hard stop -2%.',
+  scalp: 'SWING (volatility-gated): Multi-timeframe momentum entries on assets volatile enough (>=5% 24h range) to travel the +3.36% target within a 12–24h hold. Fixed geometry: +3.36% take-profit, -0.80% hard stop, 0.40% trailing giveback once net-profitable.',
   rsi: 'RSI MEAN-REVERSION: Buy oversold (RSI<30) in ranging markets, sell overbought (RSI>70). Tight stops. Best when price oscillates around a stable mean.',
   ema_crossover: 'EMA CROSSOVER: Enter long when fast EMA crosses above slow EMA in a sustained uptrend. Best for clean directional trends with low chop.',
   macd: 'MACD: Trade MACD signal-line crossovers with histogram confirmation. Trend-following, works in directional markets.',
