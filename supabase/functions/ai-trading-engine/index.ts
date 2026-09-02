@@ -1882,28 +1882,51 @@ async function filterByTrend(
       console.log(`⛔ BROKEN SUPPORT: ${coin.symbol} below ${(coin.supportPrice ?? 0).toFixed(6)} with no reclaim`);
       return false;
     }
-    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | support ${coin.supportContext ?? 'n/a'} (${(coin.distanceToSupportPct ?? 0).toFixed(2)}%) | tech ${tScore}`);
+    // SWING VOLATILITY GATE — a 12–24h hold needs an asset that actually travels
+    // the +3.36% target. Require both a real 24h range and live realized volatility.
+    const rangePct = coin.high24h > 0 && coin.low24h > 0 && coin.price > 0
+      ? ((coin.high24h - coin.low24h) / coin.price) * 100
+      : 0;
+    if (rangePct < SWING_MIN_24H_RANGE_PCT) {
+      console.log(`🪨 TOO QUIET: ${coin.symbol} 24h range ${rangePct.toFixed(2)}% < ${SWING_MIN_24H_RANGE_PCT}% — cannot reach target in a swing`);
+      return false;
+    }
+    if ((coin.atrPct ?? 0) < SWING_MIN_ATR_PCT) {
+      console.log(`🪨 LOW ATR: ${coin.symbol} ATR ${(coin.atrPct ?? 0).toFixed(2)}% < ${SWING_MIN_ATR_PCT}%`);
+      return false;
+    }
+    console.log(`🤖 CANDIDATE: ${coin.symbol} 5m ${(c5 ?? 0).toFixed(2)}% | RSI ${(rsi ?? 50).toFixed(0)} | %B ${(pB ?? 0.5).toFixed(2)} | ATR ${(coin.atrPct ?? 0).toFixed(2)}% (${coin.volClass ?? 'n/a'}) | range ${rangePct.toFixed(2)}% | support ${coin.supportContext ?? 'n/a'} (${(coin.distanceToSupportPct ?? 0).toFixed(2)}%) | tech ${tScore}`);
     return true;
   });
 
-  // Rank by tech + volatility-fit + support-proximity + momentum + liquidity.
-  // Support proximity: full credit at_support, partial near, zero far/below.
-  scalpCandidates.sort((a, b) => {
-    const supportBonus = (c: MarketData) =>
-      c.supportContext === 'at_support' ? 20 :
-      c.supportContext === 'near_support' ? 10 :
-      c.supportContext === 'mid_range' ? 0 : -10;
-    const score = (c: MarketData) =>
-      (c.techScore ?? 50) * 0.35 +
-      (c.volScore ?? 50) * 0.25 +
-      supportBonus(c) +
-      (c.change5m ?? 0) * 2 +
-      (c.change1h ?? 0) +
-      Math.log10(Math.max(1, c.volume24h ?? 1)) * 0.3;
-    return score(b) - score(a);
-  });
+  // ── DIRECTIONAL EDGE GATE ──────────────────────────────────────────────────
+  // Score every survivor with the up-probability model and keep ONLY the ones whose
+  // modelled expectancy is positive after fees. If nothing qualifies the engine
+  // stands down this cycle — taking the least-bad candidate is how losses accumulate.
+  for (const coin of scalpCandidates) coin.upEdge = computeUpEdge(coin, cfg);
 
-  console.log(`🎯 AI-DECIDES POOL: ${scalpCandidates.length} technically-qualified candidates`);
+  const rejected = scalpCandidates.filter(c => !c.upEdge?.ok);
+  for (const c of rejected) {
+    console.log(`🚫 NO EDGE: ${c.symbol} — ${c.upEdge?.label}`);
+  }
+  const edgeQualified = scalpCandidates.filter(c => c.upEdge?.ok);
+
+  // Rank by modelled expectancy (net %), then by probability.
+  edgeQualified.sort((a, b) =>
+    (b.upEdge!.expectancyPct - a.upEdge!.expectancyPct) || (b.upEdge!.prob - a.upEdge!.prob));
+
+  for (const c of edgeQualified.slice(0, 8)) {
+    console.log(`✅ EDGE: ${c.symbol} — ${c.upEdge!.label}`);
+  }
+
+  if (edgeQualified.length === 0) {
+    console.log(`🛑 STAND DOWN: ${scalpCandidates.length} technically-clean candidates, none with a positive modelled edge — no entries this cycle.`);
+    return { tradeable: [], trendAnalysis: [] };
+  }
+
+  const scalpQualified = edgeQualified;
+  console.log(`🎯 EDGE POOL: ${scalpQualified.length}/${scalpCandidates.length} candidates with positive expectancy`);
+
 
   const trendAnalysis: TrendAnalysis[] = scalpCandidates.map((coin: MarketData) => {
     const analysis = analyzeTrend(coin);
