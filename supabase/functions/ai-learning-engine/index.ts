@@ -398,15 +398,21 @@ serve(async (req) => {
       console.log(`🧠 Running learning for ${activeSettings.length} users`);
       
       const allResults: any[] = [];
-      
+
+      // One real-market pull per run, shared by every user (feeds are rate limited).
+      const priceData = await fetchHistoricalPrices();
+      if (priceData.length === 0) {
+        return new Response(JSON.stringify({ error: 'No live market data — learning cycle skipped' }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const backtestResults = runBacktests(priceData);
+      const backtestScores = calculateStrategyScores(backtestResults);
+
       for (const settings of activeSettings) {
         try {
-          // Fetch historical prices
-          const priceData = await fetchHistoricalPrices();
-          
-          // Run backtests
-          const backtestResults = runBacktests(priceData);
-          const backtestScores = calculateStrategyScores(backtestResults);
+
           
           // Learn from real trades
           const realTradeScores = await learnFromRealTrades(supabase, settings.user_id);
