@@ -2965,7 +2965,13 @@ serve(async (req) => {
       }
     }
 
+    // Internal fan-out target (set by the cron dispatcher below, service-role only).
+    if (userIds.length === 0 && typeof body.userId === 'string' && body.userId.length > 0) {
+      userIds = [body.userId];
+    }
+
     // If no specific user, process ALL users with AI enabled
+    let isCronDispatch = false;
     if (userIds.length === 0) {
       console.log('🔄 Cron job: Processing all users with AI enabled');
       const { data: aiSettings } = await supabase
@@ -2976,6 +2982,7 @@ serve(async (req) => {
       if (aiSettings) {
         userIds = aiSettings.map((s: any) => s.user_id);
       }
+      isCronDispatch = true;
     }
 
     if (userIds.length === 0) {
@@ -2985,8 +2992,41 @@ serve(async (req) => {
     }
 
     console.log(`🤖 AI Trading Engine processing ${userIds.length} user(s)`);
-    
-    // Process first user (for now - can be expanded to loop through all)
+
+    // 🌐 SERVER-SIDE FAN-OUT
+    // A cron tick must run a full cycle for EVERY enabled account, not just the
+    // first one — otherwise accounts only trade while their browser tab is open.
+    // Each user gets its own isolated invocation so one failure can't starve the rest.
+    if (isCronDispatch && userIds.length > 1) {
+      const fanOutUrl = `${supabaseUrl}/functions/v1/ai-trading-engine`;
+      const results: Array<{ userId: string; ok: boolean; error?: string }> = [];
+
+      for (const targetId of userIds) {
+        try {
+          const res = await fetch(fanOutUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({ userId: targetId }),
+          });
+          results.push({ userId: targetId, ok: res.ok, error: res.ok ? undefined : `HTTP ${res.status}` });
+        } catch (e) {
+          results.push({ userId: targetId, ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
+      const failed = results.filter(r => !r.ok);
+      console.log(`🌐 Fan-out complete: ${results.length - failed.length}/${results.length} accounts cycled`);
+      return new Response(JSON.stringify({
+        status: 'fanned_out',
+        accountsProcessed: results.length,
+        failures: failed,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const userId = userIds[0];
     const user = { id: userId };
 
