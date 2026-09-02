@@ -47,9 +47,10 @@ export const FeatureScene: React.FC<{ beat: PlacedBeat; index: number }> = ({ be
       <AbsoluteFill
         style={{
           background:
-            "linear-gradient(180deg, rgba(2,3,8,0.92) 0%, rgba(2,3,8,0.35) 26%, rgba(2,3,8,0.2) 62%, rgba(2,3,8,0.95) 100%)",
+            "linear-gradient(180deg, rgba(2,3,8,0.95) 0%, rgba(2,3,8,0.55) 20%, rgba(2,3,8,0.05) 46%, rgba(2,3,8,0.55) 80%, rgba(2,3,8,0.96) 100%)",
         }}
       />
+
 
       <AbsoluteFill style={{ padding: "130px 76px", gap: 24, alignItems: "flex-start" }}>
         {beat.kicker ? <Kicker label={beat.kicker} color={accent} delay={0} /> : null}
