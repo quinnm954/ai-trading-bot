@@ -23,7 +23,6 @@ const ROUTE_TITLES: Record<string, string> = {
   '/ai-learning': 'Learning Engine',
   '/risk-management': 'Risk',
   '/trades': 'Trades',
-  '/moonshot-scanner': 'Moonshots',
   '/leverage': 'Leverage',
   '/backtesting': 'Backtesting',
   '/strategy-control': 'Strategy',

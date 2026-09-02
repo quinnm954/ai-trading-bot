@@ -24,7 +24,6 @@ const FEATURE_NAMES: Record<Feature, string> = {
   autonomous_trading: 'Autonomous AI Trading',
   risk_management: 'Advanced Risk Management',
   unlimited_brokers: 'Unlimited Brokers',
-  moonshot_scanner: 'Moonshot Scanner',
   ai_learning_engine: 'AI Learning Engine',
   priority_support: 'Priority Support',
 };

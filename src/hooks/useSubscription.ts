@@ -16,7 +16,6 @@ export type Feature =
   | 'autonomous_trading'
   | 'risk_management'
   | 'unlimited_brokers'
-  | 'moonshot_scanner'
   | 'ai_learning_engine'
   | 'priority_support';
 

@@ -137,9 +137,8 @@ const steps: OnboardingStep[] = [
       'These pages are where conviction comes from. They inform the agents and let you sanity-check their decisions.',
     points: [
       'Titan Fusion — a conviction score per symbol that gates and re-ranks trading decisions each cycle.',
-      'Signals — whale flows, social sentiment, MEV activity, and top-trader positioning.',
+      'Signals — social sentiment, MEV activity, and top-trader positioning.',
       'Market Depth — live Level 2 order book. Read-only by design: manual orders would bypass your risk checks.',
-      'Moonshot Scanner — pump-probability scoring for early low-cap candidates.',
     ],
     where: 'Fusion / Signals / Market Depth',
   },
