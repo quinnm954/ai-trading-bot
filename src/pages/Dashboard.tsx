@@ -126,7 +126,9 @@ export default function Dashboard() {
         description: 'Paper balance reset to $100,000 and all associated data cleared.',
       });
       setResetDialogOpen(false);
+      setResetKey((k) => k + 1);
       refetch();
+
     } catch (error) {
       console.error('Reset error:', error);
       toast({ title: 'Reset failed', variant: 'destructive' });
