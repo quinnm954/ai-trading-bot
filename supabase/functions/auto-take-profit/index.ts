@@ -1298,15 +1298,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
       // Only credit paper cash when we actually sold to cash (not on rotation, since capital is now in the new position)
       if (isPaperMode && !didDirectConversion) {
-        const { data: paperAccount } = await supabase.from('paper_account').select('balance').eq('user_id', userId).single();
-        if (paperAccount) {
-          const originalInvestment = entryPrice * quantity;
-          await supabase.from('paper_account').update({
-            balance: Number(paperAccount.balance) + originalInvestment + actualPnl,
-            updated_at: new Date().toISOString()
-          }).eq('user_id', userId);
-        }
+        const originalInvestment = entryPrice * quantity;
+        await supabase.rpc('adjust_paper_balance', {
+          p_user_id: userId,
+          p_delta: originalInvestment + actualPnl,
+        });
       }
+
 
 
 
