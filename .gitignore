@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Native mobile — local signing material (never commit)
+android/keystore.properties
+*.jks
+*.keystore
+ios/App/Pods/
