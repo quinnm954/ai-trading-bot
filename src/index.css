@@ -105,6 +105,11 @@
     @apply dark;
     /* Prevent rubber-band over-scroll exposing the page background */
     background: hsl(var(--background));
+    /* Android Chrome: keep the document the scroll container */
+    height: auto;
+    min-height: 100%;
+    overflow-y: visible;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -114,13 +119,25 @@
     -webkit-text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overscroll-behavior-y: none;
-    touch-action: manipulation;
+    /* Allow vertical panning everywhere (Android needs pan-y, not just manipulation) */
+    touch-action: pan-y pinch-zoom;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: none;
+    height: auto;
+    min-height: 100%;
+    overflow-y: visible;
   }
 
-  html, body {
-    overflow-x: hidden;
+  /* Horizontal bleed containment without turning html/body into scroll containers */
+  body {
+    max-width: 100%;
+    overflow-x: clip;
   }
+
+  @supports not (overflow: clip) {
+    body { overflow-x: hidden; }
+  }
+
 
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Sora', system-ui, -apple-system, sans-serif;
