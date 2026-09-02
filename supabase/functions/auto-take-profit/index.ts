@@ -11,26 +11,30 @@ const corsHeaders = {
 // Sell positions with gains and rotate into assets showing upward momentum
 const COINBASE_MAKER_FEE = 0.4; // Maker fee per trade
 const COINBASE_ROUND_TRIP_FEE = 0.8; // 0.4% buy + 0.4% sell (using limit orders)
- // Rotation threshold: when a position gains X%, rotate into a rising asset.
-  // Must never sit below the gross TP floor, or rotation would book a net loss
-  // after the 0.8% maker round trip. Kept in lockstep with TP_FLOOR_GROSS_PCT.
-  const ROTATION_PROFIT_THRESHOLD = 1.4;
+  // Rotation threshold: when a position gains X%, rotate into a rising asset.
+  // Rotation is a WINNER exit, so it may never fire below the net take-profit level —
+  // otherwise it books a small net gain while stops book a full fee-loaded net loss.
+  const ROTATION_PROFIT_THRESHOLD = 1.4; // floor only; raised to the net-R:R TP per user
 
-  // ── Expectancy-first exit geometry ───────────────────────────────────────────
-  // Every loser must cost less than every winner earns, after fees.
-  const MIN_REWARD_RISK = 1.6;          // minimum reward:risk on any scalp
-  const TP_FLOOR_GROSS_PCT = 1.4;       // gross TP floor; clears the 0.8% round trip with edge left
-  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose
-  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop (tightened from -1.5)
-  // Trailing stop: only arms once the trade is past breakeven+fees, then gives back
-  // a fraction of the gain so winners can actually run.
+  // ── Expectancy-first exit geometry, measured NET of fees ──────────────────────
+  // The round trip costs ~0.8%. That fee lands on BOTH sides of the trade:
+  //   net win  = grossTP   - fees
+  //   net loss = grossStop + fees
+  // A "1.4% TP / 0.8% stop" grid therefore realizes +0.6% against -1.6% — a 0.375:1
+  // realized payoff that needs a ~73% win rate just to break even. All geometry below
+  // is enforced on the NET numbers so the 1.6:1 target survives fees.
+  const MIN_REWARD_RISK = 1.6;          // minimum NET reward:risk on any scalp
+  const TP_FLOOR_GROSS_PCT = 1.4;       // absolute gross TP floor
+  const MAX_RISK_PCT = 0.8;             // hard cap on how far a single trade may lose (gross)
+  const BASE_STOP_LOSS_PERCENT = -0.8;  // default stop
+  // Trailing stop: arms only once the gain covers a full net loss, then gives back
+  // a fraction of the peak so runners keep running.
   const TRAILING_STOP_DROP = 0.35;      // absolute floor on giveback
   const TRAILING_GIVEBACK_FRACTION = 0.4; // trail at 40% of the current peak gain
-  const TRAILING_ARM_BUFFER_PCT = 0.2;  // arm at fees + this buffer
   // Minimum NET profit (after the round-trip fee) any profit-taking exit must realize
   const MIN_NET_EXIT_PCT = 0.3;
-  // Hard take-profit: lock in once gain hits this level regardless of peak/trail
-  const HARD_TAKE_PROFIT_PCT = 1.4; // 1.4% gross ≈ 0.6% net after maker fees
+  // Hard take-profit floor before net-R:R enforcement raises it
+  const HARD_TAKE_PROFIT_PCT = 1.4;
   // Stale-position guard: a scalp that never resolved must not sit for hours holding a slot
   const MAX_HOLD_MINUTES = 90;
 
@@ -856,22 +860,25 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     ? Math.abs(Number(scalpRow.hard_stop_loss_pct))
     : Math.abs(BASE_STOP_LOSS_PERCENT);
 
-  // 📐 EXIT GEOMETRY ENFORCEMENT (expectancy-first)
-  // A configuration where the stop is wider than the target is mathematically
-  // unprofitable unless the win rate is extreme. Both paper and live pay the same
-  // ~0.8% maker round trip, so the target must clear fees AND beat the stop.
-  //   stop  : capped at MAX_RISK_PCT so a loser can never cost more than a winner earns
-  //   target: at least the fee-clearing floor AND at least MIN_REWARD_RISK x stop
+  // 📐 EXIT GEOMETRY ENFORCEMENT — enforced on NET (post-fee) numbers
+  // Gross R:R is a mirage: the 0.8% round trip is subtracted from the winner AND added
+  // to the loser, so a 1.4/0.8 grid realizes +0.6 vs -1.6. We therefore solve the TP
+  // from the fee-loaded loss:
+  //     netLoss = stop + fees
+  //     grossTP = fees + MIN_REWARD_RISK * netLoss
   const stopPct = Math.min(rawStopPct, MAX_RISK_PCT);
-  const tpFloorFromRR = stopPct * MIN_REWARD_RISK;
-  const cfgTakeProfitPct = Math.max(rawTakeProfitPct, TP_FLOOR_GROSS_PCT, tpFloorFromRR);
+  const netLossPct = stopPct + COINBASE_ROUND_TRIP_FEE;
+  const tpFloorFromNetRR = COINBASE_ROUND_TRIP_FEE + MIN_REWARD_RISK * netLossPct;
+  const cfgTakeProfitPct = Math.max(rawTakeProfitPct, TP_FLOOR_GROSS_PCT, tpFloorFromNetRR);
   const cfgHardStopLossPct = -stopPct;
   const cfgTrailingDropPct = Number(scalpRow?.trailing_drop_pct) > 0 ? Number(scalpRow.trailing_drop_pct) : TRAILING_STOP_DROP;
+  const netWinPct = cfgTakeProfitPct - COINBASE_ROUND_TRIP_FEE;
+  const netRewardRisk = netWinPct / netLossPct;
   const geometryAdjusted = cfgTakeProfitPct > rawTakeProfitPct + 1e-9 || stopPct < rawStopPct - 1e-9;
-  const rewardRisk = cfgTakeProfitPct / stopPct;
-  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct.toFixed(2)}% Stop=-${stopPct.toFixed(2)}% R:R=${rewardRisk.toFixed(2)}:1 TrailDrop=${cfgTrailingDropPct}% (fees ${COINBASE_ROUND_TRIP_FEE}% round trip charged in ${isPaperMode ? 'paper too' : 'live'})`);
+  console.log(`⚙️ Exit cfg for ${userId} (${isPaperMode ? 'PAPER' : 'LIVE'}): TP=${cfgTakeProfitPct.toFixed(2)}% gross (net +${netWinPct.toFixed(2)}%) | Stop=-${stopPct.toFixed(2)}% gross (net -${netLossPct.toFixed(2)}%) | NET R:R=${netRewardRisk.toFixed(2)}:1 | TrailDrop=${cfgTrailingDropPct}% | fees ${COINBASE_ROUND_TRIP_FEE}% round trip (charged in ${isPaperMode ? 'paper too' : 'live'})`);
   if (geometryAdjusted) {
-    console.log(`🔧 Geometry corrected from config (TP ${rawTakeProfitPct}% / Stop ${rawStopPct}% → R:R ${(rawTakeProfitPct / rawStopPct).toFixed(2)}:1 was below the ${MIN_REWARD_RISK}:1 floor)`);
+    const oldNetRR = (rawTakeProfitPct - COINBASE_ROUND_TRIP_FEE) / (rawStopPct + COINBASE_ROUND_TRIP_FEE);
+    console.log(`🔧 Geometry corrected: config TP ${rawTakeProfitPct}% / Stop ${rawStopPct}% realized only ${oldNetRR.toFixed(2)}:1 net (needs ${MIN_REWARD_RISK}:1) → TP raised to ${cfgTakeProfitPct.toFixed(2)}%`);
   }
 
 
@@ -990,7 +997,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   let conversions = 0;
 
   for (const position of positions) {
-    const currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
+    let currentPrice = livePrices[position.symbol.toUpperCase()] || position.current_price;
     if (!currentPrice) continue;
 
     const entryPrice = Number(position.avg_entry_price);
@@ -1073,7 +1080,10 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     }
 
     // Rotation may never fire below the fee-clearing floor, or it books losses as "wins"
-    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), COINBASE_ROUND_TRIP_FEE + 0.4);
+    // Rotation is a winner exit. It must clear the SAME net take-profit bar as a cash exit,
+    // otherwise it harvests +0.4% net winners while stops keep booking -1.6% net losers —
+    // which is exactly what flattened realized expectancy.
+    const rotationThreshold = Math.max(getAdjustedRotationThreshold(), cfgTakeProfitPct);
     // EXACT stop: the hard stop fires at the configured level (default -0.8%) with NO
     // latency widening. Widening the stop is what let losers run past -0.8% and shrink
     // scalp expectancy below the 1.6:1 geometry.
@@ -1084,18 +1094,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
       : entryPrice * (1 - cfgHardStopLossPct / 100);
 
 
-    // TRAILING STOP — arms only past breakeven+fees, then gives back a FRACTION of the gain
-    // so winners keep running instead of being cut at a fixed tiny giveback.
+    // TRAILING STOP — a protective exit for a gain that is already big enough to pay for a
+    // full losing trade. It arms only once the NET gain covers one net loss (1:1), so a
+    // trailed winner can never be smaller than the loser it has to offset. Below that level
+    // the trade is left alone to reach the take-profit.
     const previousPeakPnl = Number(position.peak_pnl_percent || 0);
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
-    const trailingArmPct = COINBASE_ROUND_TRIP_FEE + TRAILING_ARM_BUFFER_PCT;
-    const trailingStopActive = newPeakPnl >= trailingArmPct;
+    // Gross level at which the net gain equals one net loss.
+    const trailingProfitFloorPct = Math.max(
+      COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
+      COINBASE_ROUND_TRIP_FEE + netLossPct
+    );
+    const trailingStopActive = newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // 🚦 A trailing exit must still be a NET WINNER after the 0.8% round-trip fee.
-    // Previously the trail could fire at +0.50% gross, which is -0.30% net — that alone
-    // turned genuine winners into recorded losses.
-    const trailingProfitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
     // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
     // land below the net-profit floor.
     const givebackCap = Math.max(0, newPeakPnl - trailingProfitFloorPct);
@@ -1133,8 +1145,40 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
 
     // Trigger sell on: hard take-profit, rotation target, trailing stop, hard stop loss, or max hold
     if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss || hitMaxHold) {
+      // 🔁 PRE-EXIT PRICE REFRESH (stops only)
+      // The batch price snapshot can be a few seconds stale. Before booking a loss we
+      // re-read this one symbol: if the price has recovered back above the stop it was a
+      // stale tick and the position keeps running; if it is still breached we exit on the
+      // fresher price so the recorded fill matches reality.
+      if (hitStopLoss) {
+        const fresh = await fetchLivePrices([position.symbol]);
+        const freshPrice = fresh[position.symbol.toUpperCase()];
+        if (freshPrice && freshPrice > 0) {
+          const freshPnlPercent = position.side === 'buy'
+            ? ((freshPrice - entryPrice) / entryPrice) * 100
+            : ((entryPrice - freshPrice) / entryPrice) * 100;
+          if (freshPnlPercent > adjustedStopLoss) {
+            console.log(`↩️ STOP STOOD DOWN ${position.symbol}: stale tick showed ${pnlPercent.toFixed(3)}%, fresh price is ${freshPnlPercent.toFixed(3)}% (stop ${adjustedStopLoss.toFixed(2)}%) — holding`);
+            await supabase.from('positions').update({
+              current_price: freshPrice,
+              peak_pnl_percent: Math.max(previousPeakPnl, freshPnlPercent),
+              updated_at: new Date().toISOString(),
+            }).eq('id', position.id);
+            continue;
+          }
+          if (Math.abs(freshPnlPercent - pnlPercent) > 0.01) {
+            console.log(`🔁 Stop price refreshed ${position.symbol}: ${pnlPercent.toFixed(3)}% → ${freshPnlPercent.toFixed(3)}%`);
+          }
+          currentPrice = freshPrice;
+          pnlPercent = freshPnlPercent;
+          pnl = position.side === 'buy'
+            ? (freshPrice - entryPrice) * quantity
+            : (entryPrice - freshPrice) * quantity;
+        }
+      }
+
       const triggerReason = hitStopLoss ? '🛑 STOP TRIGGERED' : hitHardTakeProfit ? `💰 HARD TAKE-PROFIT (${pnlPercent.toFixed(2)}% ≥ ${cfgTakeProfitPct}%)` : hitRotationTarget ? '🔄 ROTATE TRIGGERED' : hitMaxHold ? `⏳ MAX HOLD (${positionAgeMinutes.toFixed(0)}m ≥ ${MAX_HOLD_MINUTES}m)` : `📉 TRAILING STOP (peak: ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}%)`;
-      console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}%`);
+      console.log(`${triggerReason} ${position.symbol}: ${pnlPercent.toFixed(3)}% (intended stop ${adjustedStopLoss.toFixed(2)}%, stop price $${stopPrice.toFixed(6)})`);
       
       let actualExitPrice = currentPrice;
       let actualPnl = pnl;

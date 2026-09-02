@@ -18,6 +18,7 @@ import { RecentTradesCard } from '@/components/dashboard/RecentTradesCard';
 import { MilestoneProgressCard } from '@/components/dashboard/MilestoneProgressCard';
 import { StopSlippageAlert } from '@/components/dashboard/StopSlippageAlert';
 import { ExpectancyCard } from '@/components/dashboard/ExpectancyCard';
+import { CapitalBasisCard } from '@/components/dashboard/CapitalBasisCard';
 import { SubscriptionCostCard } from '@/components/dashboard/SubscriptionCostCard';
 import { SubscriptionStatusCard } from '@/components/dashboard/SubscriptionStatusCard';
 
@@ -369,6 +370,7 @@ export default function Dashboard() {
 
         <div className="space-y-4 lg:space-y-6">
           <AIStatusCard />
+          <CapitalBasisCard isLiveMode={isLiveMode} />
           <SubscriptionStatusCard />
           <SubscriptionCostCard />
           <RecentTradesCard />
