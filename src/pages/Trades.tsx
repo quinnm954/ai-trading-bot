@@ -344,7 +344,7 @@ export default function Trades() {
 
       {activeTab === 'open' && (
         <div className="glass-panel p-6">
-          {positions.length === 0 ? (
+          {scopedPositions.length === 0 ? (
             <p className="text-center text-muted-foreground py-12">No open positions.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -357,22 +357,30 @@ export default function Trades() {
                     <th className="text-right py-3 px-4">Entry</th>
                     <th className="text-right py-3 px-4">Current</th>
                     <th className="text-right py-3 px-4">Unrealized</th>
+                    <th className="text-right py-3 px-4">%</th>
+                    <th className="text-left py-3 px-4">Mode</th>
                     <th className="text-left py-3 px-4">Strategy</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {positions.map((p) => {
+                  {scopedPositions.map((p) => {
                     const pnl = p.unrealizedPnl ?? 0;
+                    const cost = p.entryPrice * p.quantity;
+                    const pnlPct = cost > 0 ? (pnl / cost) * 100 : null;
                     return (
                       <tr key={p.id} className="border-b border-border/50">
                         <td className="py-3 px-4 font-medium">{p.symbol}</td>
                         <td className="py-3 px-4 capitalize">{p.side === 'buy' ? 'long' : 'short'}</td>
-                        <td className="py-3 px-4 text-right font-mono">{p.quantity}</td>
-                        <td className="py-3 px-4 text-right font-mono">${p.entryPrice.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">${p.currentPrice?.toLocaleString() ?? '-'}</td>
+                        <td className="py-3 px-4 text-right font-mono">{formatQty(p.quantity)}</td>
+                        <td className="py-3 px-4 text-right font-mono">{formatPrice(p.entryPrice)}</td>
+                        <td className="py-3 px-4 text-right font-mono">{p.currentPrice ? formatPrice(p.currentPrice) : '—'}</td>
                         <td className={cn('py-3 px-4 text-right font-mono', pnl >= 0 ? 'text-profit' : 'text-loss')}>
                           {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                         </td>
+                        <td className={cn('py-3 px-4 text-right font-mono text-xs', pnl >= 0 ? 'text-profit' : 'text-loss')}>
+                          {pnlPct == null ? '—' : `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`}
+                        </td>
+                        <td className="py-3 px-4 text-xs">{p.isPaper ? 'Paper' : 'Live'}</td>
                         <td className="py-3 px-4 text-xs text-muted-foreground">{p.strategy || 'scalp'}</td>
                       </tr>
                     );
@@ -386,6 +394,21 @@ export default function Trades() {
     </div>
   );
 }
+
+// Crypto prices span $0.0001 to $100k — default toLocaleString would round
+// sub-cent assets down to "$0", so scale precision to magnitude.
+function formatPrice(value: number) {
+  const abs = Math.abs(value);
+  const digits = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 6 : 8;
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits })}`;
+}
+
+function formatQty(value: number) {
+  const abs = Math.abs(value);
+  const digits = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6;
+  return value.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
 
 function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
