@@ -67,22 +67,37 @@ export default function Trades() {
     });
   }, [visibleTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
 
+  // Positions scoped to the same mode filter as everything else on the page.
+  const scopedPositions = useMemo(() => {
+    if (modeFilter === 'all') return positions;
+    return positions.filter((p) => (modeFilter === 'paper' ? p.isPaper : !p.isPaper));
+  }, [positions, modeFilter]);
+
+  // Live unrealized P&L per open trade, keyed by symbol + mode.
+  const openPnlBySymbol = useMemo(() => {
+    const map = new Map<string, number>();
+    positions.forEach((p) => {
+      const key = `${p.symbol}|${p.isPaper}`;
+      map.set(key, (map.get(key) ?? 0) + (p.unrealizedPnl ?? 0));
+    });
+    return map;
+  }, [positions]);
+
   // Stats reflect the CURRENT FILTERS so header numbers match the table below.
   const scopedStats = useMemo(() => {
     const closed = filtered.filter((t) => t.status === 'closed');
     const wins = closed.filter((t) => (t.pnl ?? 0) > 0);
     const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
-    const openCount = (modeFilter === 'all'
-      ? positions
-      : positions.filter((p) => (modeFilter === 'paper' ? p.isPaper : !p.isPaper))
-    ).length;
+    const unrealized = scopedPositions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     return {
       totalTrades: closed.length,
       winRate: closed.length ? (wins.length / closed.length) * 100 : 0,
       totalPnl,
-      openPositions: openCount,
+      unrealized,
+      openPositions: scopedPositions.length,
     };
-  }, [filtered, positions, modeFilter]);
+  }, [filtered, scopedPositions]);
+
 
 
   const exportCsv = () => {
