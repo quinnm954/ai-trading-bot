@@ -1945,7 +1945,10 @@ async function filterByTrend(
       coin.distanceToSupportPct = t.distanceToSupportPct;
       coin.supportContext = t.supportContext;
     }
-  }));
+  });
+  if (techFailures > 0) {
+    console.log(`📡 Candle feed: ${candleTargets.length - techFailures}/${candleTargets.length} coins have technicals (${techFailures} feed failures — those are skipped, not scored)`);
+  }
 
   // LIQUIDITY + TECHNICAL ENTRY GATE — only profitable-shaped setups pass.
   const scalpCandidates = candleTargets.filter(coin => {
@@ -1955,7 +1958,12 @@ async function filterByTrend(
     const vol = coin.volume24h ?? 0;
     const rsi = coin.rsi14;
     const pB = coin.percentB;
-    const tScore = coin.techScore ?? 50;
+
+    if (coin.techScore === undefined) {
+      console.log(`📡 NO TECH DATA: ${coin.symbol} — candle feed unavailable, skipping`);
+      return false;
+    }
+    const tScore = coin.techScore;
 
     if (c5 === undefined && c1h === 0 && c24 === 0) {
       console.log(`⏭️  NO DATA: ${coin.symbol} — skipping`);
