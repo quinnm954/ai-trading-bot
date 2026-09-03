@@ -16,6 +16,9 @@ import {
   WIDE_STOP_MIN_PCT,
   WIDE_STOP_MAX_PCT,
   WIDE_MAX_HOLD_MINUTES,
+  WIDE_PARTIAL_TP_PCT,
+  WIDE_TRAIL_ARM_PCT,
+  WIDE_TRAIL_DROP_PCT,
 } from '@/lib/exitGeometry';
 
 /**
