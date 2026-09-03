@@ -1126,24 +1126,28 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
     // Gross level at which the net gain equals one net loss.
-    const trailingProfitFloorPct = Math.max(
+    const tightProfitFloorPct = Math.max(
       COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
       COINBASE_ROUND_TRIP_FEE + posNetLossPct
     );
+    // Wide swings arm at a fixed +4% instead of the 1:1 floor.
+    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : tightProfitFloorPct;
     const trailingStopActive = posTrailingEnabled && newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
-    // land below the net-profit floor.
-    const givebackCap = Math.max(0, newPeakPnl - trailingProfitFloorPct);
-    const allowedGiveback = Math.min(
-      Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
-      givebackCap
-    );
+    // Giveback: fixed 1.5% for wide swings, otherwise 40% of peak. Capped in both cases so a
+    // trailing exit can never land below the net-profit floor.
+    const givebackCap = Math.max(0, newPeakPnl - tightProfitFloorPct);
+    const allowedGiveback = isWideSwing
+      ? Math.min(WIDE_TRAIL_DROP_PCT, givebackCap)
+      : Math.min(
+          Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
+          givebackCap
+        );
     const hitTrailingStop =
       posTrailingEnabled &&
       trailingStopActive &&
       givebackCap > 0 &&
-      pnlPercent >= trailingProfitFloorPct &&
+      pnlPercent >= tightProfitFloorPct &&
       dropFromPeak >= allowedGiveback;
 
     const hitHardTakeProfit = pnlPercent >= posTakeProfitPct;
