@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, Lock, Loader2, Info, Bot } from 'lucide-react';
+import { Shield, Lock, Loader2, Info, Bot, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRiskManager } from '@/hooks/useRiskManager';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,6 +12,18 @@ import {
 } from '@/components/ui/tooltip';
 import { ReinvestProfitsToggle } from './ReinvestProfitsToggle';
 import { WideStopModeToggle } from './WideStopModeToggle';
+import {
+  MIN_REWARD_RISK as GEO_MIN_REWARD_RISK,
+  ROUND_TRIP_FEE_PCT as GEO_FEE_PCT,
+  WIDE_MAX_HOLD_MINUTES,
+  WIDE_STOP_ATR_MULT,
+  WIDE_STOP_MAX_PCT,
+  WIDE_STOP_MIN_PCT,
+  WIDE_TP_GROSS_PCT,
+  solveExitGeometry,
+  solveWideGeometry,
+} from '@/lib/exitGeometry';
+
 
 // =============================================================================
 // Risk Settings Panel — STRICT, NON-ADJUSTABLE PARAMETERS
