@@ -5,6 +5,8 @@ import {
   solveExitGeometry,
   solveWideGeometry,
   WIDE_MAX_HOLD_MINUTES,
+  WIDE_TRAIL_ARM_PCT,
+  WIDE_TRAIL_DROP_PCT,
   describeGeometry,
   exitPricesForLong,
   requiredGrossTakeProfit,
@@ -4640,7 +4642,7 @@ serve(async (req) => {
           );
       const entryHoldMinutes = wideMode ? WIDE_MAX_HOLD_MINUTES : null;
       if (wideMode) {
-        console.log(`🪃 WIDE-STOP MODE (tape open): ${decision.symbol} ATR ${(candidateAtrPct ?? 0).toFixed(2)}% → ${describeGeometry(entryGeometry)} | hold ≤${WIDE_MAX_HOLD_MINUTES / 60}h | no trailing`);
+        console.log(`🪃 WIDE-STOP MODE (tape open): ${decision.symbol} ATR ${(candidateAtrPct ?? 0).toFixed(2)}% → ${describeGeometry(entryGeometry)} | hold ≤${WIDE_MAX_HOLD_MINUTES / 60}h | trail arms +${WIDE_TRAIL_ARM_PCT}% / gives back ${WIDE_TRAIL_DROP_PCT}%`);
       }
       const strictHardStopPct = entryGeometry.stopLossPct;
       const strictTakeProfitPct = entryGeometry.takeProfitPct;
@@ -4797,7 +4799,7 @@ serve(async (req) => {
           stop_loss_pct: Number(entryGeometry.stopLossPct.toFixed(4)),
           take_profit_pct: Number(entryGeometry.takeProfitPct.toFixed(4)),
           max_hold_minutes: entryHoldMinutes,
-          trailing_enabled: !wideMode,
+          trailing_enabled: true,
         });
 
         if (positionError) {
