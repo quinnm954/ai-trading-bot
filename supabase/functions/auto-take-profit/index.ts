@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
+  solveWideGeometry,
   describeGeometry,
   netRewardRiskOf,
   MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
@@ -1094,17 +1095,23 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // otherwise it harvests +0.4% net winners while stops keep booking -1.6% net losers —
     // which is exactly what flattened realized expectancy.
     // ── PER-POSITION EXIT CONTRACT ──────────────────────────────────────────
-    // Wide-stop swing entries store their own ATR-scaled stop, 8% target, 48h hold and
+    // Wide-stop swing entries store their own stop, target, 48h hold and
     // trailing flag at open time. Those levels win over the account-level geometry so a
     // wide swing is never stopped out on the locked 0.80% line.
-    const posStopPct = Number(position.stop_loss_pct) > 0 ? Math.abs(Number(position.stop_loss_pct)) : stopPct;
-    const posTakeProfitPct = Number(position.take_profit_pct) > 0 ? Number(position.take_profit_pct) : cfgTakeProfitPct;
-    const posNetLossPct = posStopPct + COINBASE_ROUND_TRIP_FEE;
     const posHoldMinutes = Number(position.max_hold_minutes) > 0 ? Number(position.max_hold_minutes) : null;
     // A wide-stop swing is identified by its long hold contract. Wide swings now run an
     // ARMED trailing stop (arm at +4%, give back 1.5%) so a +4%-bound move that stalls at
     // +4-7% books a real winner instead of round-tripping back to the ATR stop.
     const isWideSwing = posHoldMinutes !== null && posHoldMinutes >= WIDE_MAX_HOLD_MINUTES;
+    // Existing positions may carry geometry saved before a wide-mode parameter update.
+    // Apply the current wide contract so an already-open 5% position cannot ignore the
+    // active 4% target (the exact failure that required UNI to be closed manually).
+    const storedStopPct = Number(position.stop_loss_pct) > 0 ? Math.abs(Number(position.stop_loss_pct)) : stopPct;
+    const storedTakeProfitPct = Number(position.take_profit_pct) > 0 ? Number(position.take_profit_pct) : cfgTakeProfitPct;
+    const currentWideGeometry = isWideSwing ? solveWideGeometry() : null;
+    const posStopPct = currentWideGeometry?.stopLossPct ?? storedStopPct;
+    const posTakeProfitPct = currentWideGeometry?.takeProfitPct ?? storedTakeProfitPct;
+    const posNetLossPct = posStopPct + COINBASE_ROUND_TRIP_FEE;
     const posTrailingEnabled = isWideSwing ? true : position.trailing_enabled !== false;
 
     const rotationThreshold = Math.max(getAdjustedRotationThreshold(), posTakeProfitPct);
