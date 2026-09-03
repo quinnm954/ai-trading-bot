@@ -1135,16 +1135,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
     // Gross level at which the net gain equals one net loss.
-    const tightProfitFloorPct = Math.max(
+    const oneToOneFloorPct = Math.max(
       COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
       COINBASE_ROUND_TRIP_FEE + posNetLossPct
     );
-    // Wide swings arm at a fixed +4% instead of the 1:1 floor.
-    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : tightProfitFloorPct;
+    // Absolute floor: a profit-taking exit must still clear the round trip plus MIN_NET_EXIT.
+    const netExitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
+    // Wide swings protect gains far below the target (arming AT the target made trailing
+    // dead code), so they only have to clear the net-exit floor, not a full 1:1 loss.
+    const tightProfitFloorPct = isWideSwing ? netExitFloorPct : oneToOneFloorPct;
+    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : oneToOneFloorPct;
     const trailingStopActive = posTrailingEnabled && newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // Giveback: fixed 1.5% for wide swings, otherwise 40% of peak. Capped in both cases so a
-    // trailing exit can never land below the net-profit floor.
+    // Giveback: fixed tight drop for wide swings, otherwise 40% of peak. Capped in both
+    // cases so a trailing exit can never land below the net-profit floor.
     const givebackCap = Math.max(0, newPeakPnl - tightProfitFloorPct);
     const allowedGiveback = isWideSwing
       ? Math.min(WIDE_TRAIL_DROP_PCT, givebackCap)
