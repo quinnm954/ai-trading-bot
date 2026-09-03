@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
+  solveWideGeometry,
   describeGeometry,
   netRewardRiskOf,
   MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
