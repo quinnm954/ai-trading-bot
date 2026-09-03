@@ -161,24 +161,28 @@ export default function Trades() {
       {/* Stats Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total Trades</p>
+          <p className="text-xs text-muted-foreground mb-1">Closed Trades</p>
           <p className="text-2xl font-bold text-foreground">{scopedStats.totalTrades}</p>
         </div>
         <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
+          <p className="text-xs text-muted-foreground mb-1">Win Rate (closed)</p>
           <p className="text-2xl font-bold text-foreground">{scopedStats.winRate.toFixed(1)}%</p>
         </div>
         <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total P&L</p>
+          <p className="text-xs text-muted-foreground mb-1">Realized P&L</p>
           <p className={cn('text-2xl font-bold', scopedStats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
-            {scopedStats.totalPnl >= 0 ? '+' : ''}${scopedStats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {scopedStats.totalPnl >= 0 ? '+' : ''}${scopedStats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Open Positions</p>
           <p className="text-2xl font-bold text-foreground">{scopedStats.openPositions}</p>
+          <p className={cn('text-xs font-mono mt-0.5', scopedStats.unrealized >= 0 ? 'text-profit' : 'text-loss')}>
+            {scopedStats.unrealized >= 0 ? '+' : ''}${scopedStats.unrealized.toFixed(2)} unrealized
+          </p>
         </div>
       </div>
+
 
       {/* Filters */}
       <div className="glass-panel p-4 space-y-3">
