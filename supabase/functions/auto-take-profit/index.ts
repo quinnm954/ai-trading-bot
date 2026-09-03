@@ -9,6 +9,9 @@ import {
   TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
+  WIDE_MAX_HOLD_MINUTES,
+  WIDE_TRAIL_ARM_PCT,
+  WIDE_TRAIL_DROP_PCT,
 } from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
