@@ -273,8 +273,21 @@ export default function Trades() {
                 </thead>
                 <tbody>
                   {filtered.map((trade) => {
-                    const pos = (trade.pnl ?? 0) >= 0;
                     const isOpen = trade.status === 'open';
+                    // Open rows have no realized P&L — show the live unrealized figure
+                    // from the matching position instead of a dash.
+                    const livePnl = isOpen
+                      ? openPnlBySymbol.get(`${trade.symbol}|${trade.isPaper}`) ?? null
+                      : null;
+                    const shownPnl = trade.status === 'closed' ? trade.pnl : livePnl;
+                    const pos = (shownPnl ?? 0) >= 0;
+                    // duration_seconds isn't always written — derive it from timestamps.
+                    const durationSecs = trade.durationSeconds
+                      ?? (trade.closedAt
+                        ? Math.max(0, Math.round((trade.closedAt.getTime() - trade.createdAt.getTime()) / 1000))
+                        : isOpen
+                          ? Math.max(0, Math.round((Date.now() - trade.createdAt.getTime()) / 1000))
+                          : null);
                     return (
                       <tr key={trade.id} className="border-b border-border/50 hover:bg-secondary/30">
                         <td className="py-3 px-4 font-medium text-foreground">{trade.symbol}</td>
@@ -293,14 +306,15 @@ export default function Trades() {
                             {trade.side}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right font-mono">{trade.quantity}</td>
-                        <td className="py-3 px-4 text-right font-mono text-muted-foreground">${trade.entryPrice.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : '—'}</td>
-                        <td className={cn('py-3 px-4 text-right font-mono', trade.pnl == null ? 'text-muted-foreground' : pos ? 'text-profit' : 'text-loss')}>
-                          {trade.pnl == null ? '—' : (
+                        <td className="py-3 px-4 text-right font-mono">{formatQty(trade.quantity)}</td>
+                        <td className="py-3 px-4 text-right font-mono text-muted-foreground">{formatPrice(trade.entryPrice)}</td>
+                        <td className="py-3 px-4 text-right font-mono">{trade.exitPrice ? formatPrice(trade.exitPrice) : '—'}</td>
+                        <td className={cn('py-3 px-4 text-right font-mono', shownPnl == null ? 'text-muted-foreground' : pos ? 'text-profit' : 'text-loss')}>
+                          {shownPnl == null ? '—' : (
                             <span className="inline-flex items-center gap-1">
                               {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                              {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
+                              {pos ? '+' : ''}${shownPnl.toFixed(2)}
+                              {isOpen && <span className="text-[10px] text-muted-foreground">unrl.</span>}
                             </span>
                           )}
                         </td>
@@ -313,7 +327,7 @@ export default function Trades() {
                         </td>
                         <td className="py-3 px-4 text-xs">{trade.isPaper ? 'Paper' : 'Live'}</td>
                         <td className="py-3 px-4 text-right text-xs text-muted-foreground">
-                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : isOpen ? 'Active' : '—'}
+                          {durationSecs != null ? `${formatDuration(durationSecs)}${isOpen ? ' (open)' : ''}` : '—'}
                         </td>
                         <td className="py-3 px-4 text-xs text-muted-foreground">{(trade.closedAt ?? trade.createdAt).toLocaleString()}</td>
 
@@ -321,6 +335,7 @@ export default function Trades() {
                     );
                   })}
                 </tbody>
+
               </table>
             </div>
           )}
