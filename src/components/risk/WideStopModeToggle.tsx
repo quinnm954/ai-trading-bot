@@ -22,7 +22,7 @@ import {
  * Wide-stop swing mode.
  *
  * The locked 3.36% / 0.80% geometry stops out on roughly two thirds of swings because
- * 0.80% sits inside one bar of noise. Wide mode swaps in an 8% target with an ATR-scaled
+ * 0.80% sits inside one bar of noise. Wide mode swaps in a 5% target with an ATR-scaled
  * stop and a 48h hold for entries taken while the aggregate tape gate is open — the gate
  * already stands the whole cycle down when the tape is flat or falling, so the wide
  * geometry only ever runs in the regime it tested positive in.
