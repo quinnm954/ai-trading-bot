@@ -1913,12 +1913,21 @@ async function filterByTrend(
 
   console.log(`✅ Eligible coins (${memeOnly ? 'MEME-ONLY, ' : ''}$${minPrice}–$${maxPrice}, non-stable, 24h ∈ [-2%, +5%)): ${eligibleCoins.length}/${marketData.length}`);
 
-  // Fetch 5m candles + Bollinger Bands + RSI for eligible coins (Coinbase) — parallel, capped to 30
+  // Fetch 5m candles + Bollinger Bands + RSI for eligible coins (Coinbase).
+  // Coinbase rate-limits bursts hard (429), and a missing candle set used to leave the
+  // coin on a neutral techScore of 50 — which silently failed the ≥55 gate and stood the
+  // whole engine down. So: bounded concurrency + retry, and coins without technicals are
+  // reported as a data failure rather than a "weak setup".
   const candleTargets = eligibleCoins.slice(0, 30);
-  await Promise.all(candleTargets.map(async (coin) => {
+  let techFailures = 0;
+  await mapLimit(candleTargets, 4, async (coin) => {
     if (!coin.productId) return;
     const t = await fetchCandleTechnicals(coin.productId);
-    if (t) {
+    if (!t) {
+      techFailures++;
+      return;
+    }
+    {
       coin.change5m = t.change5m;
       if (coin.change1h === undefined || coin.change1h === 0) coin.change1h = t.change15m;
       coin.rsi14 = t.rsi14;
