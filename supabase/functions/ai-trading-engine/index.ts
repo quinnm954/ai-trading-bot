@@ -1805,7 +1805,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
 // plus breadth (% of names up on 24h). Long swings only run with the tape.
 const TAPE_MIN_24H_PCT = 1.0;    // market must be up at least this much over 24h
 const TAPE_MIN_1H_PCT = 0.0;     // and still rising right now
-const TAPE_MIN_BREADTH = 0.55;   // majority of liquid names participating
+const TAPE_MIN_BREADTH = 0.65;   // sweep: 55% → 65% participation lifted win rate and expectancy
 
 function computeAggregateTape(marketData: MarketData[]): {
   rising: boolean; avg24h: number; avg1h: number; breadth: number; label: string;
@@ -1935,8 +1935,8 @@ async function filterByTrend(
       return false;
     }
     // Require a minimum technical quality score
-    if (tScore < 45) {
-      console.log(`🧪 WEAK SETUP: ${coin.symbol} techScore ${tScore} (${coin.techSetup})`);
+    if (tScore < MIN_TECH_SCORE) {
+      console.log(`🧪 WEAK SETUP: ${coin.symbol} techScore ${tScore} < ${MIN_TECH_SCORE} (${coin.techSetup})`);
       return false;
     }
     // Volatility gate: reject dead or extreme — neither is profitable to scalp.
