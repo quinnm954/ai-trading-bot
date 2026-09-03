@@ -240,7 +240,7 @@ export default function Trades() {
         <button onClick={() => setActiveTab('open')}
           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
             activeTab === 'open' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
-          Open Positions ({positions.length})
+          Open Positions ({scopedPositions.length})
         </button>
       </div>
 
