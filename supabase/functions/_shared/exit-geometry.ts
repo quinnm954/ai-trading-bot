@@ -133,8 +133,15 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
 }
 
 // ── WIDE-MODE ARMED TRAILING STOP ────────────────────────────────────────────
-// Wide swings run to a 5% target but often round-trip most of a +4-7% move. The
-// trailing stop therefore arms only once the gain is large enough that giving back
-// WIDE_TRAIL_DROP_PCT still books a healthy net winner.
-export const WIDE_TRAIL_ARM_PCT = 4.0;  // gross gain at which trailing arms
-export const WIDE_TRAIL_DROP_PCT = 1.5; // gross giveback from peak that exits
+// Arming at the target level (+4%) made trailing dead code: a trade that reached the
+// arm level simply took profit, so the frequent +2-3% excursions round-tripped back to
+// the stop. Trailing now arms well below the target and gives back a tight amount, so a
+// stalled move books a real net winner while runners still ride to the full target.
+export const WIDE_TRAIL_ARM_PCT = 2.0;  // gross gain at which trailing arms
+export const WIDE_TRAIL_DROP_PCT = 0.8; // gross giveback from peak that exits
+
+// ── WIDE-MODE PARTIAL TAKE-PROFIT ────────────────────────────────────────────
+// Half the position is banked at an interim level; the remainder runs to the full
+// target behind the armed trailing stop.
+export const WIDE_PARTIAL_TP_PCT = 2.0;   // gross gain at which the partial fires
+export const WIDE_PARTIAL_FRACTION = 0.5; // fraction of the position sold

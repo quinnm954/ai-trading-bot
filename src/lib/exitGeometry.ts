@@ -79,5 +79,9 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
 }
 
 // Wide-mode armed trailing stop (mirror of the shared module).
-export const WIDE_TRAIL_ARM_PCT = 4.0;
-export const WIDE_TRAIL_DROP_PCT = 1.5;
+export const WIDE_TRAIL_ARM_PCT = 2.0;
+export const WIDE_TRAIL_DROP_PCT = 0.8;
+
+// Wide-mode partial take-profit (mirror of the shared module).
+export const WIDE_PARTIAL_TP_PCT = 2.0;
+export const WIDE_PARTIAL_FRACTION = 0.5;
