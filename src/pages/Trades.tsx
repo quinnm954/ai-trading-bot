@@ -67,22 +67,37 @@ export default function Trades() {
     });
   }, [visibleTrades, symbolFilter, strategyFilter, resultFilter, modeFilter, minScore, dateFrom, dateTo]);
 
+  // Positions scoped to the same mode filter as everything else on the page.
+  const scopedPositions = useMemo(() => {
+    if (modeFilter === 'all') return positions;
+    return positions.filter((p) => (modeFilter === 'paper' ? p.isPaper : !p.isPaper));
+  }, [positions, modeFilter]);
+
+  // Live unrealized P&L per open trade, keyed by symbol + mode.
+  const openPnlBySymbol = useMemo(() => {
+    const map = new Map<string, number>();
+    positions.forEach((p) => {
+      const key = `${p.symbol}|${p.isPaper}`;
+      map.set(key, (map.get(key) ?? 0) + (p.unrealizedPnl ?? 0));
+    });
+    return map;
+  }, [positions]);
+
   // Stats reflect the CURRENT FILTERS so header numbers match the table below.
   const scopedStats = useMemo(() => {
     const closed = filtered.filter((t) => t.status === 'closed');
     const wins = closed.filter((t) => (t.pnl ?? 0) > 0);
     const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
-    const openCount = (modeFilter === 'all'
-      ? positions
-      : positions.filter((p) => (modeFilter === 'paper' ? p.isPaper : !p.isPaper))
-    ).length;
+    const unrealized = scopedPositions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     return {
       totalTrades: closed.length,
       winRate: closed.length ? (wins.length / closed.length) * 100 : 0,
       totalPnl,
-      openPositions: openCount,
+      unrealized,
+      openPositions: scopedPositions.length,
     };
-  }, [filtered, positions, modeFilter]);
+  }, [filtered, scopedPositions]);
+
 
 
   const exportCsv = () => {
@@ -146,24 +161,28 @@ export default function Trades() {
       {/* Stats Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total Trades</p>
+          <p className="text-xs text-muted-foreground mb-1">Closed Trades</p>
           <p className="text-2xl font-bold text-foreground">{scopedStats.totalTrades}</p>
         </div>
         <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
+          <p className="text-xs text-muted-foreground mb-1">Win Rate (closed)</p>
           <p className="text-2xl font-bold text-foreground">{scopedStats.winRate.toFixed(1)}%</p>
         </div>
         <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total P&L</p>
+          <p className="text-xs text-muted-foreground mb-1">Realized P&L</p>
           <p className={cn('text-2xl font-bold', scopedStats.totalPnl >= 0 ? 'text-profit' : 'text-loss')}>
-            {scopedStats.totalPnl >= 0 ? '+' : ''}${scopedStats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {scopedStats.totalPnl >= 0 ? '+' : ''}${scopedStats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
         <div className="glass-panel p-4">
           <p className="text-xs text-muted-foreground mb-1">Open Positions</p>
           <p className="text-2xl font-bold text-foreground">{scopedStats.openPositions}</p>
+          <p className={cn('text-xs font-mono mt-0.5', scopedStats.unrealized >= 0 ? 'text-profit' : 'text-loss')}>
+            {scopedStats.unrealized >= 0 ? '+' : ''}${scopedStats.unrealized.toFixed(2)} unrealized
+          </p>
         </div>
       </div>
+
 
       {/* Filters */}
       <div className="glass-panel p-4 space-y-3">
@@ -221,7 +240,7 @@ export default function Trades() {
         <button onClick={() => setActiveTab('open')}
           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all',
             activeTab === 'open' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground')}>
-          Open Positions ({positions.length})
+          Open Positions ({scopedPositions.length})
         </button>
       </div>
 
@@ -254,8 +273,21 @@ export default function Trades() {
                 </thead>
                 <tbody>
                   {filtered.map((trade) => {
-                    const pos = (trade.pnl ?? 0) >= 0;
                     const isOpen = trade.status === 'open';
+                    // Open rows have no realized P&L — show the live unrealized figure
+                    // from the matching position instead of a dash.
+                    const livePnl = isOpen
+                      ? openPnlBySymbol.get(`${trade.symbol}|${trade.isPaper}`) ?? null
+                      : null;
+                    const shownPnl = trade.status === 'closed' ? trade.pnl : livePnl;
+                    const pos = (shownPnl ?? 0) >= 0;
+                    // duration_seconds isn't always written — derive it from timestamps.
+                    const durationSecs = trade.durationSeconds
+                      ?? (trade.closedAt
+                        ? Math.max(0, Math.round((trade.closedAt.getTime() - trade.createdAt.getTime()) / 1000))
+                        : isOpen
+                          ? Math.max(0, Math.round((Date.now() - trade.createdAt.getTime()) / 1000))
+                          : null);
                     return (
                       <tr key={trade.id} className="border-b border-border/50 hover:bg-secondary/30">
                         <td className="py-3 px-4 font-medium text-foreground">{trade.symbol}</td>
@@ -274,14 +306,15 @@ export default function Trades() {
                             {trade.side}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right font-mono">{trade.quantity}</td>
-                        <td className="py-3 px-4 text-right font-mono text-muted-foreground">${trade.entryPrice.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : '—'}</td>
-                        <td className={cn('py-3 px-4 text-right font-mono', trade.pnl == null ? 'text-muted-foreground' : pos ? 'text-profit' : 'text-loss')}>
-                          {trade.pnl == null ? '—' : (
+                        <td className="py-3 px-4 text-right font-mono">{formatQty(trade.quantity)}</td>
+                        <td className="py-3 px-4 text-right font-mono text-muted-foreground">{formatPrice(trade.entryPrice)}</td>
+                        <td className="py-3 px-4 text-right font-mono">{trade.exitPrice ? formatPrice(trade.exitPrice) : '—'}</td>
+                        <td className={cn('py-3 px-4 text-right font-mono', shownPnl == null ? 'text-muted-foreground' : pos ? 'text-profit' : 'text-loss')}>
+                          {shownPnl == null ? '—' : (
                             <span className="inline-flex items-center gap-1">
                               {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                              {pos ? '+' : ''}${(trade.pnl ?? 0).toFixed(2)}
+                              {pos ? '+' : ''}${shownPnl.toFixed(2)}
+                              {isOpen && <span className="text-[10px] text-muted-foreground">unrl.</span>}
                             </span>
                           )}
                         </td>
@@ -294,7 +327,7 @@ export default function Trades() {
                         </td>
                         <td className="py-3 px-4 text-xs">{trade.isPaper ? 'Paper' : 'Live'}</td>
                         <td className="py-3 px-4 text-right text-xs text-muted-foreground">
-                          {trade.durationSeconds ? formatDuration(trade.durationSeconds) : isOpen ? 'Active' : '—'}
+                          {durationSecs != null ? `${formatDuration(durationSecs)}${isOpen ? ' (open)' : ''}` : '—'}
                         </td>
                         <td className="py-3 px-4 text-xs text-muted-foreground">{(trade.closedAt ?? trade.createdAt).toLocaleString()}</td>
 
@@ -302,6 +335,7 @@ export default function Trades() {
                     );
                   })}
                 </tbody>
+
               </table>
             </div>
           )}
@@ -310,7 +344,7 @@ export default function Trades() {
 
       {activeTab === 'open' && (
         <div className="glass-panel p-6">
-          {positions.length === 0 ? (
+          {scopedPositions.length === 0 ? (
             <p className="text-center text-muted-foreground py-12">No open positions.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -323,22 +357,30 @@ export default function Trades() {
                     <th className="text-right py-3 px-4">Entry</th>
                     <th className="text-right py-3 px-4">Current</th>
                     <th className="text-right py-3 px-4">Unrealized</th>
+                    <th className="text-right py-3 px-4">%</th>
+                    <th className="text-left py-3 px-4">Mode</th>
                     <th className="text-left py-3 px-4">Strategy</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {positions.map((p) => {
+                  {scopedPositions.map((p) => {
                     const pnl = p.unrealizedPnl ?? 0;
+                    const cost = p.entryPrice * p.quantity;
+                    const pnlPct = cost > 0 ? (pnl / cost) * 100 : null;
                     return (
                       <tr key={p.id} className="border-b border-border/50">
                         <td className="py-3 px-4 font-medium">{p.symbol}</td>
                         <td className="py-3 px-4 capitalize">{p.side === 'buy' ? 'long' : 'short'}</td>
-                        <td className="py-3 px-4 text-right font-mono">{p.quantity}</td>
-                        <td className="py-3 px-4 text-right font-mono">${p.entryPrice.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">${p.currentPrice?.toLocaleString() ?? '-'}</td>
+                        <td className="py-3 px-4 text-right font-mono">{formatQty(p.quantity)}</td>
+                        <td className="py-3 px-4 text-right font-mono">{formatPrice(p.entryPrice)}</td>
+                        <td className="py-3 px-4 text-right font-mono">{p.currentPrice ? formatPrice(p.currentPrice) : '—'}</td>
                         <td className={cn('py-3 px-4 text-right font-mono', pnl >= 0 ? 'text-profit' : 'text-loss')}>
                           {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                         </td>
+                        <td className={cn('py-3 px-4 text-right font-mono text-xs', pnl >= 0 ? 'text-profit' : 'text-loss')}>
+                          {pnlPct == null ? '—' : `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`}
+                        </td>
+                        <td className="py-3 px-4 text-xs">{p.isPaper ? 'Paper' : 'Live'}</td>
                         <td className="py-3 px-4 text-xs text-muted-foreground">{p.strategy || 'scalp'}</td>
                       </tr>
                     );
@@ -352,6 +394,21 @@ export default function Trades() {
     </div>
   );
 }
+
+// Crypto prices span $0.0001 to $100k — default toLocaleString would round
+// sub-cent assets down to "$0", so scale precision to magnitude.
+function formatPrice(value: number) {
+  const abs = Math.abs(value);
+  const digits = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 6 : 8;
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits })}`;
+}
+
+function formatQty(value: number) {
+  const abs = Math.abs(value);
+  const digits = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6;
+  return value.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
 
 function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
