@@ -4392,6 +4392,27 @@ serve(async (req) => {
         continue;
       }
 
+      // 🚫 HARD DOWNTREND VETO + STOP-OUT BLACKLIST (buys only)
+      if (side === 'buy' && !(decision as any)._topup) {
+        if (stopOutBlocked.has(symbolUpper)) {
+          console.log(`🚫 SKIP ${symbolUpper}: stopped out ${STOPOUT_MAX}+ times in last ${STOPOUT_LOOKBACK_HOURS}h — cooling off`);
+          continue;
+        }
+        const trendRow = trendAnalysis.find(t => String(t.symbol).toUpperCase() === symbolUpper);
+        if (trendRow && (trendRow.trend === 'downtrend' || trendRow.trend === 'strong_downtrend')) {
+          console.log(`🚫 SKIP ${symbolUpper}: hard downtrend veto (${trendRow.trend}, strength ${trendRow.trendStrength.toFixed(2)})`);
+          continue;
+        }
+        const c24 = Number(coinData.change24h ?? 0);
+        const c1h = Number(coinData.change1h ?? 0);
+        if (c24 <= 0 && c1h <= 0) {
+          console.log(`🚫 SKIP ${symbolUpper}: misaligned tape (24h ${c24.toFixed(2)}%, 1h ${c1h.toFixed(2)}%) — no entries into falling assets`);
+          continue;
+        }
+      }
+
+
+
       // 🛡️ PRICE-FEED CONFIRMATION GUARD
       // Refuse to open BUY on symbols whose live price feed can't be confirmed.
       // Requires a Coinbase productId (proves the symbol is tradable AND will be
