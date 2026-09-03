@@ -57,6 +57,13 @@
       "when": 1788384957658,
       "tag": "0007_wide_stop_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788456225830,
+      "tag": "0008_wide_stop_default_on",
+      "breakpoints": true
     }
   ]
 }

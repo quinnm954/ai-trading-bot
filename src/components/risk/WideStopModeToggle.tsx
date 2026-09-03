@@ -30,7 +30,7 @@ import {
 export function WideStopModeToggle() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
