@@ -126,7 +126,9 @@ export function WideStopModeToggle() {
             <>
               Active: +{WIDE_TP_GROSS_PCT}% target · {WIDE_STOP_ATR_MULT}×ATR stop (
               {WIDE_STOP_MIN_PCT}–{WIDE_STOP_MAX_PCT}%) · {WIDE_MAX_HOLD_MINUTES / 60}h hold ·
-              trailing off · entries only while the tape gate is open, otherwise stand down.
+              partial TP at +{WIDE_PARTIAL_TP_PCT}% · trails {WIDE_TRAIL_DROP_PCT}% after +
+              {WIDE_TRAIL_ARM_PCT}% · entries only while the tape gate is open, otherwise
+              stand down.
             </>
           ) : (
             <>
