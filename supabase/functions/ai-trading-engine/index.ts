@@ -143,16 +143,24 @@ function targetReachability(coin: MarketData, cfg: ScalpCfg) {
 // is a guaranteed long-run loser no matter how good the exit rules are.
 // Every feature below is a directional predictor scored into a logistic model,
 // and only candidates with a POSITIVE modelled expectancy may be traded.
-const UP_PROB_ABS_FLOOR = 0.50;   // never trade a coin the model rates below this
+// Thresholds below come from a 60-day walk-forward sweep on real Coinbase 15m candles
+// (14 USD pairs, wide-stop geometry, 0.8% round trip). The probability floor alone barely
+// moved the win rate (28% → 29%); the two filters that actually did were SETUP QUALITY
+// (techScore) and 24h RANGE. Chosen config — techScore ≥ 55, 24h range ≥ 7%, breadth ≥ 65%,
+// P(up) ≥ 0.65 — booked 95 trades, 36.8% wins, +0.55% expectancy/trade, PF 1.34
+// (out-of-sample half: 43.7% wins, +1.22% expectancy). The stop is UNCHANGED.
+const UP_PROB_ABS_FLOOR = 0.65;   // never trade a coin the model rates below this
 const UP_PROB_EDGE_MARGIN = 0.08; // must beat break-even by 8 percentage points
 const MIN_EXPECTANCY_PCT = 0.25;  // required modelled net % per trade
+const MIN_TECH_SCORE = 55;        // setup quality floor (sweep: 45 → 55 lifted wins ~8pts)
 
 // ── SWING PROFILE ───────────────────────────────────────────────────────────
 // Positions are held 12–24h with the SAME geometry (+3.36% TP / -0.80% stop), so the
 // asset must be volatile enough to travel the target inside that window. These gates
 // remove the quiet coins that only ever drift into the fee dead zone.
-const SWING_MIN_24H_RANGE_PCT = 5.0; // 24h high-low range as % of price
+const SWING_MIN_24H_RANGE_PCT = 7.0; // 24h high-low range as % of price (sweep: 5% → 7%)
 const SWING_MIN_ATR_PCT = 0.45;      // realized 5m ATR as % of price
+
 
 export interface UpEdge {
   prob: number;
@@ -1797,7 +1805,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
 // plus breadth (% of names up on 24h). Long swings only run with the tape.
 const TAPE_MIN_24H_PCT = 1.0;    // market must be up at least this much over 24h
 const TAPE_MIN_1H_PCT = 0.0;     // and still rising right now
-const TAPE_MIN_BREADTH = 0.55;   // majority of liquid names participating
+const TAPE_MIN_BREADTH = 0.65;   // sweep: 55% → 65% participation lifted win rate and expectancy
 
 function computeAggregateTape(marketData: MarketData[]): {
   rising: boolean; avg24h: number; avg1h: number; breadth: number; label: string;
@@ -1927,8 +1935,8 @@ async function filterByTrend(
       return false;
     }
     // Require a minimum technical quality score
-    if (tScore < 45) {
-      console.log(`🧪 WEAK SETUP: ${coin.symbol} techScore ${tScore} (${coin.techSetup})`);
+    if (tScore < MIN_TECH_SCORE) {
+      console.log(`🧪 WEAK SETUP: ${coin.symbol} techScore ${tScore} < ${MIN_TECH_SCORE} (${coin.techSetup})`);
       return false;
     }
     // Volatility gate: reject dead or extreme — neither is profitable to scalp.

@@ -30,7 +30,7 @@ import {
 export function WideStopModeToggle() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -45,7 +45,8 @@ export function WideStopModeToggle() {
         .eq('user_id', user.id)
         .maybeSingle();
       if (!active) return;
-      setEnabled(data?.wide_stop_mode === true);
+      setEnabled(data?.wide_stop_mode !== false);
+
       setLoading(false);
     })();
 
@@ -87,7 +88,10 @@ export function WideStopModeToggle() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <Waves className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium text-foreground">Wide-stop swing mode</span>
+          <span className="text-sm font-medium text-foreground">
+            Wide-stop swing mode <span className="text-muted-foreground">(default)</span>
+          </span>
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
