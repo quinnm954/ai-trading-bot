@@ -13,6 +13,8 @@ import {
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
+  WIDE_PARTIAL_TP_PCT,
+  WIDE_PARTIAL_FRACTION,
 } from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
