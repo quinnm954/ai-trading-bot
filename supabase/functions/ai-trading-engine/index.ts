@@ -1682,14 +1682,47 @@ function computeBollinger(closes: number[], period = 20, mult = 2) {
   return { mid, upper, lower, width: mid > 0 ? (upper - lower) / mid : 0 };
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Run an async mapper over items with bounded concurrency (Coinbase rate limits hard). */
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/** Coinbase public market fetch with retry/backoff on 429 + 5xx. */
+async function fetchWithRetry(url: string, attempts = 4): Promise<Response | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
+      if (resp.ok) return resp;
+      if (resp.status === 429 || resp.status >= 500) {
+        await resp.body?.cancel().catch(() => {});
+        await sleep(250 * 2 ** i + Math.random() * 200);
+        continue;
+      }
+      return null;
+    } catch (_e) {
+      await sleep(250 * 2 ** i);
+    }
+  }
+  return null;
+}
+
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
     // 60 × 5m = 5h of data — enough for BB(20) + RSI(14) on 5m
     const start = now - 60 * 60 * 5;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
-    const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
-    if (!resp.ok) return null;
+    const resp = await fetchWithRetry(url);
+    if (!resp) return null;
     const data = await resp.json();
     const candles = Array.isArray(data?.candles) ? data.candles : [];
     if (candles.length < 2) return null;
