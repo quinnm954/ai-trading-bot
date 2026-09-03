@@ -13,6 +13,8 @@ import {
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
+  WIDE_PARTIAL_TP_PCT,
+  WIDE_PARTIAL_FRACTION,
 } from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
@@ -1133,16 +1135,20 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
     // Gross level at which the net gain equals one net loss.
-    const tightProfitFloorPct = Math.max(
+    const oneToOneFloorPct = Math.max(
       COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
       COINBASE_ROUND_TRIP_FEE + posNetLossPct
     );
-    // Wide swings arm at a fixed +4% instead of the 1:1 floor.
-    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : tightProfitFloorPct;
+    // Absolute floor: a profit-taking exit must still clear the round trip plus MIN_NET_EXIT.
+    const netExitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
+    // Wide swings protect gains far below the target (arming AT the target made trailing
+    // dead code), so they only have to clear the net-exit floor, not a full 1:1 loss.
+    const tightProfitFloorPct = isWideSwing ? netExitFloorPct : oneToOneFloorPct;
+    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : oneToOneFloorPct;
     const trailingStopActive = posTrailingEnabled && newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // Giveback: fixed 1.5% for wide swings, otherwise 40% of peak. Capped in both cases so a
-    // trailing exit can never land below the net-profit floor.
+    // Giveback: fixed tight drop for wide swings, otherwise 40% of peak. Capped in both
+    // cases so a trailing exit can never land below the net-profit floor.
     const givebackCap = Math.max(0, newPeakPnl - tightProfitFloorPct);
     const allowedGiveback = isWideSwing
       ? Math.min(WIDE_TRAIL_DROP_PCT, givebackCap)
@@ -1184,6 +1190,95 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const distToStop = (pnlPercent - adjustedStopLoss).toFixed(2);
     const peakInfo = trailingStopActive ? ` | Peak: ${newPeakPnl.toFixed(2)}% (drop: ${dropFromPeak.toFixed(2)}%)` : '';
     console.log(`${statusIcon} ${position.symbol}: ${pnlPercent.toFixed(2)}% | Entry: $${entryPrice.toFixed(4)} | Now: $${currentPrice.toFixed(4)} | Rotate in: +${distToRotate}% | Stop in: -${distToStop}%${peakInfo}`);
+
+    // 🪙 PARTIAL TAKE-PROFIT (wide swings only)
+    // The engine produces many +2-3% excursions that never reach the full target and then
+    // round-trip to the stop. Bank WIDE_PARTIAL_FRACTION of the position at the interim
+    // level and let the remainder run to the target behind the armed trailing stop.
+    const partialAlreadyDone = position.partial_tp_done === true;
+    const wantsPartial =
+      isWideSwing &&
+      !partialAlreadyDone &&
+      position.side === 'buy' &&
+      !hitStopLoss &&
+      !hitHardTakeProfit &&
+      !hitRotationTarget &&
+      !hitTrailingStop &&
+      pnlPercent >= WIDE_PARTIAL_TP_PCT;
+
+    if (wantsPartial) {
+      const sellQty = quantity * WIDE_PARTIAL_FRACTION;
+      const sellValue = sellQty * currentPrice;
+      const remainingQty = quantity - sellQty;
+      // Never leave dust on either leg.
+      if (sellValue < 5 || remainingQty * currentPrice < 5) {
+        console.log(`🪙 SKIP partial TP ${position.symbol}: legs too small ($${sellValue.toFixed(2)} / $${(remainingQty * currentPrice).toFixed(2)})`);
+      } else {
+        let ok = true;
+        let realizedPrice = currentPrice;
+        if (!isPaperMode) {
+          const sellResult = await executeCoinbaseSell(position.symbol, sellQty);
+          ok = sellResult.success;
+          if (ok && sellResult.usdValue) realizedPrice = sellResult.usdValue / sellQty;
+          if (!ok) console.error(`❌ Partial TP sell failed for ${position.symbol}: ${sellResult.error}`);
+        }
+
+        if (ok) {
+          const partialFee = (entryPrice * sellQty + realizedPrice * sellQty) * (COINBASE_MAKER_FEE / 100);
+          const partialPnl = (realizedPrice - entryPrice) * sellQty - partialFee;
+          const partialPct = ((realizedPrice - entryPrice) / entryPrice) * 100;
+
+          console.log(`🪙 PARTIAL TAKE-PROFIT ${position.symbol}: sold ${(WIDE_PARTIAL_FRACTION * 100).toFixed(0)}% at ${partialPct.toFixed(2)}% (net $${partialPnl.toFixed(2)}), ${remainingQty.toFixed(6)} left running to ${posTakeProfitPct}%`);
+
+          await supabase.from('trades').insert({
+            user_id: userId,
+            symbol: position.symbol,
+            side: 'buy',
+            quantity: sellQty,
+            entry_price: entryPrice,
+            exit_price: realizedPrice,
+            status: 'closed',
+            market_type: 'crypto',
+            strategy: position.strategy || null,
+            is_paper: isPaperMode,
+            pnl: partialPnl,
+            fees_estimate: partialFee,
+            exit_reason: 'partial_take_profit',
+            stop_loss_price: stopPrice,
+            take_profit_price: entryPrice * (1 + posTakeProfitPct / 100),
+            ai_reasoning: `🪙 Partial take-profit: banked ${(WIDE_PARTIAL_FRACTION * 100).toFixed(0)}% at +${partialPct.toFixed(2)}% gross, remainder trails to +${posTakeProfitPct}%`,
+            closed_at: new Date().toISOString(),
+          });
+
+          await supabase.from('positions').update({
+            quantity: remainingQty,
+            current_price: currentPrice,
+            peak_pnl_percent: newPeakPnl,
+            partial_tp_done: true,
+            updated_at: new Date().toISOString(),
+          }).eq('id', position.id);
+
+          if (isPaperMode) {
+            await supabase.rpc('adjust_paper_balance', {
+              p_user_id: userId,
+              p_delta: entryPrice * sellQty + partialPnl,
+            });
+          }
+
+          await supabase.from('ai_decisions').insert({
+            user_id: userId,
+            decision_type: 'partial_take_profit',
+            symbol: position.symbol,
+            action: 'sell',
+            reasoning: `${isPaperMode ? '[PAPER] ' : ''}Banked ${(WIDE_PARTIAL_FRACTION * 100).toFixed(0)}% of ${position.symbol} at +${partialPct.toFixed(2)}%; remainder runs to +${posTakeProfitPct}% behind the trailing stop.`,
+          });
+
+          takeProfitCount++;
+          continue;
+        }
+      }
+    }
+
 
     // Trigger sell on: hard take-profit, rotation target, trailing stop, hard stop loss, or max hold
     if (hitHardTakeProfit || hitRotationTarget || hitTrailingStop || hitStopLoss || hitMaxHold) {
