@@ -4481,7 +4481,7 @@ serve(async (req) => {
         if (!coinData.productId || !(Number(coinData.price) > 0)) {
           console.log(`🛡️ SKIP ${symbolUpper}: no confirmed Coinbase price feed (productId=${coinData.productId ?? 'none'}, price=${coinData.price}). Refusing blind entry.`);
           try {
-            await supabaseClient.from('risk_events').insert({
+            await supabase.from('risk_events').insert({
               user_id: userId,
               event_type: 'price_feed_guard',
               severity: 'warning',
