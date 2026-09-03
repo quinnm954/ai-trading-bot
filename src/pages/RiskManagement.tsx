@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { RiskStatusCard } from '@/components/risk/RiskStatusCard';
 import { RiskSettingsPanel } from '@/components/risk/RiskSettingsPanel';
+import { TrailingProgressPanel } from '@/components/risk/TrailingProgressPanel';
 import { ScalpingReplayPanel } from '@/components/risk/ScalpingReplayPanel';
 import { MarketRegimeCard } from '@/components/dashboard/MarketRegimeCard';
 import { SafetyStatusCard } from '@/components/dashboard/SafetyStatusCard';
@@ -273,6 +274,7 @@ export default function RiskManagement() {
         {/* Settings Tab */}
         <TabsContent value="settings" className="space-y-4">
           <RiskSettingsPanel />
+          <TrailingProgressPanel />
         </TabsContent>
 
 
