@@ -1682,14 +1682,47 @@ function computeBollinger(closes: number[], period = 20, mult = 2) {
   return { mid, upper, lower, width: mid > 0 ? (upper - lower) / mid : 0 };
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Run an async mapper over items with bounded concurrency (Coinbase rate limits hard). */
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/** Coinbase public market fetch with retry/backoff on 429 + 5xx. */
+async function fetchWithRetry(url: string, attempts = 4): Promise<Response | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
+      if (resp.ok) return resp;
+      if (resp.status === 429 || resp.status >= 500) {
+        await resp.body?.cancel().catch(() => {});
+        await sleep(250 * 2 ** i + Math.random() * 200);
+        continue;
+      }
+      return null;
+    } catch (_e) {
+      await sleep(250 * 2 ** i);
+    }
+  }
+  return null;
+}
+
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
     // 60 × 5m = 5h of data — enough for BB(20) + RSI(14) on 5m
     const start = now - 60 * 60 * 5;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
-    const resp = await fetch(url, { headers: { 'User-Agent': 'TitanAI-Trading-Engine/1.0' } });
-    if (!resp.ok) return null;
+    const resp = await fetchWithRetry(url);
+    if (!resp) return null;
     const data = await resp.json();
     const candles = Array.isArray(data?.candles) ? data.candles : [];
     if (candles.length < 2) return null;
@@ -1880,12 +1913,21 @@ async function filterByTrend(
 
   console.log(`✅ Eligible coins (${memeOnly ? 'MEME-ONLY, ' : ''}$${minPrice}–$${maxPrice}, non-stable, 24h ∈ [-2%, +5%)): ${eligibleCoins.length}/${marketData.length}`);
 
-  // Fetch 5m candles + Bollinger Bands + RSI for eligible coins (Coinbase) — parallel, capped to 30
+  // Fetch 5m candles + Bollinger Bands + RSI for eligible coins (Coinbase).
+  // Coinbase rate-limits bursts hard (429), and a missing candle set used to leave the
+  // coin on a neutral techScore of 50 — which silently failed the ≥55 gate and stood the
+  // whole engine down. So: bounded concurrency + retry, and coins without technicals are
+  // reported as a data failure rather than a "weak setup".
   const candleTargets = eligibleCoins.slice(0, 30);
-  await Promise.all(candleTargets.map(async (coin) => {
+  let techFailures = 0;
+  await mapLimit(candleTargets, 4, async (coin) => {
     if (!coin.productId) return;
     const t = await fetchCandleTechnicals(coin.productId);
-    if (t) {
+    if (!t) {
+      techFailures++;
+      return;
+    }
+    {
       coin.change5m = t.change5m;
       if (coin.change1h === undefined || coin.change1h === 0) coin.change1h = t.change15m;
       coin.rsi14 = t.rsi14;
@@ -1903,7 +1945,10 @@ async function filterByTrend(
       coin.distanceToSupportPct = t.distanceToSupportPct;
       coin.supportContext = t.supportContext;
     }
-  }));
+  });
+  if (techFailures > 0) {
+    console.log(`📡 Candle feed: ${candleTargets.length - techFailures}/${candleTargets.length} coins have technicals (${techFailures} feed failures — those are skipped, not scored)`);
+  }
 
   // LIQUIDITY + TECHNICAL ENTRY GATE — only profitable-shaped setups pass.
   const scalpCandidates = candleTargets.filter(coin => {
@@ -1913,7 +1958,12 @@ async function filterByTrend(
     const vol = coin.volume24h ?? 0;
     const rsi = coin.rsi14;
     const pB = coin.percentB;
-    const tScore = coin.techScore ?? 50;
+
+    if (coin.techScore === undefined) {
+      console.log(`📡 NO TECH DATA: ${coin.symbol} — candle feed unavailable, skipping`);
+      return false;
+    }
+    const tScore = coin.techScore;
 
     if (c5 === undefined && c1h === 0 && c24 === 0) {
       console.log(`⏭️  NO DATA: ${coin.symbol} — skipping`);
@@ -4431,7 +4481,7 @@ serve(async (req) => {
         if (!coinData.productId || !(Number(coinData.price) > 0)) {
           console.log(`🛡️ SKIP ${symbolUpper}: no confirmed Coinbase price feed (productId=${coinData.productId ?? 'none'}, price=${coinData.price}). Refusing blind entry.`);
           try {
-            await supabaseClient.from('risk_events').insert({
+            await supabase.from('risk_events').insert({
               user_id: userId,
               event_type: 'price_feed_guard',
               severity: 'warning',
