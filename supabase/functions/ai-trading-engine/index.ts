@@ -4169,6 +4169,38 @@ serve(async (req) => {
       `🧯 Duplicate guard: ${openPositionSymbols.size} open symbol(s), ${lastTradeByKey.size} recent trade key(s) (cooldown ${DUPLICATE_TRADE_COOLDOWN_MINUTES}m), ${recentExits.size} recent exit(s) (chase window ${scalpCfg.chase_guard_minutes}m)`
     );
 
+    // 🚫 STOP-OUT BLACKLIST
+    // Two or more stop-loss exits on the same symbol within the lookback window
+    // means the symbol is bleeding us. Block re-entry for a cooling-off period.
+    const STOPOUT_LOOKBACK_HOURS = 12;
+    const STOPOUT_MAX = 2;
+    const stopOutBlocked = new Set<string>();
+    try {
+      const since = new Date(Date.now() - STOPOUT_LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
+      const { data: stopRows } = await supabase
+        .from('trades')
+        .select('symbol, exit_reason, closed_at, pnl')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode)
+        .eq('status', 'closed')
+        .gte('closed_at', since);
+      const counts = new Map<string, number>();
+      for (const r of stopRows || []) {
+        const reason = String((r as any).exit_reason || '').toLowerCase();
+        const isStop = reason.includes('stop') || (Number((r as any).pnl ?? 0) < 0 && reason === '');
+        if (!isStop) continue;
+        const sym = String((r as any).symbol || '').toUpperCase();
+        counts.set(sym, (counts.get(sym) || 0) + 1);
+      }
+      for (const [sym, n] of counts) if (n >= STOPOUT_MAX) stopOutBlocked.add(sym);
+      if (stopOutBlocked.size > 0) {
+        console.log(`🚫 Stop-out blacklist (${STOPOUT_MAX}+ stops in ${STOPOUT_LOOKBACK_HOURS}h): ${[...stopOutBlocked].join(', ')}`);
+      }
+    } catch (e: any) {
+      console.log('⚠️ Stop-out blacklist lookup failed:', e?.message || e);
+    }
+
+
     // ============================================================
     // 🪙 DUST TOP-UP PHASE
     // When cash has grown (e.g. after taking profits), prefer to top up
