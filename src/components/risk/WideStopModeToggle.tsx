@@ -103,9 +103,11 @@ export function WideStopModeToggle() {
                 <p className="max-w-xs text-xs">
                   Trades opened while the aggregate tape gate is open use a +
                   {WIDE_TP_GROSS_PCT}% target, a stop of {WIDE_STOP_ATR_MULT}×ATR (clamped{' '}
-                  {WIDE_STOP_MIN_PCT}%–{WIDE_STOP_MAX_PCT}%), a{' '}
-                  {WIDE_MAX_HOLD_MINUTES / 60}h hold and no trailing stop. When the tape is
-                  flat or falling the engine stands down entirely instead of trading.
+                  {WIDE_STOP_MIN_PCT}%–{WIDE_STOP_MAX_PCT}%) and a{' '}
+                  {WIDE_MAX_HOLD_MINUTES / 60}h hold. Half the position is banked at +
+                  {WIDE_PARTIAL_TP_PCT}% and the rest trails {WIDE_TRAIL_DROP_PCT}% behind its
+                  peak once it clears +{WIDE_TRAIL_ARM_PCT}%. When the tape is flat or falling
+                  the engine stands down entirely instead of trading.
                 </p>
               </TooltipContent>
             </Tooltip>
