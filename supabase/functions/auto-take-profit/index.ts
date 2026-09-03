@@ -9,6 +9,9 @@ import {
   TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
+  WIDE_MAX_HOLD_MINUTES,
+  WIDE_TRAIL_ARM_PCT,
+  WIDE_TRAIL_DROP_PCT,
 } from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
@@ -1097,8 +1100,12 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const posStopPct = Number(position.stop_loss_pct) > 0 ? Math.abs(Number(position.stop_loss_pct)) : stopPct;
     const posTakeProfitPct = Number(position.take_profit_pct) > 0 ? Number(position.take_profit_pct) : cfgTakeProfitPct;
     const posNetLossPct = posStopPct + COINBASE_ROUND_TRIP_FEE;
-    const posTrailingEnabled = position.trailing_enabled !== false;
     const posHoldMinutes = Number(position.max_hold_minutes) > 0 ? Number(position.max_hold_minutes) : null;
+    // A wide-stop swing is identified by its long hold contract. Wide swings now run an
+    // ARMED trailing stop (arm at +4%, give back 1.5%) so a +5%-bound move that stalls at
+    // +4-7% books a real winner instead of round-tripping back to the ATR stop.
+    const isWideSwing = posHoldMinutes !== null && posHoldMinutes >= WIDE_MAX_HOLD_MINUTES;
+    const posTrailingEnabled = isWideSwing ? true : position.trailing_enabled !== false;
 
     const rotationThreshold = Math.max(getAdjustedRotationThreshold(), posTakeProfitPct);
     // EXACT stop: the hard stop fires at the configured level (default -0.8%) with NO
@@ -1119,24 +1126,28 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const newPeakPnl = Math.max(previousPeakPnl, pnlPercent);
 
     // Gross level at which the net gain equals one net loss.
-    const trailingProfitFloorPct = Math.max(
+    const tightProfitFloorPct = Math.max(
       COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT,
       COINBASE_ROUND_TRIP_FEE + posNetLossPct
     );
+    // Wide swings arm at a fixed +4% instead of the 1:1 floor.
+    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : tightProfitFloorPct;
     const trailingStopActive = posTrailingEnabled && newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
-    // Giveback grows with the move (40% of peak) but is capped so a trailing exit can never
-    // land below the net-profit floor.
-    const givebackCap = Math.max(0, newPeakPnl - trailingProfitFloorPct);
-    const allowedGiveback = Math.min(
-      Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
-      givebackCap
-    );
+    // Giveback: fixed 1.5% for wide swings, otherwise 40% of peak. Capped in both cases so a
+    // trailing exit can never land below the net-profit floor.
+    const givebackCap = Math.max(0, newPeakPnl - tightProfitFloorPct);
+    const allowedGiveback = isWideSwing
+      ? Math.min(WIDE_TRAIL_DROP_PCT, givebackCap)
+      : Math.min(
+          Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
+          givebackCap
+        );
     const hitTrailingStop =
       posTrailingEnabled &&
       trailingStopActive &&
       givebackCap > 0 &&
-      pnlPercent >= trailingProfitFloorPct &&
+      pnlPercent >= tightProfitFloorPct &&
       dropFromPeak >= allowedGiveback;
 
     const hitHardTakeProfit = pnlPercent >= posTakeProfitPct;

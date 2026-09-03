@@ -77,3 +77,7 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
     breakevenWinRatePct: (netLossPct / (netWinPct + netLossPct)) * 100,
   };
 }
+
+// Wide-mode armed trailing stop (mirror of the shared module).
+export const WIDE_TRAIL_ARM_PCT = 4.0;
+export const WIDE_TRAIL_DROP_PCT = 1.5;

@@ -131,3 +131,10 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
     adjusted: false,
   };
 }
+
+// ── WIDE-MODE ARMED TRAILING STOP ────────────────────────────────────────────
+// Wide swings run to a 5% target but often round-trip most of a +4-7% move. The
+// trailing stop therefore arms only once the gain is large enough that giving back
+// WIDE_TRAIL_DROP_PCT still books a healthy net winner.
+export const WIDE_TRAIL_ARM_PCT = 4.0;  // gross gain at which trailing arms
+export const WIDE_TRAIL_DROP_PCT = 1.5; // gross giveback from peak that exits
