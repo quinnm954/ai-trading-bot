@@ -1100,8 +1100,12 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const posStopPct = Number(position.stop_loss_pct) > 0 ? Math.abs(Number(position.stop_loss_pct)) : stopPct;
     const posTakeProfitPct = Number(position.take_profit_pct) > 0 ? Number(position.take_profit_pct) : cfgTakeProfitPct;
     const posNetLossPct = posStopPct + COINBASE_ROUND_TRIP_FEE;
-    const posTrailingEnabled = position.trailing_enabled !== false;
     const posHoldMinutes = Number(position.max_hold_minutes) > 0 ? Number(position.max_hold_minutes) : null;
+    // A wide-stop swing is identified by its long hold contract. Wide swings now run an
+    // ARMED trailing stop (arm at +4%, give back 1.5%) so a +5%-bound move that stalls at
+    // +4-7% books a real winner instead of round-tripping back to the ATR stop.
+    const isWideSwing = posHoldMinutes !== null && posHoldMinutes >= WIDE_MAX_HOLD_MINUTES;
+    const posTrailingEnabled = isWideSwing ? true : position.trailing_enabled !== false;
 
     const rotationThreshold = Math.max(getAdjustedRotationThreshold(), posTakeProfitPct);
     // EXACT stop: the hard stop fires at the configured level (default -0.8%) with NO
