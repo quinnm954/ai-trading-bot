@@ -102,13 +102,13 @@ export function describeGeometry(geo: ExitGeometry): string {
 // ── WIDE-STOP SWING MODE (regime-conditional) ────────────────────────────────
 // The locked 3.36%/0.80% geometry books a stop on ~68% of swings because 0.80% is
 // inside one 15m ATR of noise. The walk-forward on 60 days of real Coinbase candles
-// showed a wide target with an ATR-scaled stop and a 48h hold is the only variant
+// showed a wide target with a wider stop and a 48h hold is the only variant
 // that turns positive — but ONLY while the aggregate tape is rising, so this mode is
 // gated by the tape read and stands down otherwise.
-export const WIDE_TP_GROSS_PCT = 5.0;      // gross take-profit (hit more often than 8%)
-export const WIDE_STOP_ATR_MULT = 2.5;     // stop = 2.5 × ATR%
+export const WIDE_TP_GROSS_PCT = 4.0;      // gross take-profit
+export const WIDE_STOP_ATR_MULT = 2.5;     // stop = 2.5 × ATR% (clamped to the band below)
 export const WIDE_STOP_MIN_PCT = 1.2;      // never tighter than noise
-export const WIDE_STOP_MAX_PCT = 1.8;      // keeps NET R:R ≥ 1.6:1 at a 5% target
+export const WIDE_STOP_MAX_PCT = 1.2;      // keeps NET R:R ≥ 1.6:1 at a 4% target
 export const WIDE_MAX_HOLD_MINUTES = 2880; // 48h
 
 /** ATR-scaled wide geometry. Stop is clamped so net R:R still clears MIN_REWARD_RISK. */

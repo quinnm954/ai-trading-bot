@@ -56,10 +56,10 @@ export function expectancyPctPerTrade(winRatePct: number, geo: ExitGeometry): nu
 }
 
 // ── Wide-stop swing mode (mirror of supabase/functions/_shared/exit-geometry.ts) ──
-export const WIDE_TP_GROSS_PCT = 5.0;
-export const WIDE_STOP_ATR_MULT = 2.5;
+export const WIDE_TP_GROSS_PCT = 4.0;
+export const WIDE_STOP_ATR_MULT = 2.5; // stop = 2.5 × ATR% (clamped to the band below)
 export const WIDE_STOP_MIN_PCT = 1.2;
-export const WIDE_STOP_MAX_PCT = 1.8;
+export const WIDE_STOP_MAX_PCT = 1.2; // keeps NET R:R ≥ 1.6:1 at a 4% target
 export const WIDE_MAX_HOLD_MINUTES = 2880;
 
 export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
