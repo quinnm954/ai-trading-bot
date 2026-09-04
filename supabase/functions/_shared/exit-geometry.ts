@@ -105,10 +105,10 @@ export function describeGeometry(geo: ExitGeometry): string {
 // showed a wide target with a wider stop and a 48h hold is the only variant
 // that turns positive — but ONLY while the aggregate tape is rising, so this mode is
 // gated by the tape read and stands down otherwise.
-export const WIDE_TP_GROSS_PCT = 4.0;      // gross take-profit
+export const WIDE_TP_GROSS_PCT = 5.0;      // gross take-profit
 export const WIDE_STOP_ATR_MULT = 2.5;     // stop = 2.5 × ATR% (clamped to the band below)
 export const WIDE_STOP_MIN_PCT = 1.2;      // never tighter than noise
-export const WIDE_STOP_MAX_PCT = 1.2;      // keeps NET R:R ≥ 1.6:1 at a 4% target
+export const WIDE_STOP_MAX_PCT = 3.5;      // room for the coin's own swing size
 export const WIDE_MAX_HOLD_MINUTES = 2880; // 48h
 
 /** ATR-scaled wide geometry. Stop is clamped so net R:R still clears MIN_REWARD_RISK. */
@@ -132,31 +132,20 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
   };
 }
 
-// ── WIDE-MODE ARMED TRAILING STOP ────────────────────────────────────────────
-// Arming at the target level (+4%) made trailing dead code: a trade that reached the
-// arm level simply took profit, so the frequent +2-3% excursions round-tripped back to
-// the stop. Trailing now arms well below the target and gives back a tight amount, so a
-// stalled move books a real net winner while runners still ride to the full target.
-export const WIDE_TRAIL_ARM_PCT = 2.6;  // gross gain at which trailing arms
-export const WIDE_TRAIL_DROP_PCT = 0.7; // gross giveback from peak that exits
+// ── WIDE-MODE INTERMEDIATE EXITS — ALL DISABLED ──────────────────────────────
+// The original wide contract (roomy ATR stop, 48h hold, target or stop only) booked
+// better results than the layered trailing / breakeven / partial ladder that replaced it:
+// the ladder clipped nearly every winner at +0.3-1.9% while the tightened 1.2% stop fired
+// on ordinary noise, so losers stayed full size and winners never ran. Wide swings are
+// back to running to the target or the stop, nothing in between.
+export const WIDE_TRAILING_ENABLED = false;
+export const WIDE_TRAIL_ARM_PCT = 2.6;  // gross gain at which trailing would arm
+export const WIDE_TRAIL_DROP_PCT = 0.7; // gross giveback from peak that would exit
 
-// ── WIDE-MODE BREAKEVEN LOCK ─────────────────────────────────────────────────
-// Losers were booking the full net -2.0% (1.2% stop + 0.8% fees) while winners were
-// being clipped at +0.4-1.2% net. Once a swing has shown a real move up, the stop
-// ratchets to a level that still covers the round trip, so a round-tripped winner
-// costs ~nothing instead of a full-size loss.
-// Measured: a 0.9% floor armed at 1.4% fired inside ordinary noise and booked 18 exits
-// averaging +0.26% net — winners were being cut for nothing. The lock now arms only after
-// a move that clears the round trip twice over and exits at a level that banks real profit.
-export const WIDE_BREAKEVEN_ARM_PCT = 2.0;   // gross gain that arms the lock
-export const WIDE_BREAKEVEN_FLOOR_PCT = 1.6; // gross level the lock exits at (net ~+0.8%)
+export const WIDE_BREAKEVEN_ENABLED = false;
+export const WIDE_BREAKEVEN_ARM_PCT = 2.0;   // gross gain that would arm the lock
+export const WIDE_BREAKEVEN_FLOOR_PCT = 1.6; // gross level the lock would exit at
 
-// ── WIDE-MODE PARTIAL TAKE-PROFIT ────────────────────────────────────────────
-// Half the position is banked at an interim level; the remainder runs to the full
-// target behind the armed trailing stop.
-// DISABLED: halving every winner while every loser stayed full size produced a 0.45:1
-// payoff on a 61% win rate — mathematically negative. Wide swings now run full size
-// into the trailing/breakeven ladder so a winner is measured on the same notional as a loser.
 export const WIDE_PARTIAL_TP_ENABLED = false;
-export const WIDE_PARTIAL_TP_PCT = 2.5;   // gross gain at which the partial fires
+export const WIDE_PARTIAL_TP_PCT = 2.5;   // gross gain at which the partial would fire
 export const WIDE_PARTIAL_FRACTION = 0.5; // fraction of the position sold
