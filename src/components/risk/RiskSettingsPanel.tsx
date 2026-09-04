@@ -145,7 +145,7 @@ export function RiskSettingsPanel() {
 
   const slots = Number(stored?.max_concurrent_positions ?? STRICT_RISK.maxConcurrentTrades);
   const trailingValue = wide
-    ? `${WIDE_TRAIL_DROP_PCT.toFixed(1)}% (arms at +${WIDE_TRAIL_ARM_PCT.toFixed(1)}%)`
+    ? 'Off in wide-stop mode'
     : `${Number(stored?.trailing_drop_pct ?? STRICT_RISK.trailing_drop_pct).toFixed(2)}%`;
   const holdValue = wide
     ? `${Math.round(WIDE_MAX_HOLD_MINUTES / 60)}h max hold`
@@ -174,9 +174,9 @@ export function RiskSettingsPanel() {
       label: 'Trailing drop from peak',
       value: trailingValue,
       description: wide
-        ? `Wide swings arm a trailing stop once the peak gain reaches +${WIDE_TRAIL_ARM_PCT.toFixed(1)}%, then exit if the trade gives back ${WIDE_TRAIL_DROP_PCT.toFixed(1)}% from that peak.`
+        ? 'Wide swings run to the target or the stop only — no trailing, partial or breakeven exits, which were clipping winners early.'
         : 'Armed only past breakeven + fees.',
-      aiRange: wide ? 'Fixed in wide-stop mode' : 'AI may set 0.3%–0.6%',
+      aiRange: wide ? 'Disabled in wide-stop mode' : 'AI may set 0.3%–0.6%',
     },
     { label: 'Max hold', value: holdValue, description: 'Position is force-closed at hold expiry regardless of P&L.' },
   ];
