@@ -79,13 +79,15 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
 }
 
 // Wide-mode armed trailing stop (mirror of the shared module).
-export const WIDE_TRAIL_ARM_PCT = 3.0;
-export const WIDE_TRAIL_DROP_PCT = 0.6;
+export const WIDE_TRAIL_ARM_PCT = 2.6;
+export const WIDE_TRAIL_DROP_PCT = 0.7;
 
 // Wide-mode breakeven lock (mirror of the shared module).
-export const WIDE_BREAKEVEN_ARM_PCT = 1.4;
-export const WIDE_BREAKEVEN_FLOOR_PCT = 0.9;
+export const WIDE_BREAKEVEN_ARM_PCT = 2.0;
+export const WIDE_BREAKEVEN_FLOOR_PCT = 1.6;
 
-// Wide-mode partial take-profit (mirror of the shared module).
+// Wide-mode partial take-profit (mirror of the shared module) — disabled: halving winners
+// while losers stayed full size made the payoff negative.
+export const WIDE_PARTIAL_TP_ENABLED = false;
 export const WIDE_PARTIAL_TP_PCT = 2.5;
 export const WIDE_PARTIAL_FRACTION = 0.5;
