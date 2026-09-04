@@ -13,6 +13,8 @@ import {
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
+  WIDE_BREAKEVEN_ARM_PCT,
+  WIDE_BREAKEVEN_FLOOR_PCT,
   WIDE_PARTIAL_TP_PCT,
   WIDE_PARTIAL_FRACTION,
 } from "../_shared/exit-geometry.ts";
@@ -1156,12 +1158,23 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
           givebackCap
         );
-    const hitTrailingStop =
+    const hitArmedTrailingStop =
       posTrailingEnabled &&
       trailingStopActive &&
       givebackCap > 0 &&
       pnlPercent >= tightProfitFloorPct &&
       dropFromPeak >= allowedGiveback;
+
+    // 🔒 BREAKEVEN LOCK — once a wide swing has shown a real move up, the stop ratchets to
+    // a level that still covers the round trip. A winner that round-trips now costs ~zero
+    // instead of the full net -2.0%, which is what made losers bigger than winners.
+    const breakevenLockArmed = isWideSwing && newPeakPnl >= WIDE_BREAKEVEN_ARM_PCT;
+    const hitBreakevenLock =
+      breakevenLockArmed &&
+      pnlPercent <= WIDE_BREAKEVEN_FLOOR_PCT &&
+      pnlPercent > adjustedStopLoss;
+
+    const hitTrailingStop = hitArmedTrailingStop || hitBreakevenLock;
 
     const hitHardTakeProfit = pnlPercent >= posTakeProfitPct;
     const hitRotationTarget = pnlPercent >= rotationThreshold;
