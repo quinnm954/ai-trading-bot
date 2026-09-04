@@ -15,6 +15,7 @@ import {
   WIDE_TRAIL_DROP_PCT,
   WIDE_BREAKEVEN_ARM_PCT,
   WIDE_BREAKEVEN_FLOOR_PCT,
+  WIDE_PARTIAL_TP_ENABLED,
   WIDE_PARTIAL_TP_PCT,
   WIDE_PARTIAL_FRACTION,
 } from "../_shared/exit-geometry.ts";
@@ -1210,6 +1211,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // level and let the remainder run to the target behind the armed trailing stop.
     const partialAlreadyDone = position.partial_tp_done === true;
     const wantsPartial =
+      WIDE_PARTIAL_TP_ENABLED &&
       isWideSwing &&
       !partialAlreadyDone &&
       position.side === 'buy' &&
