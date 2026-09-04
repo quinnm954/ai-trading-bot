@@ -1502,6 +1502,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss')
           : hitMaxHold ? 'max_hold'
           : hitHardTakeProfit ? 'take_profit'
+          : hitBreakevenLock ? 'breakeven_lock'
           : hitTrailingStop ? 'trailing_stop'
           : hitRotationTarget ? 'rotation'
           : 'exit',
@@ -1529,6 +1530,8 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${posTakeProfitPct}%)`
         : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
+        : hitBreakevenLock
+          ? `🔒 Breakeven lock: peak was ${newPeakPnl.toFixed(2)}%, gave back to ${pnlPercent.toFixed(2)}% — banked instead of risking the full stop`
         : hitTrailingStop 
           ? `📉 Trailing stop: peak was ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}% to ${pnlPercent.toFixed(2)}%`
           : hitMaxHold
