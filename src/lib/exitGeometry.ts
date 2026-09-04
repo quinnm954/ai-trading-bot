@@ -56,10 +56,10 @@ export function expectancyPctPerTrade(winRatePct: number, geo: ExitGeometry): nu
 }
 
 // ── Wide-stop swing mode (mirror of supabase/functions/_shared/exit-geometry.ts) ──
-export const WIDE_TP_GROSS_PCT = 4.0;
+export const WIDE_TP_GROSS_PCT = 5.0;
 export const WIDE_STOP_ATR_MULT = 2.5; // stop = 2.5 × ATR% (clamped to the band below)
 export const WIDE_STOP_MIN_PCT = 1.2;
-export const WIDE_STOP_MAX_PCT = 1.2; // keeps NET R:R ≥ 1.6:1 at a 4% target
+export const WIDE_STOP_MAX_PCT = 3.5; // room for the coin's own swing size
 export const WIDE_MAX_HOLD_MINUTES = 2880;
 
 export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
@@ -78,16 +78,16 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
   };
 }
 
-// Wide-mode armed trailing stop (mirror of the shared module).
+// Wide-mode intermediate exits — all disabled (mirror of the shared module). Wide swings
+// run to the target or the stop; the trailing / breakeven / partial ladder clipped winners.
+export const WIDE_TRAILING_ENABLED = false;
 export const WIDE_TRAIL_ARM_PCT = 2.6;
 export const WIDE_TRAIL_DROP_PCT = 0.7;
 
-// Wide-mode breakeven lock (mirror of the shared module).
+export const WIDE_BREAKEVEN_ENABLED = false;
 export const WIDE_BREAKEVEN_ARM_PCT = 2.0;
 export const WIDE_BREAKEVEN_FLOOR_PCT = 1.6;
 
-// Wide-mode partial take-profit (mirror of the shared module) — disabled: halving winners
-// while losers stayed full size made the payoff negative.
 export const WIDE_PARTIAL_TP_ENABLED = false;
 export const WIDE_PARTIAL_TP_PCT = 2.5;
 export const WIDE_PARTIAL_FRACTION = 0.5;
