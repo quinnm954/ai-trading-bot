@@ -11,8 +11,10 @@ import {
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
   WIDE_MAX_HOLD_MINUTES,
+  WIDE_TRAILING_ENABLED,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
+  WIDE_BREAKEVEN_ENABLED,
   WIDE_BREAKEVEN_ARM_PCT,
   WIDE_BREAKEVEN_FLOOR_PCT,
   WIDE_PARTIAL_TP_ENABLED,
@@ -1160,16 +1162,17 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           givebackCap
         );
     const hitArmedTrailingStop =
+      (!isWideSwing || WIDE_TRAILING_ENABLED) &&
       posTrailingEnabled &&
       trailingStopActive &&
       givebackCap > 0 &&
       pnlPercent >= tightProfitFloorPct &&
       dropFromPeak >= allowedGiveback;
 
-    // 🔒 BREAKEVEN LOCK — once a wide swing has shown a real move up, the stop ratchets to
-    // a level that still covers the round trip. A winner that round-trips now costs ~zero
-    // instead of the full net -2.0%, which is what made losers bigger than winners.
-    const breakevenLockArmed = isWideSwing && newPeakPnl >= WIDE_BREAKEVEN_ARM_PCT;
+    // 🔒 BREAKEVEN LOCK — disabled: it exited winners at +1.6% gross while losers still ran
+    // to the full stop. Wide swings now resolve at the target or the stop only.
+    const breakevenLockArmed =
+      WIDE_BREAKEVEN_ENABLED && isWideSwing && newPeakPnl >= WIDE_BREAKEVEN_ARM_PCT;
     const hitBreakevenLock =
       breakevenLockArmed &&
       pnlPercent <= WIDE_BREAKEVEN_FLOOR_PCT &&
