@@ -2924,6 +2924,31 @@ async function adaptParametersFromRecentTrades(
       .limit(30);
     if (!trades || trades.length < 5) return; // need a small sample
 
+    // ── IDEMPOTENCE GUARD ─────────────────────────────────────────────────────
+    // The engine runs every cycle (~1 min). Without this guard the tuner re-applied
+    // the SAME verdict on the SAME unchanged trade sample over and over, compounding
+    // +10% size / +1 slot / +5% daily-loss per cycle until every parameter pinned to
+    // its extreme (that is how size hit the $300 cap and entry gates fell to 0.10%).
+    // One tune per newly closed trade only.
+    const newestClosedAt = trades[0]?.closed_at ?? null;
+    const { data: lastTune } = await supabase
+      .from('risk_events')
+      .select('details, created_at')
+      .eq('user_id', userId)
+      .eq('event_type', 'adaptive_tune')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (
+      lastTune?.details &&
+      lastTune.details.is_paper === isPaperMode &&
+      lastTune.details.last_closed_at &&
+      newestClosedAt &&
+      new Date(lastTune.details.last_closed_at).getTime() >= new Date(newestClosedAt).getTime()
+    ) {
+      return; // no new closed trade since the last tune — nothing new to learn from
+    }
+
     const pcts: number[] = [];
     for (const t of trades) {
       const ep = Number(t.entry_price);
