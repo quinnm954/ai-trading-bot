@@ -110,7 +110,13 @@ export function useNotifications() {
       }
     }
 
+    // Recurring engine notices (expectancy probation, flush halts) fire on every cycle.
+    // Collapse repeats of the same event type into a single entry that updates in place,
+    // so one condition can't bury everything else in notification spam.
+    const seenRiskTypes = new Set<string>();
     for (const e of riskRes.data ?? []) {
+      if (seenRiskTypes.has(e.event_type)) continue;
+      seenRiskTypes.add(e.event_type);
       items.push({
         id: `risk-${e.id}`,
         kind: 'risk',

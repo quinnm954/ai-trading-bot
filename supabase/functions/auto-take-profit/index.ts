@@ -15,6 +15,7 @@ import {
   WIDE_TRAIL_DROP_PCT,
   WIDE_BREAKEVEN_ARM_PCT,
   WIDE_BREAKEVEN_FLOOR_PCT,
+  WIDE_PARTIAL_TP_ENABLED,
   WIDE_PARTIAL_TP_PCT,
   WIDE_PARTIAL_FRACTION,
 } from "../_shared/exit-geometry.ts";
@@ -1210,6 +1211,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     // level and let the remainder run to the target behind the armed trailing stop.
     const partialAlreadyDone = position.partial_tp_done === true;
     const wantsPartial =
+      WIDE_PARTIAL_TP_ENABLED &&
       isWideSwing &&
       !partialAlreadyDone &&
       position.side === 'buy' &&
@@ -1500,6 +1502,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss')
           : hitMaxHold ? 'max_hold'
           : hitHardTakeProfit ? 'take_profit'
+          : hitBreakevenLock ? 'breakeven_lock'
           : hitTrailingStop ? 'trailing_stop'
           : hitRotationTarget ? 'rotation'
           : 'exit',
@@ -1527,6 +1530,8 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         ? `💰 Hard take-profit at ${pnlPercent.toFixed(3)}% (≥ ${posTakeProfitPct}%)`
         : hitRotationTarget 
         ? `🔄 Rotation at ${pnlPercent.toFixed(3)}%` 
+        : hitBreakevenLock
+          ? `🔒 Breakeven lock: peak was ${newPeakPnl.toFixed(2)}%, gave back to ${pnlPercent.toFixed(2)}% — banked instead of risking the full stop`
         : hitTrailingStop 
           ? `📉 Trailing stop: peak was ${newPeakPnl.toFixed(2)}%, dropped ${dropFromPeak.toFixed(2)}% to ${pnlPercent.toFixed(2)}%`
           : hitMaxHold
