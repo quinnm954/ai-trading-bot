@@ -137,11 +137,19 @@ export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
 // arm level simply took profit, so the frequent +2-3% excursions round-tripped back to
 // the stop. Trailing now arms well below the target and gives back a tight amount, so a
 // stalled move books a real net winner while runners still ride to the full target.
-export const WIDE_TRAIL_ARM_PCT = 2.0;  // gross gain at which trailing arms
-export const WIDE_TRAIL_DROP_PCT = 0.8; // gross giveback from peak that exits
+export const WIDE_TRAIL_ARM_PCT = 3.0;  // gross gain at which trailing arms
+export const WIDE_TRAIL_DROP_PCT = 0.6; // gross giveback from peak that exits
+
+// ── WIDE-MODE BREAKEVEN LOCK ─────────────────────────────────────────────────
+// Losers were booking the full net -2.0% (1.2% stop + 0.8% fees) while winners were
+// being clipped at +0.4-1.2% net. Once a swing has shown a real move up, the stop
+// ratchets to a level that still covers the round trip, so a round-tripped winner
+// costs ~nothing instead of a full-size loss.
+export const WIDE_BREAKEVEN_ARM_PCT = 1.4;   // gross gain that arms the lock
+export const WIDE_BREAKEVEN_FLOOR_PCT = 0.9; // gross level the lock exits at (net ~+0.1%)
 
 // ── WIDE-MODE PARTIAL TAKE-PROFIT ────────────────────────────────────────────
 // Half the position is banked at an interim level; the remainder runs to the full
 // target behind the armed trailing stop.
-export const WIDE_PARTIAL_TP_PCT = 2.0;   // gross gain at which the partial fires
+export const WIDE_PARTIAL_TP_PCT = 2.5;   // gross gain at which the partial fires
 export const WIDE_PARTIAL_FRACTION = 0.5; // fraction of the position sold
