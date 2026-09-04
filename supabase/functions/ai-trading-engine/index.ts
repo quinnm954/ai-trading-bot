@@ -54,10 +54,10 @@ function enforceExitGeometry(rawTp: number, rawStop: number) {
 
 // Defaults — overridden per-user by scalp_settings table via loadScalpCfg()
 const SCALP_CFG_DEFAULTS = {
-  entry_min_5m_pct: 0.3,
-  entry_min_15m_pct: 0.2,
-  entry_min_1h_pct: 0.3,
-  entry_min_24h_pct: 0.3,
+  entry_min_5m_pct: 0.15,
+  entry_min_15m_pct: 0.1,
+  entry_min_1h_pct: 0.15,
+  entry_min_24h_pct: 0.15,
   reentry_breakout_pct: 0.25,
   chase_guard_minutes: 120,
   take_profit_pct: TP_FLOOR_GROSS_PCT,
@@ -160,8 +160,13 @@ const MIN_TECH_SCORE = 55;        // setup quality floor (sweep: 45 → 55 lifte
 // Positions are held 12–24h with the SAME geometry (+3.36% TP / -0.80% stop), so the
 // asset must be volatile enough to travel the target inside that window. These gates
 // remove the quiet coins that only ever drift into the fee dead zone.
-const SWING_MIN_24H_RANGE_PCT = 7.0; // 24h high-low range as % of price (sweep: 5% → 7%)
-const SWING_MIN_ATR_PCT = 0.45;      // realized 5m ATR as % of price
+// Momentum/volatility gates are the CHEAP gates: they only ask "can this asset travel the
+// target at all?". Quality is enforced separately and is NOT relaxed (techScore ≥ 55,
+// P(up) ≥ 0.65, modelled expectancy ≥ 0.25%). At range ≥ 7% / ATR ≥ 0.45% the cheap gates
+// were rejecting setups that passed every quality test (BTC/ETH/SOL at 6.0–6.6% range,
+// TRUMP/LINK at 0.38–0.44% ATR), so the engine stood down on strong candidates.
+const SWING_MIN_24H_RANGE_PCT = 5.5; // 24h high-low range as % of price
+const SWING_MIN_ATR_PCT = 0.35;      // realized 5m ATR as % of price
 
 
 export interface UpEdge {
