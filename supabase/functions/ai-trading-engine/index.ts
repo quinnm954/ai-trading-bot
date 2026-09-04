@@ -3074,6 +3074,7 @@ async function adaptParametersFromRecentTrades(
           streak,
           changes: next,
           is_paper: isPaperMode,
+          last_closed_at: newestClosedAt,
         },
       });
       console.log(`🧠 ADAPTIVE TUNE [${userId.slice(0, 8)}]: win ${winRate.toFixed(0)}% exp ${expectancy.toFixed(2)}% streak ${streak} →`, next);
