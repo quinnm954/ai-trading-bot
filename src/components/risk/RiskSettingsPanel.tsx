@@ -20,8 +20,6 @@ import {
   WIDE_STOP_MAX_PCT,
   WIDE_STOP_MIN_PCT,
   WIDE_TP_GROSS_PCT,
-  WIDE_TRAIL_ARM_PCT,
-  WIDE_TRAIL_DROP_PCT,
   solveExitGeometry,
   solveWideGeometry,
 } from '@/lib/exitGeometry';
