@@ -4291,6 +4291,43 @@ serve(async (req) => {
       console.log('⚠️ Stop-out blacklist lookup failed:', e?.message || e);
     }
 
+    // 🌊 CORRELATED FLUSH GUARD
+    // 8 of the last 19 stop-losses fired inside a single 25-minute window across
+    // unrelated symbols — that is one market-wide flush, not 8 bad setups. When the
+    // whole book is being stopped out, adding fresh longs into the same flush is how a
+    // day's worth of winners gets erased. Stand down for a cooling-off window.
+    const FLUSH_LOOKBACK_MINUTES = 45;
+    const FLUSH_MAX_STOPS = 3;
+    let flushHalt = false;
+    try {
+      const since = new Date(Date.now() - FLUSH_LOOKBACK_MINUTES * 60 * 1000).toISOString();
+      const { data: flushRows } = await supabase
+        .from('trades')
+        .select('symbol, exit_reason, closed_at')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode)
+        .eq('status', 'closed')
+        .gte('closed_at', since);
+      const stops = (flushRows || []).filter((r: any) =>
+        String(r.exit_reason || '').toLowerCase().includes('stop_loss')
+      );
+      if (stops.length >= FLUSH_MAX_STOPS) {
+        flushHalt = true;
+        console.log(
+          `🌊 CORRELATED FLUSH: ${stops.length} stop-loss exits in the last ${FLUSH_LOOKBACK_MINUTES}m (${[...new Set(stops.map((r: any) => String(r.symbol).toUpperCase()))].join(', ')}) — no new entries this cycle`
+        );
+        await supabase.from('risk_events').insert({
+          user_id: user.id,
+          event_type: 'correlated_flush_halt',
+          severity: 'warning',
+          message: `${stops.length} stop-outs in ${FLUSH_LOOKBACK_MINUTES}m — new entries paused while the tape flushes`,
+          details: { stops: stops.length, lookback_minutes: FLUSH_LOOKBACK_MINUTES, is_paper: isPaperMode },
+        });
+      }
+    } catch (e: any) {
+      console.log('⚠️ Flush guard lookup failed:', e?.message || e);
+    }
+
 
     // ============================================================
     // 🪙 DUST TOP-UP PHASE
@@ -4485,6 +4522,10 @@ serve(async (req) => {
 
       // 🚫 HARD DOWNTREND VETO + STOP-OUT BLACKLIST (buys only)
       if (side === 'buy' && !(decision as any)._topup) {
+        if (flushHalt) {
+          console.log(`🌊 SKIP ${symbolUpper}: correlated flush in progress — standing down on new longs`);
+          continue;
+        }
         if (stopOutBlocked.has(symbolUpper)) {
           console.log(`🚫 SKIP ${symbolUpper}: stopped out ${STOPOUT_MAX}+ times in last ${STOPOUT_LOOKBACK_HOURS}h — cooling off`);
           continue;
