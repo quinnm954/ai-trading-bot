@@ -1895,13 +1895,15 @@ function computeAggregateTape(marketData: MarketData[]): {
   }
 
   const avg24h = universe.reduce((s, c) => s + (c.change24h ?? 0), 0) / universe.length;
-  const avg1h = universe.reduce((s, c) => s + (c.change1h ?? 0), 0) / universe.length;
+  const hourly = universe.map(c => c.change1h).filter((value): value is number => Number.isFinite(value));
+  const avg1h = hourly.length > 0 ? hourly.reduce((s, value) => s + value, 0) / hourly.length : Number.NaN;
   const breadth = universe.filter(c => (c.change24h ?? 0) > 0).length / universe.length;
 
-  const rising = avg24h >= TAPE_MIN_24H_PCT && avg1h >= TAPE_MIN_1H_PCT && breadth >= TAPE_MIN_BREADTH;
+  const hasHourlyBreadth = hourly.length >= 8;
+  const rising = avg24h >= TAPE_MIN_24H_PCT && hasHourlyBreadth && avg1h >= TAPE_MIN_1H_PCT && breadth >= TAPE_MIN_BREADTH;
   const label =
     `tape 24h ${avg24h >= 0 ? '+' : ''}${avg24h.toFixed(2)}% (need ≥${TAPE_MIN_24H_PCT}%), ` +
-    `1h ${avg1h >= 0 ? '+' : ''}${avg1h.toFixed(2)}% (need ≥${TAPE_MIN_1H_PCT}%), ` +
+    `1h ${hasHourlyBreadth ? `${avg1h >= 0 ? '+' : ''}${avg1h.toFixed(2)}%` : 'insufficient data'} (need ≥${TAPE_MIN_1H_PCT}%, n=${hourly.length}), ` +
     `breadth ${(breadth * 100).toFixed(0)}% (need ≥${TAPE_MIN_BREADTH * 100}%) across ${universe.length} liquid names`;
 
   return { rising, avg24h, avg1h, breadth, label };
@@ -2352,18 +2354,21 @@ function classifyRegimeProfile(marketData: MarketData[]): RegimeReport {
     return { enumRegime, profile: 'dead', avg5mAbs: 0, avg1hAbs: 0, avg24h: 0, dispersion24h: 0, risersShare: 0 };
   }
 
-  const c5s = marketData.map(m => Math.abs(m.change5m ?? 0));
-  const c1s = marketData.map(m => Math.abs(m.change1h ?? 0));
+  const shortSample = marketData.filter(m => Number.isFinite(m.change5m) && Number.isFinite(m.change1h));
+  const c5s = shortSample.map(m => Math.abs(m.change5m ?? 0));
+  const c1s = shortSample.map(m => Math.abs(m.change1h ?? 0));
   const c24s = marketData.map(m => m.change24h ?? 0);
-  const avg5mAbs = c5s.reduce((a, b) => a + b, 0) / c5s.length;
-  const avg1hAbs = c1s.reduce((a, b) => a + b, 0) / c1s.length;
+  const avg5mAbs = c5s.length ? c5s.reduce((a, b) => a + b, 0) / c5s.length : 0;
+  const avg1hAbs = c1s.length ? c1s.reduce((a, b) => a + b, 0) / c1s.length : 0;
   const avg24h = c24s.reduce((a, b) => a + b, 0) / c24s.length;
   const dispersion24h = Math.sqrt(c24s.reduce((s, x) => s + Math.pow(x - avg24h, 2), 0) / c24s.length);
-  const risersShare = marketData.filter(m => (m.change5m ?? 0) > 0).length / marketData.length;
+  const risersShare = shortSample.length
+    ? shortSample.filter(m => Number(m.change5m) > 0).length / shortSample.length
+    : 0;
 
   // Dead: nothing is moving fast enough to scalp profitably after fees (~0.2% round-trip).
   // Require either visible short-window movement or a meaningful 1h drift.
-  if (avg5mAbs < 0.15 && avg1hAbs < 0.4 && dispersion24h < 1.5) {
+  if (shortSample.length >= 8 && avg5mAbs < 0.15 && avg1hAbs < 0.4 && dispersion24h < 1.5) {
     return { enumRegime, profile: 'dead', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
   }
 
