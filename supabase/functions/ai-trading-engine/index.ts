@@ -1840,6 +1840,41 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
   }
 }
 
+/** Populate real short-window movement before regime classification and reuse it later. */
+async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<{ attempted: number; failures: number }> {
+  const targets = coins
+    .filter((coin) => coin.productId && coin.techScore === undefined)
+    .sort((a, b) => (b.volume24h ?? b.volume ?? 0) - (a.volume24h ?? a.volume ?? 0))
+    .slice(0, limit);
+  let failures = 0;
+  await mapLimit(targets, 4, async (coin) => {
+    const productId = coin.productId;
+    if (!productId) return;
+    const t = await fetchCandleTechnicals(productId);
+    if (!t) {
+      failures++;
+      return;
+    }
+    coin.change5m = t.change5m;
+    coin.change1h = t.change15m;
+    coin.rsi14 = t.rsi14;
+    coin.bbLower = t.bbLower;
+    coin.bbMid = t.bbMid;
+    coin.bbUpper = t.bbUpper;
+    coin.bbWidth = t.bbWidth;
+    coin.percentB = t.percentB;
+    coin.techSetup = t.techSetup;
+    coin.techScore = t.techScore;
+    coin.atrPct = t.atrPct;
+    coin.volClass = t.volClass;
+    coin.volScore = t.volScore;
+    coin.supportPrice = t.supportPrice;
+    coin.distanceToSupportPct = t.distanceToSupportPct;
+    coin.supportContext = t.supportContext;
+  });
+  return { attempted: targets.length, failures };
+}
+
 // ── AGGREGATE TAPE (broad market breadth/trend) ──────────────────────────────
 // Equal-weighted average 24h and 1h return of the most liquid non-stable assets,
 // plus breadth (% of names up on 24h). Long swings only run with the tape.
@@ -1924,33 +1959,8 @@ async function filterByTrend(
   // whole engine down. So: bounded concurrency + retry, and coins without technicals are
   // reported as a data failure rather than a "weak setup".
   const candleTargets = eligibleCoins.slice(0, 30);
-  let techFailures = 0;
-  await mapLimit(candleTargets, 4, async (coin) => {
-    if (!coin.productId) return;
-    const t = await fetchCandleTechnicals(coin.productId);
-    if (!t) {
-      techFailures++;
-      return;
-    }
-    {
-      coin.change5m = t.change5m;
-      if (coin.change1h === undefined || coin.change1h === 0) coin.change1h = t.change15m;
-      coin.rsi14 = t.rsi14;
-      coin.bbLower = t.bbLower;
-      coin.bbMid = t.bbMid;
-      coin.bbUpper = t.bbUpper;
-      coin.bbWidth = t.bbWidth;
-      coin.percentB = t.percentB;
-      coin.techSetup = t.techSetup;
-      coin.techScore = t.techScore;
-      coin.atrPct = t.atrPct;
-      coin.volClass = t.volClass;
-      coin.volScore = t.volScore;
-      coin.supportPrice = t.supportPrice;
-      coin.distanceToSupportPct = t.distanceToSupportPct;
-      coin.supportContext = t.supportContext;
-    }
-  });
+  const enrichment = await enrichCandleTechnicals(candleTargets, 30);
+  const techFailures = enrichment.failures;
   if (techFailures > 0) {
     console.log(`📡 Candle feed: ${candleTargets.length - techFailures}/${candleTargets.length} coins have technicals (${techFailures} feed failures — those are skipped, not scored)`);
   }
@@ -3586,6 +3596,13 @@ serve(async (req) => {
     }
 
     console.log(`📊 Total tradeable crypto assets: ${marketData.length}`);
+
+    // Coinbase's products response has 24h movement but no short-window return.
+    // Enrich the liquid market sample before regime scoring so missing values can
+    // never be misread as a perfectly flat/dead market. Candidate filtering reuses
+    // these same technicals and only fetches any remaining eligible names.
+    const regimeFeed = await enrichCandleTechnicals(marketData, 30);
+    console.log(`📡 Regime candle feed: ${regimeFeed.attempted - regimeFeed.failures}/${regimeFeed.attempted} liquid markets enriched`);
 
     // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
     const regime = detectMarketRegime(marketData);
