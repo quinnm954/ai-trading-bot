@@ -17,7 +17,7 @@ export interface FeedQuote {
 
 export interface FeedResult {
   quotes: FeedQuote[];
-  source: 'coingecko' | 'coincap' | 'none';
+  source: 'coingecko' | 'coinbase' | 'coincap' | 'none';
   fetchedAt: string;
 }
 
@@ -76,7 +76,81 @@ export async function fetchLiveMarket(): Promise<FeedResult> {
     }
   }
 
-  // Fallback: CoinCap (real prices, 24h change only).
+  // First fallback: Coinbase's public product feed. This is the same venue the
+  // trading engine executes against, and is substantially more reliable than
+  // relying on a second aggregator. Enrich the most liquid names with actual
+  // hourly candles so missing short-window data is never represented as 0%.
+  try {
+    const res = await fetch('https://api.coinbase.com/api/v3/brokerage/market/products?limit=500', {
+      headers: { 'User-Agent': 'TitanAI-Market-Watcher/1.0' },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      const products = Array.isArray(body?.products) ? body.products : [];
+      const candidates = products
+        .filter((p: any) => {
+          const quote = String(p?.quote_currency_id ?? '').toUpperCase();
+          const price = Number(p?.price ?? p?.mid_market_price ?? 0);
+          return (quote === 'USDC' || quote === 'USD') && price > 0
+            && p?.status === 'online' && !p?.is_disabled && !p?.trading_disabled
+            && !p?.cancel_only && !p?.view_only && p?.product_type !== 'FUTURE';
+        })
+        .map((p: any) => {
+          const price = Number(p.price ?? p.mid_market_price);
+          return {
+            productId: String(p.product_id),
+            quote: {
+              symbol: String(p.base_currency_id).toUpperCase(),
+              price,
+              change1h: Number.NaN,
+              change24h: Number(p.price_percentage_change_24h ?? 0),
+              change7d: 0,
+              volume: Number(p.approximate_quote_24h_volume ?? 0),
+              high24h: Number(p.high_24h ?? price),
+              low24h: Number(p.low_24h ?? price),
+            } satisfies FeedQuote,
+          };
+        })
+        .sort((a: any, b: any) => b.quote.volume - a.quote.volume);
+
+      const liquid = candidates.slice(0, 60);
+      const now = Math.floor(Date.now() / 1000);
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(6, liquid.length) }, async () => {
+        while (cursor < liquid.length) {
+          const index = cursor++;
+          const item = liquid[index];
+          try {
+            const candleRes = await fetch(
+              `https://api.coinbase.com/api/v3/brokerage/market/products/${encodeURIComponent(item.productId)}/candles?start=${now - 3 * 3600}&end=${now}&granularity=ONE_HOUR`,
+              { headers: { 'User-Agent': 'TitanAI-Market-Watcher/1.0' } },
+            );
+            if (!candleRes.ok) continue;
+            const candleBody = await candleRes.json();
+            const candles = Array.isArray(candleBody?.candles)
+              ? [...candleBody.candles].sort((a: any, b: any) => Number(a.start) - Number(b.start))
+              : [];
+            if (candles.length < 2) continue;
+            const previous = Number(candles[candles.length - 2]?.close ?? 0);
+            const latest = Number(candles[candles.length - 1]?.close ?? 0);
+            if (previous > 0 && latest > 0) item.quote.change1h = ((latest - previous) / previous) * 100;
+          } catch (_e) {
+            // This asset is omitted below rather than publishing a fake flat move.
+          }
+        }
+      });
+      await Promise.all(workers);
+
+      const quotes = liquid.map((item: any) => item.quote)
+        .filter((q: FeedQuote) => Number.isFinite(q.change1h));
+      if (quotes.length >= 8) return { quotes, source: 'coinbase', fetchedAt };
+    }
+  } catch (_e) {
+    // fall through to the final fallback
+  }
+
+  // Final fallback: CoinCap (real prices, 24h change only). Keep the feed live,
+  // but mark the missing hourly move as NaN so it cannot masquerade as flat data.
   try {
     const res = await fetch('https://api.coincap.io/v2/assets?limit=100');
     if (res.ok) {
@@ -88,7 +162,7 @@ export async function fetchLiveMarket(): Promise<FeedResult> {
           return {
             symbol: String(c.symbol).toUpperCase(),
             price,
-            change1h: 0,
+            change1h: Number.NaN,
             change24h: Number(c.changePercent24Hr ?? 0),
             change7d: 0,
             volume: Number(c.volumeUsd24Hr ?? 0),
@@ -96,7 +170,8 @@ export async function fetchLiveMarket(): Promise<FeedResult> {
             low24h: price,
           };
         });
-      if (quotes.length > 0) return { quotes, source: 'coincap', fetchedAt };
+      const usable = quotes.filter((q) => Number.isFinite(q.change1h));
+      if (usable.length > 0) return { quotes: usable, source: 'coincap', fetchedAt };
     }
   } catch (_e) {
     // fall through
