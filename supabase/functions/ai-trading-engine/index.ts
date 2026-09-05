@@ -1840,6 +1840,41 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
   }
 }
 
+/** Populate real short-window movement before regime classification and reuse it later. */
+async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<{ attempted: number; failures: number }> {
+  const targets = coins
+    .filter((coin) => coin.productId && coin.techScore === undefined)
+    .sort((a, b) => (b.volume24h ?? b.volume ?? 0) - (a.volume24h ?? a.volume ?? 0))
+    .slice(0, limit);
+  let failures = 0;
+  await mapLimit(targets, 4, async (coin) => {
+    const productId = coin.productId;
+    if (!productId) return;
+    const t = await fetchCandleTechnicals(productId);
+    if (!t) {
+      failures++;
+      return;
+    }
+    coin.change5m = t.change5m;
+    coin.change1h = t.change15m;
+    coin.rsi14 = t.rsi14;
+    coin.bbLower = t.bbLower;
+    coin.bbMid = t.bbMid;
+    coin.bbUpper = t.bbUpper;
+    coin.bbWidth = t.bbWidth;
+    coin.percentB = t.percentB;
+    coin.techSetup = t.techSetup;
+    coin.techScore = t.techScore;
+    coin.atrPct = t.atrPct;
+    coin.volClass = t.volClass;
+    coin.volScore = t.volScore;
+    coin.supportPrice = t.supportPrice;
+    coin.distanceToSupportPct = t.distanceToSupportPct;
+    coin.supportContext = t.supportContext;
+  });
+  return { attempted: targets.length, failures };
+}
+
 // ── AGGREGATE TAPE (broad market breadth/trend) ──────────────────────────────
 // Equal-weighted average 24h and 1h return of the most liquid non-stable assets,
 // plus breadth (% of names up on 24h). Long swings only run with the tape.
@@ -1860,13 +1895,15 @@ function computeAggregateTape(marketData: MarketData[]): {
   }
 
   const avg24h = universe.reduce((s, c) => s + (c.change24h ?? 0), 0) / universe.length;
-  const avg1h = universe.reduce((s, c) => s + (c.change1h ?? 0), 0) / universe.length;
+  const hourly = universe.map(c => c.change1h).filter((value): value is number => Number.isFinite(value));
+  const avg1h = hourly.length > 0 ? hourly.reduce((s, value) => s + value, 0) / hourly.length : Number.NaN;
   const breadth = universe.filter(c => (c.change24h ?? 0) > 0).length / universe.length;
 
-  const rising = avg24h >= TAPE_MIN_24H_PCT && avg1h >= TAPE_MIN_1H_PCT && breadth >= TAPE_MIN_BREADTH;
+  const hasHourlyBreadth = hourly.length >= 8;
+  const rising = avg24h >= TAPE_MIN_24H_PCT && hasHourlyBreadth && avg1h >= TAPE_MIN_1H_PCT && breadth >= TAPE_MIN_BREADTH;
   const label =
     `tape 24h ${avg24h >= 0 ? '+' : ''}${avg24h.toFixed(2)}% (need ≥${TAPE_MIN_24H_PCT}%), ` +
-    `1h ${avg1h >= 0 ? '+' : ''}${avg1h.toFixed(2)}% (need ≥${TAPE_MIN_1H_PCT}%), ` +
+    `1h ${hasHourlyBreadth ? `${avg1h >= 0 ? '+' : ''}${avg1h.toFixed(2)}%` : 'insufficient data'} (need ≥${TAPE_MIN_1H_PCT}%, n=${hourly.length}), ` +
     `breadth ${(breadth * 100).toFixed(0)}% (need ≥${TAPE_MIN_BREADTH * 100}%) across ${universe.length} liquid names`;
 
   return { rising, avg24h, avg1h, breadth, label };
@@ -1924,33 +1961,8 @@ async function filterByTrend(
   // whole engine down. So: bounded concurrency + retry, and coins without technicals are
   // reported as a data failure rather than a "weak setup".
   const candleTargets = eligibleCoins.slice(0, 30);
-  let techFailures = 0;
-  await mapLimit(candleTargets, 4, async (coin) => {
-    if (!coin.productId) return;
-    const t = await fetchCandleTechnicals(coin.productId);
-    if (!t) {
-      techFailures++;
-      return;
-    }
-    {
-      coin.change5m = t.change5m;
-      if (coin.change1h === undefined || coin.change1h === 0) coin.change1h = t.change15m;
-      coin.rsi14 = t.rsi14;
-      coin.bbLower = t.bbLower;
-      coin.bbMid = t.bbMid;
-      coin.bbUpper = t.bbUpper;
-      coin.bbWidth = t.bbWidth;
-      coin.percentB = t.percentB;
-      coin.techSetup = t.techSetup;
-      coin.techScore = t.techScore;
-      coin.atrPct = t.atrPct;
-      coin.volClass = t.volClass;
-      coin.volScore = t.volScore;
-      coin.supportPrice = t.supportPrice;
-      coin.distanceToSupportPct = t.distanceToSupportPct;
-      coin.supportContext = t.supportContext;
-    }
-  });
+  const enrichment = await enrichCandleTechnicals(candleTargets, 30);
+  const techFailures = enrichment.failures;
   if (techFailures > 0) {
     console.log(`📡 Candle feed: ${candleTargets.length - techFailures}/${candleTargets.length} coins have technicals (${techFailures} feed failures — those are skipped, not scored)`);
   }
@@ -2342,18 +2354,21 @@ function classifyRegimeProfile(marketData: MarketData[]): RegimeReport {
     return { enumRegime, profile: 'dead', avg5mAbs: 0, avg1hAbs: 0, avg24h: 0, dispersion24h: 0, risersShare: 0 };
   }
 
-  const c5s = marketData.map(m => Math.abs(m.change5m ?? 0));
-  const c1s = marketData.map(m => Math.abs(m.change1h ?? 0));
+  const shortSample = marketData.filter(m => Number.isFinite(m.change5m) && Number.isFinite(m.change1h));
+  const c5s = shortSample.map(m => Math.abs(m.change5m ?? 0));
+  const c1s = shortSample.map(m => Math.abs(m.change1h ?? 0));
   const c24s = marketData.map(m => m.change24h ?? 0);
-  const avg5mAbs = c5s.reduce((a, b) => a + b, 0) / c5s.length;
-  const avg1hAbs = c1s.reduce((a, b) => a + b, 0) / c1s.length;
+  const avg5mAbs = c5s.length ? c5s.reduce((a, b) => a + b, 0) / c5s.length : 0;
+  const avg1hAbs = c1s.length ? c1s.reduce((a, b) => a + b, 0) / c1s.length : 0;
   const avg24h = c24s.reduce((a, b) => a + b, 0) / c24s.length;
   const dispersion24h = Math.sqrt(c24s.reduce((s, x) => s + Math.pow(x - avg24h, 2), 0) / c24s.length);
-  const risersShare = marketData.filter(m => (m.change5m ?? 0) > 0).length / marketData.length;
+  const risersShare = shortSample.length
+    ? shortSample.filter(m => Number(m.change5m) > 0).length / shortSample.length
+    : 0;
 
   // Dead: nothing is moving fast enough to scalp profitably after fees (~0.2% round-trip).
   // Require either visible short-window movement or a meaningful 1h drift.
-  if (avg5mAbs < 0.15 && avg1hAbs < 0.4 && dispersion24h < 1.5) {
+  if (shortSample.length >= 8 && avg5mAbs < 0.15 && avg1hAbs < 0.4 && dispersion24h < 1.5) {
     return { enumRegime, profile: 'dead', avg5mAbs, avg1hAbs, avg24h, dispersion24h, risersShare };
   }
 
@@ -3586,6 +3601,13 @@ serve(async (req) => {
     }
 
     console.log(`📊 Total tradeable crypto assets: ${marketData.length}`);
+
+    // Coinbase's products response has 24h movement but no short-window return.
+    // Enrich the liquid market sample before regime scoring so missing values can
+    // never be misread as a perfectly flat/dead market. Candidate filtering reuses
+    // these same technicals and only fetches any remaining eligible names.
+    const regimeFeed = await enrichCandleTechnicals(marketData, 30);
+    console.log(`📡 Regime candle feed: ${regimeFeed.attempted - regimeFeed.failures}/${regimeFeed.attempted} liquid markets enriched`);
 
     // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
     const regime = detectMarketRegime(marketData);
