@@ -10,7 +10,9 @@ interface ClosedTrade {
   exit_reason: string | null;
   pnl: number | null;
   closed_at: string | null;
+  created_at: string | null;
 }
+
 
 interface OpenPosition {
   symbol: string;
@@ -74,14 +76,15 @@ export function ExpectancyCard({ isPaper }: Props) {
     if (!user) return;
 
     const [{ data: tradeData }, { data: posData }] = await Promise.all([
+      // No closed_at filter: some exit paths recorded a completed trade without a
+      // close timestamp, which used to hide those trades from expectancy entirely.
       supabase
         .from('trades')
-        .select('strategy, exit_reason, pnl, closed_at')
+        .select('strategy, exit_reason, pnl, closed_at, created_at')
         .eq('user_id', user.id)
         .eq('is_paper', isPaper)
         .eq('status', 'closed')
-        .not('closed_at', 'is', null)
-        .order('closed_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(2000),
       supabase
         .from('positions')
@@ -95,7 +98,7 @@ export function ExpectancyCard({ isPaper }: Props) {
     setOpenPositions((posData ?? []) as OpenPosition[]);
 
     const closes = closed
-      .map(t => new Date(t.closed_at as string).getTime())
+      .map(t => new Date((t.closed_at ?? t.created_at) as string).getTime())
       .filter(n => Number.isFinite(n))
       .sort((a, b) => a - b);
     if (closes.length >= 2) {
