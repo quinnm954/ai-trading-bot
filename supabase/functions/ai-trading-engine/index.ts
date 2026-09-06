@@ -32,6 +32,10 @@ const DIVERSITY_LOOKBACK_MINUTES = 90;       // window used to penalise recently
 const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window triggers the rotation penalty
 const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 12; // hard cap: never more than 12 simultaneous scalps
+// Sizing floor: a setup that clears every entry filter is worth the full allowance.
+// Qualified entries are sized at the per-position cap and may never fall below this
+// fraction of it (probation / liquidation-map throttles are the only exceptions).
+const SIZING_FLOOR_FRACTION = 0.75;
 // Same allowance for every strategy path (AI momentum, rules, grid) so all accounts
 // fill open slots at an identical rate instead of one path dumping every level at once.
 const MAX_NEW_ENTRIES_PER_CYCLE = 2;
@@ -2899,7 +2903,8 @@ function analyzeWithRules(
     // Precision-first threshold: rule strategies must clear 0.60 confidence before
     // they're even considered for the unified scoring/sentiment gate downstream.
     if (action !== 'hold' && confidence >= 0.60) {
-      const positionValue = balance * (maxPositionSize / 100) * confidence;
+      // Full allowance for a qualified setup — confidence gates entry, it no longer shrinks size.
+      const positionValue = balance * (maxPositionSize / 100);
       const quantity = positionValue / coin.price;
       
       decisions.push({
@@ -4201,7 +4206,9 @@ serve(async (req) => {
         const availableCapital = capitalBasis * (maxCapitalUsage / 100);
 
         const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
-        const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 1);
+        const capPct = Number(settings.max_position_size || 10);
+        const sizedPct = Math.min(capPct, Math.max(Number(decisionSizePercent), capPct * SIZING_FLOOR_FRACTION));
+        const tradeValue = Math.max(availableCapital * (sizedPct / 100), 1);
         const quantity = tradeValue / coinData.price;
         
         // Insert pending trade for user approval
@@ -4655,10 +4662,19 @@ serve(async (req) => {
       const availableCapital = capitalBasis * (maxCapitalUsage / 100);
 
 
-      // Dynamic sizing: use AI-suggested size within maxPositionSize cap.
-      // target_position_size_usd is intentionally ignored — no fixed dollar target.
-      const aiSuggestedValue = availableCapital * (Math.min(maxPositionSize, Number((decision as any).size_percent || maxPositionSize)) / 100);
-      const baseValue = Math.min(aiSuggestedValue, availableCapital);
+      // Full-allowance sizing: any setup that cleared every entry filter gets the whole
+      // per-position allowance. A model-suggested size only counts when it's ABOVE the
+      // floor; it can never shrink a qualified entry below SIZING_FLOOR_FRACTION of the cap.
+      // The binding limits stay the per-position notional cap, the capital-usage ceiling
+      // and the concurrent-slot cap — none of which change here.
+      const capValue = availableCapital * (maxPositionSize / 100);
+      const suggestedPct = Number((decision as any).size_percent || maxPositionSize);
+      const suggestedValue = availableCapital * (Math.min(maxPositionSize, suggestedPct) / 100);
+      const baseValue = Math.min(
+        Math.max(suggestedValue, capValue * SIZING_FLOOR_FRACTION),
+        capValue,
+        availableCapital
+      );
       const leveragedNotional = baseValue * decisionLeverage;
 
       // Actual capital used — strict: NEVER exceeds baseValue (no confidence multiplier upward).
