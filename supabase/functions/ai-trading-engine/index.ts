@@ -1077,6 +1077,9 @@ async function tryLossRotation(
     pnl: realizedPnl,
     is_paper: isPaperMode,
     exit_reason: 'loss_rotation',
+    // Without closed_at the exit is invisible to expectancy, trade counts and journals.
+    closed_at: new Date().toISOString(),
+    duration_seconds: Math.max(0, Math.round((Date.now() - new Date(pos.created_at).getTime()) / 1000)),
     ai_reasoning: `Loss rotation: freed capital for ${topCandidate.symbol} (5m +${candC5.toFixed(2)}% vs held ${c5.toFixed(2)}%)`,
   });
   await supabase.from('ai_decisions').insert({
