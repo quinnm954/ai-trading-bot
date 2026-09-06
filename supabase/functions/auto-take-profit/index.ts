@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { closeOpenTrade } from "../_shared/close-trade.ts";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
@@ -982,12 +983,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         }
       }
 
-      await supabase.from('trades').update({
-        status: 'closed',
-        exit_price: actualExitPrice,
+      await closeOpenTrade(supabase, {
+        userId,
+        symbol: position.symbol,
+        isPaper: isPaperMode,
+        side: position.side,
+        exitPrice: actualExitPrice,
         pnl,
-        closed_at: new Date().toISOString(),
-      }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+        exitReason: 'milestone_withdrawal',
+        quantity,
+        entryPrice,
+        strategy: position.strategy ?? null,
+      });
 
       await supabase.from('positions').delete().eq('id', position.id);
     }
@@ -1045,12 +1052,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           console.log(`✅ Legacy position ${isPaperMode ? 'simulated-' : ''}sold: ${position.symbol} -> $${soldValue.toFixed(2)}`);
 
           // Close trade and delete position
-          await supabase.from('trades').update({
-            status: 'closed',
-            exit_price: currentPrice,
+          await closeOpenTrade(supabase, {
+            userId,
+            symbol: position.symbol,
+            isPaper: isPaperMode,
+            side: position.side,
+            exitPrice: currentPrice,
             pnl: soldValue, // Treat entire value as profit since no cost basis
-            closed_at: new Date().toISOString(),
-          }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+            exitReason: 'legacy_position_sold',
+            quantity,
+            entryPrice,
+            strategy: position.strategy ?? null,
+          });
 
           await supabase.from('positions').delete().eq('id', position.id);
           takeProfitCount++;
@@ -1493,15 +1506,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         });
       }
 
-      await supabase.from('trades').update({
-        status: 'closed',
-        exit_price: actualExitPrice,
+      await closeOpenTrade(supabase, {
+        userId,
+        symbol: position.symbol,
+        isPaper: isPaperMode,
+        side: position.side,
+        exitPrice: actualExitPrice,
         pnl: actualPnl,
-        fees_estimate: roundTripFee,
-        slippage_estimate: slippagePct,
-        stop_loss_price: stopPrice,
         // Every exit records why it fired — null reasons made the expectancy diagnosis blind.
-        exit_reason: isStopExit
+        exitReason: isStopExit
           ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss')
           : hitMaxHold ? 'max_hold'
           : hitHardTakeProfit ? 'take_profit'
@@ -1509,8 +1522,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           : hitTrailingStop ? 'trailing_stop'
           : hitRotationTarget ? 'rotation'
           : 'exit',
-        closed_at: new Date().toISOString(),
-      }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+        quantity,
+        entryPrice,
+        strategy: position.strategy ?? null,
+        extra: {
+          fees_estimate: roundTripFee,
+          slippage_estimate: slippagePct,
+          stop_loss_price: stopPrice,
+        },
+      });
 
 
       await supabase.from('positions').delete().eq('id', position.id);
@@ -1829,23 +1849,21 @@ serve(async (req) => {
         (COINBASE_MAKER_FEE / 100);
       const pnl = position.is_paper ? grossPnl - roundTripFee : grossPnl;
 
-      // Create closed trade record
-      await supabase.from('trades').insert({
-        user_id: position.user_id,
+      // Close the original entry row in place (never a second, detached record)
+      await closeOpenTrade(supabase, {
+        userId: position.user_id,
         symbol: position.symbol,
+        isPaper: position.is_paper,
         side: position.side,
+        exitPrice: currentPrice,
+        pnl,
+        exitReason: 'force_close',
         quantity: position.quantity,
-        entry_price: position.avg_entry_price,
-        exit_price: currentPrice,
-        pnl: pnl,
-        fees_estimate: roundTripFee,
-        status: 'closed',
-        is_paper: position.is_paper,
-        market_type: position.market_type,
+        entryPrice: position.avg_entry_price,
+        marketType: position.market_type,
         strategy: position.strategy,
-        closed_at: new Date().toISOString(),
-        exit_reason: 'force_close',
-        ai_reasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
+        extra: { fees_estimate: roundTripFee },
+        aiReasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
       });
 
       // Update balance if paper mode (return the original stake plus net P&L)
