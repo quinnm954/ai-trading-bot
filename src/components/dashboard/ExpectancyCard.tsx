@@ -268,7 +268,53 @@ export function ExpectancyCard({ isPaper }: Props) {
             </div>
           </div>
 
+          {/* Combined across every strategy and manual trade */}
+          <div className="rounded-xl border border-border/60 bg-secondary/20 p-3 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-foreground">Combined — all trades</p>
+              <span className="font-mono text-[11px] text-muted-foreground">{totalTrades} trades</span>
+            </div>
+            <div className="grid grid-cols-2 gap-y-2 gap-x-3 sm:grid-cols-4">
+              <div>
+                <p className="text-[11px] text-muted-foreground">Win rate</p>
+                <p className="font-mono text-sm font-semibold text-foreground">
+                  {combinedWinRate.toFixed(1)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {combinedLiveWins}W / {Math.max(totalTrades - combinedLiveWins, 0)}L
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Avg win</p>
+                <p className="font-mono text-sm font-semibold text-success">
+                  +${combinedAvgWin.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">{allWins.length} wins</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Avg loss</p>
+                <p className="font-mono text-sm font-semibold text-destructive">
+                  -${Math.abs(combinedAvgLoss).toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">{allLosses.length} losses</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Net P&amp;L</p>
+                <p className={cn(
+                  'font-mono text-sm font-semibold',
+                  combinedNet >= 0 ? 'text-success' : 'text-destructive',
+                )}>
+                  {combinedNet >= 0 ? '+' : '-'}${Math.abs(combinedNet).toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  incl. {combinedOpenPnl >= 0 ? '+' : '-'}${Math.abs(combinedOpenPnl).toFixed(2)} open
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-2">
+
             {buckets.map(b => {
               const exp = b.liveExpectancy;
               const ok = exp > 0;
