@@ -4659,10 +4659,19 @@ serve(async (req) => {
       const availableCapital = capitalBasis * (maxCapitalUsage / 100);
 
 
-      // Dynamic sizing: use AI-suggested size within maxPositionSize cap.
-      // target_position_size_usd is intentionally ignored — no fixed dollar target.
-      const aiSuggestedValue = availableCapital * (Math.min(maxPositionSize, Number((decision as any).size_percent || maxPositionSize)) / 100);
-      const baseValue = Math.min(aiSuggestedValue, availableCapital);
+      // Full-allowance sizing: any setup that cleared every entry filter gets the whole
+      // per-position allowance. A model-suggested size only counts when it's ABOVE the
+      // floor; it can never shrink a qualified entry below SIZING_FLOOR_FRACTION of the cap.
+      // The binding limits stay the per-position notional cap, the capital-usage ceiling
+      // and the concurrent-slot cap — none of which change here.
+      const capValue = availableCapital * (maxPositionSize / 100);
+      const suggestedPct = Number((decision as any).size_percent || maxPositionSize);
+      const suggestedValue = availableCapital * (Math.min(maxPositionSize, suggestedPct) / 100);
+      const baseValue = Math.min(
+        Math.max(suggestedValue, capValue * SIZING_FLOOR_FRACTION),
+        capValue,
+        availableCapital
+      );
       const leveragedNotional = baseValue * decisionLeverage;
 
       // Actual capital used — strict: NEVER exceeds baseValue (no confidence multiplier upward).
