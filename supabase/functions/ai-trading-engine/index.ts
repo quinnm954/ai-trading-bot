@@ -32,6 +32,10 @@ const DIVERSITY_LOOKBACK_MINUTES = 90;       // window used to penalise recently
 const DIVERSITY_RECENT_BUYS_FOR_PENALTY = 1; // any buy inside the window triggers the rotation penalty
 const SCALP_MAX_POSITION_PCT = 15; // hard cap: each scalp position notional ≤ 15% of equity
 const SCALP_MAX_CONCURRENT = 12; // hard cap: never more than 12 simultaneous scalps
+// Sizing floor: a setup that clears every entry filter is worth the full allowance.
+// Qualified entries are sized at the per-position cap and may never fall below this
+// fraction of it (probation / liquidation-map throttles are the only exceptions).
+const SIZING_FLOOR_FRACTION = 0.75;
 // Same allowance for every strategy path (AI momentum, rules, grid) so all accounts
 // fill open slots at an identical rate instead of one path dumping every level at once.
 const MAX_NEW_ENTRIES_PER_CYCLE = 2;
