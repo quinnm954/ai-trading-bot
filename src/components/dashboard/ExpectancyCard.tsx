@@ -201,6 +201,22 @@ export function ExpectancyCard({ isPaper }: Props) {
   const openMarked = buckets.reduce((s, b) => s + b.openCount, 0);
   const manualCount = buckets.find(b => b.isManual)?.closedSample ?? 0;
 
+  // Combined (all buckets pooled): win rate, average win/loss amounts, net P&L.
+  const allPnls = trades.map(t => Number(t.pnl ?? 0));
+  const allWins = allPnls.filter(p => p > 0);
+  const allLosses = allPnls.filter(p => p < 0);
+  const combinedOpenPnl = buckets.reduce((s, b) => s + b.openPnl, 0);
+  const combinedOpenWins = 0; // counted inside buckets; win rate below uses live counts
+  const combinedLiveWins = buckets.reduce(
+    (s, b) => s + Math.round((b.liveWinRate / 100) * b.liveSample),
+    combinedOpenWins,
+  );
+  const combinedWinRate = totalTrades > 0 ? (combinedLiveWins / totalTrades) * 100 : 0;
+  const combinedAvgWin = allWins.length ? allWins.reduce((s, p) => s + p, 0) / allWins.length : 0;
+  const combinedAvgLoss = allLosses.length ? allLosses.reduce((s, p) => s + p, 0) / allLosses.length : 0;
+  const combinedNet = allPnls.reduce((s, p) => s + p, 0) + combinedOpenPnl;
+
+
   return (
     <div className="glass-panel p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -252,7 +268,53 @@ export function ExpectancyCard({ isPaper }: Props) {
             </div>
           </div>
 
+          {/* Combined across every strategy and manual trade */}
+          <div className="rounded-xl border border-border/60 bg-secondary/20 p-3 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-foreground">Combined — all trades</p>
+              <span className="font-mono text-[11px] text-muted-foreground">{totalTrades} trades</span>
+            </div>
+            <div className="grid grid-cols-2 gap-y-2 gap-x-3 sm:grid-cols-4">
+              <div>
+                <p className="text-[11px] text-muted-foreground">Win rate</p>
+                <p className="font-mono text-sm font-semibold text-foreground">
+                  {combinedWinRate.toFixed(1)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {combinedLiveWins}W / {Math.max(totalTrades - combinedLiveWins, 0)}L
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Avg win</p>
+                <p className="font-mono text-sm font-semibold text-success">
+                  +${combinedAvgWin.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">{allWins.length} wins</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Avg loss</p>
+                <p className="font-mono text-sm font-semibold text-destructive">
+                  -${Math.abs(combinedAvgLoss).toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">{allLosses.length} losses</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Net P&amp;L</p>
+                <p className={cn(
+                  'font-mono text-sm font-semibold',
+                  combinedNet >= 0 ? 'text-success' : 'text-destructive',
+                )}>
+                  {combinedNet >= 0 ? '+' : '-'}${Math.abs(combinedNet).toFixed(2)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  incl. {combinedOpenPnl >= 0 ? '+' : '-'}${Math.abs(combinedOpenPnl).toFixed(2)} open
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-2">
+
             {buckets.map(b => {
               const exp = b.liveExpectancy;
               const ok = exp > 0;
