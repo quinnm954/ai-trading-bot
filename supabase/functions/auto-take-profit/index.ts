@@ -983,12 +983,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         }
       }
 
-      await supabase.from('trades').update({
-        status: 'closed',
-        exit_price: actualExitPrice,
+      await closeOpenTrade(supabase, {
+        userId,
+        symbol: position.symbol,
+        isPaper: isPaperMode,
+        side: position.side,
+        exitPrice: actualExitPrice,
         pnl,
-        closed_at: new Date().toISOString(),
-      }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+        exitReason: 'milestone_withdrawal',
+        quantity,
+        entryPrice,
+        strategy: position.strategy ?? null,
+      });
 
       await supabase.from('positions').delete().eq('id', position.id);
     }
