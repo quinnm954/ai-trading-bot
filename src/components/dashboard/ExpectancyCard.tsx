@@ -98,7 +98,7 @@ export function ExpectancyCard({ isPaper }: Props) {
     setOpenPositions((posData ?? []) as OpenPosition[]);
 
     const closes = closed
-      .map(t => new Date(t.closed_at as string).getTime())
+      .map(t => new Date((t.closed_at ?? t.created_at) as string).getTime())
       .filter(n => Number.isFinite(n))
       .sort((a, b) => a - b);
     if (closes.length >= 2) {
