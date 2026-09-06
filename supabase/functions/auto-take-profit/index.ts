@@ -1863,8 +1863,7 @@ serve(async (req) => {
         marketType: position.market_type,
         strategy: position.strategy,
         extra: { fees_estimate: roundTripFee },
-        exit_reason: 'force_close',
-        ai_reasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
+        aiReasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
       });
 
       // Update balance if paper mode (return the original stake plus net P&L)
