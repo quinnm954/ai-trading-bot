@@ -181,6 +181,7 @@ export function RiskSettingsPanel() {
 
   const CAPITAL_ROWS: LockedRow[] = [
     { label: 'Max position size', value: '15% of equity', description: 'Hard notional cap per position. The engine never exceeds it.' },
+    { label: 'Min position size', value: '75% of the cap', description: 'A setup that clears every entry filter is staked at the full allowance — confidence gates entry, it no longer shrinks size.' },
     { label: 'Max capital usage', value: '85%', description: 'Total deployable capital across all open positions (of the capital basis).' },
     { label: 'Max concurrent trades', value: String(slots), description: 'Simultaneous open AI positions, as currently configured for this account.', aiRange: 'AI may reduce to 6 in poor regimes' },
     { label: 'Max leverage', value: '1x (spot)', description: 'Leverage is disabled to keep drawdown bounded.' },
