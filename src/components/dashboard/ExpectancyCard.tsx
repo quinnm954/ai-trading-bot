@@ -5,14 +5,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useLivePrices } from '@/hooks/useLivePrices';
 
-interface ExpectancyRow {
-  strategy: string;
-  sample_size: number;
-  win_rate: number;
-  avg_win: number;
-  avg_loss: number;
-  net_pnl: number;
-  expectancy_per_trade: number;
+interface ClosedTrade {
+  strategy: string | null;
+  exit_reason: string | null;
+  pnl: number | null;
+  closed_at: string | null;
 }
 
 interface OpenPosition {
@@ -23,26 +20,52 @@ interface OpenPosition {
   strategy: string | null;
 }
 
-interface LiveRow extends ExpectancyRow {
-  liveWinRate: number;
-  liveExpectancy: number;
-  liveSample: number;
+interface Bucket {
+  bucket: string;
+  isManual: boolean;
+  closedSample: number;
+  closedWins: number;
+  closedNet: number;
+  avgWin: number;
+  avgLoss: number;
+  recentSample: number;
+  recentExpectancy: number;
   openCount: number;
   openPnl: number;
+  liveSample: number;
+  liveWinRate: number;
+  liveExpectancy: number;
 }
 
 interface Props {
   isPaper: boolean;
 }
 
+// Exits the user (or a manual/broker action) caused rather than the engine's own geometry.
+const MANUAL_EXITS = ['close_all', 'force_close', 'manual', 'manual_close', 'user_close'];
+
+function isManualTrade(t: { strategy: string | null; exit_reason: string | null }) {
+  const reason = (t.exit_reason ?? '').toLowerCase();
+  if (MANUAL_EXITS.some(m => reason.includes(m))) return true;
+  // Broker-synced / hand-placed fills arrive without a strategy attached.
+  return !t.strategy;
+}
+
+function bucketName(t: { strategy: string | null; exit_reason: string | null }) {
+  if (isManualTrade(t)) return 'manual';
+  return (t.strategy ?? 'manual').toLowerCase();
+}
+
 /**
- * Expectancy is the only number that says whether a strategy can make money:
+ * Expectancy is the only number that says whether trading can make money:
  *   expectancy = (win rate x avg win) - (loss rate x avg loss), fees included.
- * Negative expectancy means more trading loses more money, regardless of win rate.
+ *
+ * Every closed trade counts — engine trades AND manual/broker-closed ones — so the
+ * headline reflects the whole account, not just the bot's own exits.
  */
 export function ExpectancyCard({ isPaper }: Props) {
   const { user } = useAuth();
-  const [rows, setRows] = useState<ExpectancyRow[]>([]);
+  const [trades, setTrades] = useState<ClosedTrade[]>([]);
   const [tradesPerDay, setTradesPerDay] = useState(0);
   const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,20 +73,16 @@ export function ExpectancyCard({ isPaper }: Props) {
   const load = useCallback(async () => {
     if (!user) return;
 
-    const [{ data: expData }, { data: tradeData }, { data: posData }] = await Promise.all([
-      supabase
-        .from('strategy_expectancy')
-        .select('strategy, sample_size, win_rate, avg_win, avg_loss, net_pnl, expectancy_per_trade')
-        .eq('user_id', user.id)
-        .eq('is_paper', isPaper),
+    const [{ data: tradeData }, { data: posData }] = await Promise.all([
       supabase
         .from('trades')
-        .select('closed_at')
+        .select('strategy, exit_reason, pnl, closed_at')
         .eq('user_id', user.id)
         .eq('is_paper', isPaper)
         .eq('status', 'closed')
         .not('closed_at', 'is', null)
-        .order('closed_at', { ascending: true }),
+        .order('closed_at', { ascending: false })
+        .limit(2000),
       supabase
         .from('positions')
         .select('symbol, side, quantity, avg_entry_price, strategy')
@@ -71,10 +90,14 @@ export function ExpectancyCard({ isPaper }: Props) {
         .eq('is_paper', isPaper),
     ]);
 
-    setRows((expData ?? []) as ExpectancyRow[]);
+    const closed = (tradeData ?? []) as ClosedTrade[];
+    setTrades(closed);
     setOpenPositions((posData ?? []) as OpenPosition[]);
 
-    const closes = (tradeData ?? []).map(t => new Date(t.closed_at as string).getTime());
+    const closes = closed
+      .map(t => new Date(t.closed_at as string).getTime())
+      .filter(n => Number.isFinite(n))
+      .sort((a, b) => a - b);
     if (closes.length >= 2) {
       const spanDays = Math.max((closes[closes.length - 1] - closes[0]) / 86_400_000, 1 / 24);
       setTradesPerDay(closes.length / spanDays);
@@ -106,12 +129,32 @@ export function ExpectancyCard({ isPaper }: Props) {
   // not to the cached current_price column.
   const { prices, updatedAt } = useLivePrices(openPositions.map(p => p.symbol), 15_000);
 
-  // Blend open positions (at live prices) into each strategy's stats so win rate
-  // and expectancy move with the ticker instead of only on trade close.
-  const liveRows: LiveRow[] = rows.map((r) => {
-    const strategyPositions = openPositions.filter(
-      p => (p.strategy ?? 'scalp').toLowerCase() === r.strategy.toLowerCase(),
-    );
+  // Group closed trades (engine + manual) and blend open positions at live prices.
+  const grouped = new Map<string, ClosedTrade[]>();
+  for (const t of trades) {
+    const key = bucketName(t);
+    const list = grouped.get(key);
+    if (list) list.push(t); else grouped.set(key, [t]);
+  }
+
+  const buckets: Bucket[] = [...grouped.entries()].map(([bucket, list]) => {
+    const pnls = list.map(t => Number(t.pnl ?? 0));
+    const wins = pnls.filter(p => p > 0);
+    const losses = pnls.filter(p => p < 0);
+    const closedSample = pnls.length;
+    const closedNet = pnls.reduce((s, p) => s + p, 0);
+    const avgWin = wins.length ? wins.reduce((s, p) => s + p, 0) / wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((s, p) => s + p, 0) / losses.length : 0;
+
+    // Trades arrive newest-first, so the first 20 are the window the engine's
+    // probation check uses — shown so the two views never look contradictory.
+    const recent = pnls.slice(0, 20);
+    const recentExpectancy = recent.length ? recent.reduce((s, p) => s + p, 0) / recent.length : 0;
+
+    // Open positions belong to a strategy bucket; manual has no open exposure of its own.
+    const strategyPositions = bucket === 'manual'
+      ? openPositions.filter(p => !p.strategy)
+      : openPositions.filter(p => (p.strategy ?? '').toLowerCase() === bucket);
 
     let openPnl = 0;
     let openCount = 0;
@@ -127,23 +170,36 @@ export function ExpectancyCard({ isPaper }: Props) {
       if (pnl > 0) openWins += 1;
     }
 
-    const closedSample = Number(r.sample_size || 0);
-    const closedWins = (Number(r.win_rate || 0) / 100) * closedSample;
-    const sample = closedSample + openCount;
-    const liveWinRate = sample > 0 ? ((closedWins + openWins) / sample) * 100 : Number(r.win_rate || 0);
-    const closedNet = Number(r.expectancy_per_trade || 0) * closedSample;
-    const liveExpectancy = sample > 0 ? (closedNet + openPnl) / sample : Number(r.expectancy_per_trade || 0);
+    const liveSample = closedSample + openCount;
+    const liveWinRate = liveSample > 0 ? ((wins.length + openWins) / liveSample) * 100 : 0;
+    const liveExpectancy = liveSample > 0 ? (closedNet + openPnl) / liveSample : 0;
 
-    return { ...r, liveWinRate, liveExpectancy, liveSample: sample, openCount, openPnl };
-  });
+    return {
+      bucket,
+      isManual: bucket === 'manual',
+      closedSample,
+      closedWins: wins.length,
+      closedNet,
+      avgWin,
+      avgLoss,
+      recentSample: recent.length,
+      recentExpectancy,
+      openCount,
+      openPnl,
+      liveSample,
+      liveWinRate,
+      liveExpectancy,
+    };
+  }).sort((a, b) => b.liveSample - a.liveSample);
 
-  const totalTrades = liveRows.reduce((s, r) => s + r.liveSample, 0);
+  const totalTrades = buckets.reduce((s, b) => s + b.liveSample, 0);
   const blendedExpectancy = totalTrades > 0
-    ? liveRows.reduce((s, r) => s + r.liveExpectancy * r.liveSample, 0) / totalTrades
+    ? buckets.reduce((s, b) => s + b.liveExpectancy * b.liveSample, 0) / totalTrades
     : 0;
   const dailyProjection = blendedExpectancy * tradesPerDay;
   const positive = blendedExpectancy > 0;
-  const openMarked = liveRows.reduce((s, r) => s + r.openCount, 0);
+  const openMarked = buckets.reduce((s, b) => s + b.openCount, 0);
+  const manualCount = buckets.find(b => b.isManual)?.closedSample ?? 0;
 
   return (
     <div className="glass-panel p-4 sm:p-6">
@@ -155,8 +211,9 @@ export function ExpectancyCard({ isPaper }: Props) {
           <div>
             <h3 className="text-base font-semibold text-foreground">Expectancy</h3>
             <p className="text-xs text-muted-foreground">
-              Fee-inclusive, marked to live prices ({isPaper ? 'paper' : 'live'})
+              All closed trades incl. manual, marked to live prices ({isPaper ? 'paper' : 'live'})
               {openMarked > 0 && ` · ${openMarked} open marked`}
+              {manualCount > 0 && ` · ${manualCount} manual`}
               {updatedAt && ` · ${updatedAt.toLocaleTimeString()}`}
             </p>
           </div>
@@ -172,7 +229,7 @@ export function ExpectancyCard({ isPaper }: Props) {
         </div>
       ) : totalTrades === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No closed trades yet. Expectancy appears once the bot has completed trades.
+          No closed trades yet. Expectancy appears once trades have completed.
         </p>
       ) : (
         <>
@@ -196,32 +253,39 @@ export function ExpectancyCard({ isPaper }: Props) {
           </div>
 
           <div className="space-y-2">
-            {liveRows.map(r => {
-              const exp = r.liveExpectancy;
+            {buckets.map(b => {
+              const exp = b.liveExpectancy;
               const ok = exp > 0;
               return (
-                <div key={r.strategy} className="flex flex-col gap-1.5 text-xs py-2.5 border-t border-border/40 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div key={b.bucket} className="flex flex-col gap-1.5 text-xs py-2.5 border-t border-border/40 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-medium text-foreground capitalize truncate">{r.strategy}</span>
-                    <span className={cn(
-                      'shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium',
-                      ok ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning',
-                    )}>
-                      {ok ? 'trading' : 'probation'}
-                    </span>
-                    {r.openCount > 0 && (
+                    <span className="font-medium text-foreground capitalize truncate">{b.bucket}</span>
+                    {b.isManual ? (
+                      <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground">
+                        manual / synced
+                      </span>
+                    ) : (
+                      <span className={cn(
+                        'shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium',
+                        b.recentExpectancy > 0 ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning',
+                      )}>
+                        {b.recentExpectancy > 0 ? 'trading' : 'probation'}
+                      </span>
+                    )}
+                    {b.openCount > 0 && (
                       <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/15 text-primary">
-                        {r.openCount} live
+                        {b.openCount} live
                       </span>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground sm:text-xs sm:gap-4">
-                    <span>{r.liveWinRate.toFixed(0)}% WR</span>
-                    <span>W ${Number(r.avg_win).toFixed(2)}</span>
-                    <span>L ${Math.abs(Number(r.avg_loss)).toFixed(2)}</span>
-                    {r.openCount > 0 && (
-                      <span className={cn('whitespace-nowrap', r.openPnl >= 0 ? 'text-success' : 'text-destructive')}>
-                        open {r.openPnl >= 0 ? '+' : '-'}${Math.abs(r.openPnl).toFixed(2)}
+                    <span>{b.liveSample} n</span>
+                    <span>{b.liveWinRate.toFixed(0)}% WR</span>
+                    <span>W ${b.avgWin.toFixed(2)}</span>
+                    <span>L ${Math.abs(b.avgLoss).toFixed(2)}</span>
+                    {b.openCount > 0 && (
+                      <span className={cn('whitespace-nowrap', b.openPnl >= 0 ? 'text-success' : 'text-destructive')}>
+                        open {b.openPnl >= 0 ? '+' : '-'}${Math.abs(b.openPnl).toFixed(2)}
                       </span>
                     )}
                     <span className={cn('whitespace-nowrap', ok ? 'text-success' : 'text-destructive')}>
@@ -229,15 +293,19 @@ export function ExpectancyCard({ isPaper }: Props) {
                     </span>
                   </div>
                 </div>
-
               );
             })}
           </div>
 
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Rows use your full closed history; the trading / probation badge uses each strategy's
+            last 20 exits, the same window the engine checks before sizing.
+          </p>
+
           {!positive && (
-            <p className="mt-3 text-xs text-warning">
-              Negative expectancy: strategies on probation trade one slot at half size until the math recovers.
-              More trading at negative expectancy loses more money.
+            <p className="mt-2 text-xs text-warning">
+              Negative expectancy overall: strategies on probation trade one slot at half size until the
+              math recovers. More trading at negative expectancy loses more money.
             </p>
           )}
         </>
