@@ -4206,7 +4206,9 @@ serve(async (req) => {
         const availableCapital = capitalBasis * (maxCapitalUsage / 100);
 
         const decisionSizePercent = (decision as any).size_percent || settings.max_position_size || 10;
-        const tradeValue = Math.max(availableCapital * (decisionSizePercent / 100) * decision.confidence, 1);
+        const capPct = Number(settings.max_position_size || 10);
+        const sizedPct = Math.min(capPct, Math.max(Number(decisionSizePercent), capPct * SIZING_FLOOR_FRACTION));
+        const tradeValue = Math.max(availableCapital * (sizedPct / 100), 1);
         const quantity = tradeValue / coinData.price;
         
         // Insert pending trade for user approval
