@@ -121,13 +121,18 @@ serve(async (req) => {
       const proceeds = price * qty;
       const pnl = pos.side === 'buy' ? (price - entry) * qty : (entry - price) * qty;
 
-      await supabase.from('trades').update({
-        status: 'closed',
-        exit_price: price,
+      await closeOpenTrade(supabase, {
+        userId,
+        symbol: pos.symbol,
+        isPaper: true,
+        side: pos.side,
+        exitPrice: price,
         pnl,
-        exit_reason: 'close_all',
-        closed_at: new Date().toISOString(),
-      }).eq('user_id', userId).eq('symbol', pos.symbol).eq('is_paper', true).eq('status', 'open');
+        exitReason: 'close_all',
+        quantity: qty,
+        entryPrice: entry,
+        strategy: pos.strategy ?? null,
+      });
 
       await supabase.from('positions').delete().eq('id', pos.id);
 
