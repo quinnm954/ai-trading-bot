@@ -1063,26 +1063,22 @@ async function tryLossRotation(
   }
 
 
-  // Close the position row + record trade + decision + risk event
-  await supabase.from('positions').delete().eq('id', pos.id);
-  await supabase.from('trades').insert({
-    user_id: userId,
+  // Close the trade row FIRST — deleting the position first would let the
+  // reconcile trigger flip the entry row to 'cancelled' with no P&L.
+  await closeOpenTrade(supabase, {
+    userId,
     symbol: pos.symbol,
-    side: 'sell',
-    quantity: qty,
-    entry_price: pos.avg_entry_price,
-    exit_price: exitPrice,
-    status: 'closed',
-    market_type: 'crypto',
-    strategy: 'scalp',
+    isPaper: isPaperMode,
+    side: pos.side,
+    exitPrice,
     pnl: realizedPnl,
-    is_paper: isPaperMode,
-    exit_reason: 'loss_rotation',
-    // Without closed_at the exit is invisible to expectancy, trade counts and journals.
-    closed_at: new Date().toISOString(),
-    duration_seconds: Math.max(0, Math.round((Date.now() - new Date(pos.created_at).getTime()) / 1000)),
-    ai_reasoning: `Loss rotation: freed capital for ${topCandidate.symbol} (5m +${candC5.toFixed(2)}% vs held ${c5.toFixed(2)}%)`,
+    exitReason: 'loss_rotation',
+    quantity: qty,
+    entryPrice: pos.avg_entry_price,
+    strategy: 'scalp',
+    aiReasoning: `Loss rotation: freed capital for ${topCandidate.symbol} (5m +${candC5.toFixed(2)}% vs held ${c5.toFixed(2)}%)`,
   });
+  await supabase.from('positions').delete().eq('id', pos.id);
   await supabase.from('ai_decisions').insert({
     user_id: userId,
     decision_type: 'loss_rotation',
