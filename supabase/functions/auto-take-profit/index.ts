@@ -1052,12 +1052,18 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           console.log(`✅ Legacy position ${isPaperMode ? 'simulated-' : ''}sold: ${position.symbol} -> $${soldValue.toFixed(2)}`);
 
           // Close trade and delete position
-          await supabase.from('trades').update({
-            status: 'closed',
-            exit_price: currentPrice,
+          await closeOpenTrade(supabase, {
+            userId,
+            symbol: position.symbol,
+            isPaper: isPaperMode,
+            side: position.side,
+            exitPrice: currentPrice,
             pnl: soldValue, // Treat entire value as profit since no cost basis
-            closed_at: new Date().toISOString(),
-          }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+            exitReason: 'legacy_position_sold',
+            quantity,
+            entryPrice,
+            strategy: position.strategy ?? null,
+          });
 
           await supabase.from('positions').delete().eq('id', position.id);
           takeProfitCount++;
