@@ -65,12 +65,14 @@ export function NotificationsPanel() {
           </Button>
         </div>
 
-        <ScrollArea className="max-h-[60vh]">
+        <ScrollArea className="h-[60vh]">
           {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground text-center">Loading activity...</p>
+            <div className="h-full flex items-center justify-center p-6">
+              <p className="text-sm text-muted-foreground text-center">Loading activity...</p>
+            </div>
           ) : notifications.length === 0 ? (
-            <div className="p-6 text-center">
-              <Bell className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+            <div className="h-full flex flex-col items-center justify-center p-6 text-center">
+              <Bell className="w-6 h-6 mb-2 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">No activity yet</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Trade, risk and agent alerts will appear here.
