@@ -2903,7 +2903,8 @@ function analyzeWithRules(
     // Precision-first threshold: rule strategies must clear 0.60 confidence before
     // they're even considered for the unified scoring/sentiment gate downstream.
     if (action !== 'hold' && confidence >= 0.60) {
-      const positionValue = balance * (maxPositionSize / 100) * confidence;
+      // Full allowance for a qualified setup — confidence gates entry, it no longer shrinks size.
+      const positionValue = balance * (maxPositionSize / 100);
       const quantity = positionValue / coin.price;
       
       decisions.push({
