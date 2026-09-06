@@ -1506,15 +1506,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         });
       }
 
-      await supabase.from('trades').update({
-        status: 'closed',
-        exit_price: actualExitPrice,
+      await closeOpenTrade(supabase, {
+        userId,
+        symbol: position.symbol,
+        isPaper: isPaperMode,
+        side: position.side,
+        exitPrice: actualExitPrice,
         pnl: actualPnl,
-        fees_estimate: roundTripFee,
-        slippage_estimate: slippagePct,
-        stop_loss_price: stopPrice,
         // Every exit records why it fired — null reasons made the expectancy diagnosis blind.
-        exit_reason: isStopExit
+        exitReason: isStopExit
           ? (slippagePct > 0.05 ? 'stop_loss_slipped' : 'stop_loss')
           : hitMaxHold ? 'max_hold'
           : hitHardTakeProfit ? 'take_profit'
@@ -1522,8 +1522,15 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
           : hitTrailingStop ? 'trailing_stop'
           : hitRotationTarget ? 'rotation'
           : 'exit',
-        closed_at: new Date().toISOString(),
-      }).eq('user_id', userId).eq('symbol', position.symbol).eq('is_paper', isPaperMode).eq('status', 'open');
+        quantity,
+        entryPrice,
+        strategy: position.strategy ?? null,
+        extra: {
+          fees_estimate: roundTripFee,
+          slippage_estimate: slippagePct,
+          stop_loss_price: stopPrice,
+        },
+      });
 
 
       await supabase.from('positions').delete().eq('id', position.id);
