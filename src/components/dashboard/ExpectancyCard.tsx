@@ -10,7 +10,9 @@ interface ClosedTrade {
   exit_reason: string | null;
   pnl: number | null;
   closed_at: string | null;
+  created_at: string | null;
 }
+
 
 interface OpenPosition {
   symbol: string;
