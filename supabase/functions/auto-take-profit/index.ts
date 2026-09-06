@@ -1849,21 +1849,20 @@ serve(async (req) => {
         (COINBASE_MAKER_FEE / 100);
       const pnl = position.is_paper ? grossPnl - roundTripFee : grossPnl;
 
-      // Create closed trade record
-      await supabase.from('trades').insert({
-        user_id: position.user_id,
+      // Close the original entry row in place (never a second, detached record)
+      await closeOpenTrade(supabase, {
+        userId: position.user_id,
         symbol: position.symbol,
+        isPaper: position.is_paper,
         side: position.side,
+        exitPrice: currentPrice,
+        pnl,
+        exitReason: 'force_close',
         quantity: position.quantity,
-        entry_price: position.avg_entry_price,
-        exit_price: currentPrice,
-        pnl: pnl,
-        fees_estimate: roundTripFee,
-        status: 'closed',
-        is_paper: position.is_paper,
-        market_type: position.market_type,
+        entryPrice: position.avg_entry_price,
+        marketType: position.market_type,
         strategy: position.strategy,
-        closed_at: new Date().toISOString(),
+        extra: { fees_estimate: roundTripFee },
         exit_reason: 'force_close',
         ai_reasoning: `Force closed by user. ${sellSuccess ? `Coinbase sell: $${sellUsdValue.toFixed(2)}` : sellError || 'Simulated'}`,
       });
