@@ -4980,7 +4980,11 @@ serve(async (req) => {
           console.log(`📊 UPDATED existing ${decision.symbol} position: +${quantity} @ $${actualEntryPrice} → Total: ${newQuantity.toFixed(6)} @ avg $${newAvgPrice.toFixed(4)}`);
         }
       } else {
-        // Create NEW position (no existing position found)
+        // Create NEW position (no existing position found).
+        // A unique index on (user_id, symbol, is_paper) is the real guard: the SELECT above
+        // cannot stop two cycles that fire in the same second, which is how every losing
+        // idea got bought twice at double size. On a conflict we drop the trade row we just
+        // wrote and skip — never open a second position in the same coin.
         const { error: positionError } = await supabase.from('positions').insert({
           user_id: user.id,
           symbol: decision.symbol,
@@ -5001,6 +5005,13 @@ serve(async (req) => {
         });
 
         if (positionError) {
+          if ((positionError as any).code === '23505') {
+            console.log(`🧯 SKIP concurrent duplicate ${decision.symbol}: position already exists (unique guard)`);
+            if (newTrade?.id) {
+              await supabase.from('trades').delete().eq('id', newTrade.id);
+            }
+            continue;
+          }
           console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
         } else {
           const assetIcon = '🪙';
