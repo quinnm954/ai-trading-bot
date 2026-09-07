@@ -5007,8 +5007,8 @@ serve(async (req) => {
         if (positionError) {
           if ((positionError as any).code === '23505') {
             console.log(`🧯 SKIP concurrent duplicate ${decision.symbol}: position already exists (unique guard)`);
-            if (newTrade?.id) {
-              await supabase.from('trades').delete().eq('id', newTrade.id);
+            if (trade?.id) {
+              await supabase.from('trades').delete().eq('id', trade.id);
             }
             continue;
           }
