@@ -1727,6 +1727,39 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
   return null;
 }
 
+/** ATR(14) on ONE_HOUR candles as % of price — swing-scale volatility for stop sizing. */
+async function fetchSwingAtrPct(productId: string): Promise<number | undefined> {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const start = now - 3600 * 48; // 48 hourly candles → ATR(14) with headroom
+    const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=ONE_HOUR`;
+    const resp = await fetchWithRetry(url);
+    if (!resp) return undefined;
+    const data = await resp.json();
+    const candles = Array.isArray(data?.candles) ? data.candles : [];
+    if (candles.length < 15) return undefined;
+    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const closes = sorted.map((c: any) => Number(c.close));
+    const highs = sorted.map((c: any) => Number(c.high));
+    const lows = sorted.map((c: any) => Number(c.low));
+    const trs: number[] = [];
+    for (let i = 1; i < closes.length; i++) {
+      trs.push(Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1]),
+      ));
+    }
+    const slice = trs.slice(-14);
+    const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
+    const last = closes[closes.length - 1];
+    if (!(last > 0) || !(atr > 0)) return undefined;
+    return (atr / last) * 100;
+  } catch (_e) {
+    return undefined;
+  }
+}
+
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -1873,7 +1906,7 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<
     coin.techSetup = t.techSetup;
     coin.techScore = t.techScore;
     coin.atrPct = t.atrPct;
-    coin.swingAtrPct = t.swingAtrPct;
+    coin.swingAtrPct = t.swingAtrPct ?? (await fetchSwingAtrPct(productId));
     coin.volClass = t.volClass;
     coin.volScore = t.volScore;
     coin.supportPrice = t.supportPrice;
