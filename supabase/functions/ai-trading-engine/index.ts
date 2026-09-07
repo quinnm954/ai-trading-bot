@@ -128,7 +128,7 @@ const REACH_SAFETY = 1.5;
 function targetReachability(coin: MarketData, cfg: ScalpCfg) {
   const wide = !!(cfg as any).wide_stop_mode;
   const requiredGross = wide
-    ? solveWideGeometry((coin as any).atrPct).takeProfitPct
+    ? solveWideGeometry((coin as any).swingAtrPct).takeProfitPct
     : requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
   // Wide mode targets 8% over a 48h hold, so the 24h range only has to show the asset
   // moves enough to travel it in two sessions — the walk-forward gate was a 5% range.
@@ -189,7 +189,7 @@ function clamp(v: number, lo: number, hi: number) {
 
 function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
   const geo = (cfg as any).wide_stop_mode
-    ? solveWideGeometry((coin as any).atrPct)
+    ? solveWideGeometry((coin as any).swingAtrPct)
     : solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
   const breakevenProb = geo.netLossPct / (geo.netWinPct + geo.netLossPct);
   const reach = targetReachability(coin, cfg);
@@ -1220,6 +1220,7 @@ interface MarketData {
   techSetup?: string;   // human-readable signal label
   techScore?: number;   // 0–100 quality of entry
   atrPct?: number;      // ATR(14) on 5m candles as % of price — realized volatility
+  swingAtrPct?: number; // ATR(14) on 1h candles as % of price — stop-sizing basis
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;    // 0–100 — favors the "sweet spot" of tradable volatility
   supportPrice?: number;          // nearest swing-low support below current price
@@ -1632,6 +1633,8 @@ interface CandleTechnicals {
   techSetup: string;
   techScore: number;
   atrPct?: number;
+  /** ATR(14) on ONE_HOUR candles as % of price — the swing-scale volatility used for stop sizing. */
+  swingAtrPct?: number;
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;
   supportPrice?: number;
@@ -1722,6 +1725,39 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
     }
   }
   return null;
+}
+
+/** ATR(14) on ONE_HOUR candles as % of price — swing-scale volatility for stop sizing. */
+async function fetchSwingAtrPct(productId: string): Promise<number | undefined> {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const start = now - 3600 * 48; // 48 hourly candles → ATR(14) with headroom
+    const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=ONE_HOUR`;
+    const resp = await fetchWithRetry(url);
+    if (!resp) return undefined;
+    const data = await resp.json();
+    const candles = Array.isArray(data?.candles) ? data.candles : [];
+    if (candles.length < 15) return undefined;
+    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const closes = sorted.map((c: any) => Number(c.close));
+    const highs = sorted.map((c: any) => Number(c.high));
+    const lows = sorted.map((c: any) => Number(c.low));
+    const trs: number[] = [];
+    for (let i = 1; i < closes.length; i++) {
+      trs.push(Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1]),
+      ));
+    }
+    const slice = trs.slice(-14);
+    const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
+    const last = closes[closes.length - 1];
+    if (!(last > 0) || !(atr > 0)) return undefined;
+    return (atr / last) * 100;
+  } catch (_e) {
+    return undefined;
+  }
 }
 
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
@@ -1870,6 +1906,7 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<
     coin.techSetup = t.techSetup;
     coin.techScore = t.techScore;
     coin.atrPct = t.atrPct;
+    coin.swingAtrPct = t.swingAtrPct ?? (await fetchSwingAtrPct(productId));
     coin.volClass = t.volClass;
     coin.volScore = t.volScore;
     coin.supportPrice = t.supportPrice;
@@ -4791,8 +4828,9 @@ serve(async (req) => {
       // whole cycle down otherwise), so the wide geometry is regime-conditional by
       // construction. Stop scales with the asset's own ATR, target is fixed at 8%.
       const wideMode = !!scalpCfg.wide_stop_mode;
-      const candidateAtrPct = Number((coinData as any)?.atrPct) > 0
-        ? Number((coinData as any).atrPct)
+      // Stops scale off HOURLY ATR (swing scale). The 5m ATR is entry-quality only.
+      const candidateAtrPct = Number((coinData as any)?.swingAtrPct) > 0
+        ? Number((coinData as any).swingAtrPct)
         : undefined;
       const entryGeometry = wideMode
         ? solveWideGeometry(candidateAtrPct)
@@ -4942,7 +4980,11 @@ serve(async (req) => {
           console.log(`📊 UPDATED existing ${decision.symbol} position: +${quantity} @ $${actualEntryPrice} → Total: ${newQuantity.toFixed(6)} @ avg $${newAvgPrice.toFixed(4)}`);
         }
       } else {
-        // Create NEW position (no existing position found)
+        // Create NEW position (no existing position found).
+        // A unique index on (user_id, symbol, is_paper) is the real guard: the SELECT above
+        // cannot stop two cycles that fire in the same second, which is how every losing
+        // idea got bought twice at double size. On a conflict we drop the trade row we just
+        // wrote and skip — never open a second position in the same coin.
         const { error: positionError } = await supabase.from('positions').insert({
           user_id: user.id,
           symbol: decision.symbol,
@@ -4963,6 +5005,13 @@ serve(async (req) => {
         });
 
         if (positionError) {
+          if ((positionError as any).code === '23505') {
+            console.log(`🧯 SKIP concurrent duplicate ${decision.symbol}: position already exists (unique guard)`);
+            if (trade?.id) {
+              await supabase.from('trades').delete().eq('id', trade.id);
+            }
+            continue;
+          }
           console.error(`❌ Error creating position for ${decision.symbol}:`, positionError);
         } else {
           const assetIcon = '🪙';
