@@ -128,7 +128,7 @@ const REACH_SAFETY = 1.5;
 function targetReachability(coin: MarketData, cfg: ScalpCfg) {
   const wide = !!(cfg as any).wide_stop_mode;
   const requiredGross = wide
-    ? solveWideGeometry((coin as any).atrPct).takeProfitPct
+    ? solveWideGeometry((coin as any).swingAtrPct).takeProfitPct
     : requiredGrossTakeProfit(Math.abs(cfg.hard_stop_loss_pct) || MAX_RISK_PCT);
   // Wide mode targets 8% over a 48h hold, so the 24h range only has to show the asset
   // moves enough to travel it in two sessions — the walk-forward gate was a 5% range.
@@ -189,7 +189,7 @@ function clamp(v: number, lo: number, hi: number) {
 
 function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
   const geo = (cfg as any).wide_stop_mode
-    ? solveWideGeometry((coin as any).atrPct)
+    ? solveWideGeometry((coin as any).swingAtrPct)
     : solveExitGeometry(cfg.take_profit_pct, cfg.hard_stop_loss_pct);
   const breakevenProb = geo.netLossPct / (geo.netWinPct + geo.netLossPct);
   const reach = targetReachability(coin, cfg);
@@ -1220,6 +1220,7 @@ interface MarketData {
   techSetup?: string;   // human-readable signal label
   techScore?: number;   // 0–100 quality of entry
   atrPct?: number;      // ATR(14) on 5m candles as % of price — realized volatility
+  swingAtrPct?: number; // ATR(14) on 1h candles as % of price — stop-sizing basis
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;    // 0–100 — favors the "sweet spot" of tradable volatility
   supportPrice?: number;          // nearest swing-low support below current price
@@ -1632,6 +1633,8 @@ interface CandleTechnicals {
   techSetup: string;
   techScore: number;
   atrPct?: number;
+  /** ATR(14) on ONE_HOUR candles as % of price — the swing-scale volatility used for stop sizing. */
+  swingAtrPct?: number;
   volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
   volScore?: number;
   supportPrice?: number;
@@ -1870,6 +1873,7 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<
     coin.techSetup = t.techSetup;
     coin.techScore = t.techScore;
     coin.atrPct = t.atrPct;
+    coin.swingAtrPct = t.swingAtrPct;
     coin.volClass = t.volClass;
     coin.volScore = t.volScore;
     coin.supportPrice = t.supportPrice;
@@ -4791,8 +4795,9 @@ serve(async (req) => {
       // whole cycle down otherwise), so the wide geometry is regime-conditional by
       // construction. Stop scales with the asset's own ATR, target is fixed at 8%.
       const wideMode = !!scalpCfg.wide_stop_mode;
-      const candidateAtrPct = Number((coinData as any)?.atrPct) > 0
-        ? Number((coinData as any).atrPct)
+      // Stops scale off HOURLY ATR (swing scale). The 5m ATR is entry-quality only.
+      const candidateAtrPct = Number((coinData as any)?.swingAtrPct) > 0
+        ? Number((coinData as any).swingAtrPct)
         : undefined;
       const entryGeometry = wideMode
         ? solveWideGeometry(candidateAtrPct)
