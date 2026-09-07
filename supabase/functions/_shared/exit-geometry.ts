@@ -106,10 +106,15 @@ export function describeGeometry(geo: ExitGeometry): string {
 // that turns positive — but ONLY while the aggregate tape is rising, so this mode is
 // gated by the tape read and stands down otherwise.
 export const WIDE_TP_GROSS_PCT = 5.0;      // gross take-profit
-export const WIDE_STOP_ATR_MULT = 2.5;     // stop = 2.5 × ATR% (clamped to the band below)
-export const WIDE_STOP_MIN_PCT = 1.2;      // never tighter than noise
-export const WIDE_STOP_MAX_PCT = 2.5;      // worst-case loss cap (tightened from 3.5%)
+// STOP SIZING BASIS: the HOURLY ATR, not the 5-minute ATR. Every one of the 14 closed
+// swings exited at exactly the 1.2% floor because 5m ATR (~0.4%) × 2.5 lands inside
+// intraday noise while the target needs 48h to travel. Hourly ATR × 2.5 puts the stop
+// outside ordinary chop so a swing can actually reach +5%.
+export const WIDE_STOP_ATR_MULT = 2.5;     // stop = 2.5 × hourly ATR% (clamped below)
+export const WIDE_STOP_MIN_PCT = 2.0;      // never tighter than swing noise
+export const WIDE_STOP_MAX_PCT = 3.5;      // worst-case loss cap
 export const WIDE_MAX_HOLD_MINUTES = 2880; // 48h
+
 
 /** ATR-scaled wide geometry. Stop is clamped so net R:R still clears MIN_REWARD_RISK. */
 export function solveWideGeometry(atrPct?: number | null): ExitGeometry {
