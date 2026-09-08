@@ -52,8 +52,10 @@ export default function Landing() {
             <span className="text-primary">Powered by AI</span>
           </h1>
           <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto mb-12 leading-relaxed">
-            Stop watching charts. Let our AI trade for you 24/7 while you focus on what matters most.
+            Stop watching charts. Five AI agents track the crypto market around the clock, trade only when the odds
+            line up, and stand aside when they don't.
           </p>
+
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button variant="glow" size="lg" className="gap-2 text-lg px-8" asChild>
               <Link to="/auth">
