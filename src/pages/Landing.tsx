@@ -201,7 +201,55 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* How it works */}
+      <section className="py-16 border-t border-border">
+        <div className="container mx-auto px-4 max-w-4xl">
+          <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-10">How it works</h2>
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+              <p className="text-xs font-semibold text-primary mb-2">STEP 1</p>
+              <p className="text-foreground font-medium mb-2">Practise for free</p>
+              <p className="text-sm text-muted-foreground">
+                Create an account and start with a $100,000 simulated balance. No card, no exchange connection needed.
+              </p>
+            </div>
+            <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+              <p className="text-xs font-semibold text-primary mb-2">STEP 2</p>
+              <p className="text-foreground font-medium mb-2">Watch it work</p>
+              <p className="text-sm text-muted-foreground">
+                The agents scan the market every 30 minutes, hold back when conditions are poor, and show you every
+                decision, trade and number behind it.
+              </p>
+            </div>
+            <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+              <p className="text-xs font-semibold text-primary mb-2">STEP 3</p>
+              <p className="text-foreground font-medium mb-2">Go live when ready</p>
+              <p className="text-sm text-muted-foreground">
+                Connect your Coinbase keys and confirm live mode by hand. Real trades follow exactly the same rules as
+                practice.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-10 p-6 rounded-2xl bg-background border border-border text-center">
+            <p className="text-sm text-muted-foreground mb-2">One plan, everything included</p>
+            <p className="text-3xl font-bold text-foreground mb-2">
+              ${MONTHLY_PRICE_USD}
+              <span className="text-base font-normal text-muted-foreground"> / 30 days</span>
+            </p>
+            <p className="text-sm text-muted-foreground mb-5">
+              After your 7-day free trial. Paid in USDC from your own crypto wallet — no card, cancel by simply not
+              renewing.
+            </p>
+            <Button variant="outline" asChild>
+              <Link to="/pricing">See what's included</Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+
       {/* Risk Disclaimer */}
+
       <section className="py-10 border-t border-border">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto flex items-start gap-4 p-5 rounded-xl bg-muted/30 border border-border">
