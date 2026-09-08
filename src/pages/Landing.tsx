@@ -271,8 +271,9 @@ export default function Landing() {
             Start trading smarter today
           </h2>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">
-            Free paper trading. No credit card. See results before you commit.
+            7 days free, then ${MONTHLY_PRICE_USD} every 30 days. No card required to start.
           </p>
+
           <Button variant="glow" size="lg" className="gap-2 text-lg px-8" asChild>
             <Link to="/auth">
               Get Started Free
