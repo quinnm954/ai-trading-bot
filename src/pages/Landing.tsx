@@ -158,7 +158,8 @@ export default function Landing() {
                 <div>
                   <h3 className="font-semibold text-foreground mb-1">Paper Trade First</h3>
                   <p className="text-sm text-muted-foreground">
-                    Test with $100k virtual balance before risking real money. See exactly how the AI performs.
+                    Practise with a $100,000 simulated balance before risking real money. Same rules, same fees, so
+                    what you see is what you'd get.
                   </p>
                 </div>
               </div>
@@ -168,9 +169,10 @@ export default function Landing() {
                   <Brain className="w-6 h-6 text-amber-500" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground mb-1">AI That Learns</h3>
+                  <h3 className="font-semibold text-foreground mb-1">Five Specialists, One Team</h3>
                   <p className="text-sm text-muted-foreground">
-                    Continuously adapts to market conditions. Automatically picks the best strategy for the moment.
+                    A market watcher, an analyst, a risk officer, a trader and a self-repair agent review conditions
+                    together every 30 minutes and only act when they agree.
                   </p>
                 </div>
               </div>
@@ -178,9 +180,11 @@ export default function Landing() {
             
             {/* Supported Platforms */}
             <div className="mt-12 text-center">
-              <p className="text-sm text-muted-foreground mb-4">Supports crypto across 8+ leading exchanges</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Trades crypto through your own Coinbase account — over 200 USDC pairs
+              </p>
               <div className="flex flex-wrap justify-center gap-3">
-                {['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Bitget'].map((name) => (
+                {['Coinbase', 'USDC pairs', 'Read-only until you enable live'].map((name) => (
                   <span
                     key={name}
                     className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground"
@@ -188,11 +192,9 @@ export default function Landing() {
                     {name}
                   </span>
                 ))}
-                <span className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground">
-                  +3 more
-                </span>
               </div>
             </div>
+
           </div>
         </div>
       </section>
