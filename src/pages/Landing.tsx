@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PromoReel } from '@/components/marketing/PromoReel';
+import { MONTHLY_PRICE_USD } from '@/lib/pricing';
+
 
 
 export default function Landing() {
@@ -18,7 +20,10 @@ export default function Landing() {
               Titan<span className="text-primary">AI</span>
             </span>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button variant="ghost" asChild>
+              <Link to="/pricing">Pricing</Link>
+            </Button>
             <Button variant="ghost" asChild>
               <Link to="/auth">Sign In</Link>
             </Button>
@@ -26,6 +31,7 @@ export default function Landing() {
               <Link to="/auth">Get Started</Link>
             </Button>
           </div>
+
         </div>
       </header>
 
@@ -46,8 +52,10 @@ export default function Landing() {
             <span className="text-primary">Powered by AI</span>
           </h1>
           <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto mb-12 leading-relaxed">
-            Stop watching charts. Let our AI trade for you 24/7 while you focus on what matters most.
+            Stop watching charts. Five AI agents track the crypto market around the clock, trade only when the odds
+            line up, and stand aside when they don't.
           </p>
+
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button variant="glow" size="lg" className="gap-2 text-lg px-8" asChild>
               <Link to="/auth">
@@ -57,7 +65,7 @@ export default function Landing() {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-6">
-            No credit card required • $100k virtual balance included
+            7-day free trial • No card needed • $100,000 practice balance included
           </p>
 
           <div className="mt-12 max-w-md mx-auto">
@@ -71,10 +79,12 @@ export default function Landing() {
         <div className="container mx-auto px-4 text-center">
           <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
             <Play className="w-4 h-4 text-primary" />
-            Watch the 30-second overview above.
+            Watch the short overview above.
           </p>
         </div>
       </section>
+
+
 
 
       {/* Emotional Hook - Pain Points */}
@@ -128,8 +138,10 @@ export default function Landing() {
                 <div>
                   <h3 className="font-semibold text-foreground mb-1">Your Funds, Your Control</h3>
                   <p className="text-sm text-muted-foreground">
-                    We never hold your money. Connect your own broker or exchange account. Withdraw anytime.
+                    We never hold your money. Trades run on your own Coinbase account through keys you control, and you
+                    can revoke them at any time.
                   </p>
+
                 </div>
               </div>
               
@@ -152,7 +164,8 @@ export default function Landing() {
                 <div>
                   <h3 className="font-semibold text-foreground mb-1">Paper Trade First</h3>
                   <p className="text-sm text-muted-foreground">
-                    Test with $100k virtual balance before risking real money. See exactly how the AI performs.
+                    Practise with a $100,000 simulated balance before risking real money. Same rules, same fees, so
+                    what you see is what you'd get.
                   </p>
                 </div>
               </div>
@@ -162,9 +175,10 @@ export default function Landing() {
                   <Brain className="w-6 h-6 text-amber-500" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground mb-1">AI That Learns</h3>
+                  <h3 className="font-semibold text-foreground mb-1">Five Specialists, One Team</h3>
                   <p className="text-sm text-muted-foreground">
-                    Continuously adapts to market conditions. Automatically picks the best strategy for the moment.
+                    A market watcher, an analyst, a risk officer, a trader and a self-repair agent review conditions
+                    together every 30 minutes and only act when they agree.
                   </p>
                 </div>
               </div>
@@ -172,9 +186,11 @@ export default function Landing() {
             
             {/* Supported Platforms */}
             <div className="mt-12 text-center">
-              <p className="text-sm text-muted-foreground mb-4">Supports crypto across 8+ leading exchanges</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Trades crypto through your own Coinbase account — over 200 USDC pairs
+              </p>
               <div className="flex flex-wrap justify-center gap-3">
-                {['Coinbase', 'Binance', 'Kraken', 'KuCoin', 'Bybit', 'OKX', 'Bitget'].map((name) => (
+                {['Coinbase', 'USDC pairs', 'Read-only until you enable live'].map((name) => (
                   <span
                     key={name}
                     className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground"
@@ -182,16 +198,62 @@ export default function Landing() {
                     {name}
                   </span>
                 ))}
-                <span className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground">
-                  +3 more
-                </span>
               </div>
             </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="py-16 border-t border-border">
+        <div className="container mx-auto px-4 max-w-4xl">
+          <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-10">How it works</h2>
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+              <p className="text-xs font-semibold text-primary mb-2">STEP 1</p>
+              <p className="text-foreground font-medium mb-2">Practise for free</p>
+              <p className="text-sm text-muted-foreground">
+                Create an account and start with a $100,000 simulated balance. No card, no exchange connection needed.
+              </p>
+            </div>
+            <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+              <p className="text-xs font-semibold text-primary mb-2">STEP 2</p>
+              <p className="text-foreground font-medium mb-2">Watch it work</p>
+              <p className="text-sm text-muted-foreground">
+                The agents scan the market every 30 minutes, hold back when conditions are poor, and show you every
+                decision, trade and number behind it.
+              </p>
+            </div>
+            <div className="p-6 rounded-2xl bg-muted/30 border border-border">
+              <p className="text-xs font-semibold text-primary mb-2">STEP 3</p>
+              <p className="text-foreground font-medium mb-2">Go live when ready</p>
+              <p className="text-sm text-muted-foreground">
+                Connect your Coinbase keys and confirm live mode by hand. Real trades follow exactly the same rules as
+                practice.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-10 p-6 rounded-2xl bg-background border border-border text-center">
+            <p className="text-sm text-muted-foreground mb-2">One plan, everything included</p>
+            <p className="text-3xl font-bold text-foreground mb-2">
+              ${MONTHLY_PRICE_USD}
+              <span className="text-base font-normal text-muted-foreground"> / 30 days</span>
+            </p>
+            <p className="text-sm text-muted-foreground mb-5">
+              After your 7-day free trial. Paid in USDC from your own crypto wallet — no card, cancel by simply not
+              renewing.
+            </p>
+            <Button variant="outline" asChild>
+              <Link to="/pricing">See what's included</Link>
+            </Button>
           </div>
         </div>
       </section>
 
       {/* Risk Disclaimer */}
+
       <section className="py-10 border-t border-border">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto flex items-start gap-4 p-5 rounded-xl bg-muted/30 border border-border">
@@ -211,8 +273,9 @@ export default function Landing() {
             Start trading smarter today
           </h2>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">
-            Free paper trading. No credit card. See results before you commit.
+            7 days free, then ${MONTHLY_PRICE_USD} every 30 days. No card required to start.
           </p>
+
           <Button variant="glow" size="lg" className="gap-2 text-lg px-8" asChild>
             <Link to="/auth">
               Get Started Free
@@ -234,6 +297,9 @@ export default function Landing() {
             </span>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <Link to="/pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </Link>
             <Link to="/auth" className="hover:text-foreground transition-colors">
               Sign In
             </Link>
@@ -242,8 +308,9 @@ export default function Landing() {
             <span className="px-2 py-1 rounded bg-primary/10 text-primary text-xs font-medium">
               Patent Pending
             </span>
-            <p>© 2024 Titan AI. All rights reserved.</p>
+            <p>© 2026 Titan AI. All rights reserved.</p>
           </div>
+
         </div>
       </footer>
     </div>
