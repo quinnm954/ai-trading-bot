@@ -134,8 +134,10 @@ export default function Landing() {
                 <div>
                   <h3 className="font-semibold text-foreground mb-1">Your Funds, Your Control</h3>
                   <p className="text-sm text-muted-foreground">
-                    We never hold your money. Connect your own broker or exchange account. Withdraw anytime.
+                    We never hold your money. Trades run on your own Coinbase account through keys you control, and you
+                    can revoke them at any time.
                   </p>
+
                 </div>
               </div>
               
