@@ -295,6 +295,9 @@ export default function Landing() {
             </span>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <Link to="/pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </Link>
             <Link to="/auth" className="hover:text-foreground transition-colors">
               Sign In
             </Link>
@@ -303,8 +306,9 @@ export default function Landing() {
             <span className="px-2 py-1 rounded bg-primary/10 text-primary text-xs font-medium">
               Patent Pending
             </span>
-            <p>© 2024 Titan AI. All rights reserved.</p>
+            <p>© 2026 Titan AI. All rights reserved.</p>
           </div>
+
         </div>
       </footer>
     </div>
