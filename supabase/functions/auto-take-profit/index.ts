@@ -1363,9 +1363,10 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
         for (const targetSymbol of targetSymbols) {
           if (targetSymbol === position.symbol) continue;
 
-          // In live mode, require a tradable pair on Coinbase. In paper, any symbol with price data is valid.
+          // 🔁 PARITY: both modes require a tradable Coinbase pair, so paper can never
+          // rotate through a route live can't actually execute.
           const pairId = `${position.symbol}-${targetSymbol}`;
-          const pairOk = isPaperMode ? true : availablePairs.has(pairId);
+          const pairOk = availablePairs.size === 0 ? isPaperMode : availablePairs.has(pairId);
           if (!pairOk) continue;
 
           const data = priceChanges[targetSymbol];
