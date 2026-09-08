@@ -4917,6 +4917,13 @@ serve(async (req) => {
         }
       }
 
+      // 🔁 PARITY: paper must book the SAME sellable quantity live would receive.
+      // Live gets an exchange-rounded fill; paper used the raw float, which made paper
+      // positions slightly larger (and un-sellable at the same increment) than live.
+      if (isPaperMode && decision.action === 'buy') {
+        quantity = preRoundedQty;
+      }
+
       // Strategy already determined above - use it for trade tagging
       const strategyType = 'scalp'; // Force all autonomous trades to scalp strategy
 
