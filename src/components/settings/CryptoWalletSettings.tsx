@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
+import { useWeb3Wallet } from '@/hooks/useWeb3Wallet';
 import { toast } from 'sonner';
 
 const CHAINS = [
@@ -26,12 +27,24 @@ const isValidAddress = (value: string) => /^0x[a-fA-F0-9]{40}$/.test(value.trim(
  */
 export function CryptoWalletSettings() {
   const { isAdmin, isLoading: adminLoading } = useIsAdmin();
+  const { hasWallet, address: connectedAddress, isConnecting, connect } = useWeb3Wallet();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [address, setAddress] = useState('');
   const [chain, setChain] = useState('base');
   const [price, setPrice] = useState('29');
   const [enabled, setEnabled] = useState(false);
+
+  /** Fills the field with the wallet already connected to this account. */
+  const handleUseMyWallet = async () => {
+    const addr = connectedAddress ?? (await connect());
+    if (typeof addr === 'string' && isValidAddress(addr)) {
+      setAddress(addr);
+      toast.success('Filled in your connected wallet');
+    } else {
+      toast.error('Could not read your wallet address');
+    }
+  };
 
   useEffect(() => {
     if (!isAdmin) {
@@ -148,6 +161,19 @@ export function CryptoWalletSettings() {
               className="font-mono text-sm"
               spellCheck={false}
             />
+            {hasWallet && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full gap-2"
+                disabled={isConnecting}
+                onClick={handleUseMyWallet}
+              >
+                {isConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+                Use my connected wallet
+              </Button>
+            )}
             {address.trim() && !isValidAddress(address) && (
               <p className="text-xs text-destructive">
                 That doesn't look like a valid address (needs 0x + 40 hex characters).
