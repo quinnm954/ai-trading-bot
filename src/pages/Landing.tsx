@@ -61,7 +61,7 @@ export default function Landing() {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-6">
-            No credit card required • $100k virtual balance included
+            7-day free trial • No card needed • $100,000 practice balance included
           </p>
 
           <div className="mt-12 max-w-md mx-auto">
@@ -75,10 +75,12 @@ export default function Landing() {
         <div className="container mx-auto px-4 text-center">
           <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
             <Play className="w-4 h-4 text-primary" />
-            Watch the 30-second overview above.
+            Watch the short overview above.
           </p>
         </div>
       </section>
+
+
 
 
       {/* Emotional Hook - Pain Points */}
