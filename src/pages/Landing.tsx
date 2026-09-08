@@ -68,7 +68,7 @@ export default function Landing() {
             7-day free trial • No card needed • $100,000 practice balance included
           </p>
 
-          <div className="mt-12 max-w-md mx-auto">
+          <div className="mt-12 max-w-2xl mx-auto">
             <PromoReel />
           </div>
         </div>
