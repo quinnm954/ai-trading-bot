@@ -78,6 +78,13 @@
       "when": 1788794222517,
       "tag": "0010_one_position_per_symbol_per_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788894061529,
+      "tag": "0011_activate_trading_on_payment",
+      "breakpoints": true
     }
   ]
 }
