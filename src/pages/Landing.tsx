@@ -18,7 +18,10 @@ export default function Landing() {
               Titan<span className="text-primary">AI</span>
             </span>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button variant="ghost" asChild>
+              <Link to="/pricing">Pricing</Link>
+            </Button>
             <Button variant="ghost" asChild>
               <Link to="/auth">Sign In</Link>
             </Button>
@@ -26,6 +29,7 @@ export default function Landing() {
               <Link to="/auth">Get Started</Link>
             </Button>
           </div>
+
         </div>
       </header>
 
