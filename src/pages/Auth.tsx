@@ -12,6 +12,7 @@ import { useRateLimiter } from '@/hooks/useRateLimiter';
 import { trackConversion } from '@/components/GoogleAnalytics';
 import { supabase } from '@/integrations/supabase/client';
 import { lovable } from '@/integrations/lovable';
+import { SeoHead } from '@/components/seo/SeoHead';
 
 // Enhanced password validation - requires complexity
 const passwordValidation = z
@@ -336,6 +337,12 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <SeoHead
+        path="/auth"
+        title="Sign in to Titan AI Trader"
+        description="Sign in or create your Titan AI Trader account to run the autonomous crypto trading agents in paper or live mode."
+        noindex
+      />
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 mb-8">

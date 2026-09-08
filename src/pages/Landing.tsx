@@ -3,12 +3,18 @@ import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play } 
 import { Button } from '@/components/ui/button';
 import { PromoReel } from '@/components/marketing/PromoReel';
 import { MONTHLY_PRICE_USD } from '@/lib/pricing';
+import { SeoHead } from '@/components/seo/SeoHead';
 
 
 
 export default function Landing() {
   return (
     <div className="min-h-screen bg-background">
+      <SeoHead
+        path="/"
+        title="Titan AI Trader — Autonomous Crypto Trading Agents"
+        description={`Five AI agents watch the market, score risk and place crypto trades on your own Coinbase account every 30 minutes. Free trial, then $${MONTHLY_PRICE_USD} per 30 days.`}
+      />
       {/* Navigation */}
       <header className="border-b border-border sticky top-0 z-50 bg-background/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">

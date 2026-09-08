@@ -111,6 +111,25 @@ export default function Pricing() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SeoHead
+        path="/pricing"
+        title={`Pricing — $${MONTHLY_PRICE_USD} for 30 days of Titan AI`}
+        description={`Titan AI ${PLAN_NAME}: $${MONTHLY_PRICE_USD} per 30 days, paid in USDC. Start with a ${TRIAL_DAYS}-day free trial of the autonomous crypto trading agents.`}
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'SoftwareApplication',
+          name: 'Titan AI',
+          applicationCategory: 'FinanceApplication',
+          operatingSystem: 'Web, iOS, Android',
+          offers: {
+            '@type': 'Offer',
+            price: String(MONTHLY_PRICE_USD),
+            priceCurrency: 'USD',
+            name: PLAN_NAME,
+            url: 'https://titanaitrader.app/pricing',
+          },
+        }}
+      />
       {header}
 
       <main className="container mx-auto px-4 py-16">
