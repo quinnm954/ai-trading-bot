@@ -8,6 +8,7 @@ import { useCurrency } from '@/hooks/useCurrency';
 import { useSubscription } from '@/hooks/useSubscription';
 import { CryptoPayButton } from '@/components/subscription/CryptoPayButton';
 import { PromoReel } from '@/components/marketing/PromoReel';
+import { SeoHead } from '@/components/seo/SeoHead';
 
 import {
   MONTHLY_PRICE_USD,
