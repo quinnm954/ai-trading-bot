@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PromoReel } from '@/components/marketing/PromoReel';
+import { MONTHLY_PRICE_USD } from '@/lib/pricing';
+
 
 
 export default function Landing() {
