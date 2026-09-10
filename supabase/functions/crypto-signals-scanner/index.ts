@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import {
+  fetchTopTraderCandidates,
+  fetchFills,
+  statsFromFills,
+  fillToAction,
+} from "../_shared/hyperliquid.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +17,11 @@ const logStep = (step: string, details?: any) => {
   console.log(`[CRYPTO-SIGNALS] ${step}${detailsStr}`);
 };
 
+// How many leaderboard wallets to profile per scan (each costs one fills request).
+const TRADER_SCAN_LIMIT = 20;
+// Fills newer than this become copy signals; matches the 15-minute scan cadence.
+const SIGNAL_LOOKBACK_MINUTES = 20;
+
 // Top crypto IDs for CoinGecko
 const COINGECKO_IDS: Record<string, string> = {
   'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin', 'SOL': 'solana',
@@ -19,6 +30,9 @@ const COINGECKO_IDS: Record<string, string> = {
   'ATOM': 'cosmos', 'LTC': 'litecoin', 'FIL': 'filecoin', 'APT': 'aptos',
   'ARB': 'arbitrum', 'OP': 'optimism', 'INJ': 'injective-protocol', 'SUI': 'sui'
 };
+
+// Only coins this app can actually trade may become copy signals.
+const TRADABLE_SYMBOLS = new Set(Object.keys(COINGECKO_IDS));
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -79,22 +93,14 @@ serve(async (req) => {
       results.mevOpportunities = mevOpportunities.length;
     }
 
-    // Update top traders and generate copy trade signals
+    // Update top traders and generate copy trade signals — all from real on-chain data
     if (scanType === 'all' || scanType === 'traders') {
-      logStep("Updating top traders and generating copy trade signals");
-      const topTraders = await scanTopTraders(supabase);
-      for (const trader of topTraders) {
-        await supabase.from('top_traders').upsert(trader, {
-          onConflict: 'wallet_address'
-        });
-      }
-      results.topTraders = topTraders.length;
-      
-      // Generate copy trade signals from trader activity
-      const marketData = await fetchCoinGeckoMarketData();
-      const signalsGenerated = await generateCopyTradeSignals(supabase, marketData);
+      logStep("Syncing real Hyperliquid traders and their fills");
+      results.topTraders = await syncRealTopTraders(supabase);
+
+      const signalsGenerated = await generateCopyTradeSignals(supabase);
       results.copyTradeSignals = signalsGenerated;
-      logStep("Copy trade signals generated", { count: signalsGenerated });
+      logStep("Copy trade signals generated from real fills", { count: signalsGenerated });
     }
 
     logStep("Scan complete with live data", results);
@@ -330,156 +336,143 @@ async function scanMEVOpportunities(): Promise<any[]> {
   return opportunities;
 }
 
-// Top traders with trade signal generation
-async function scanTopTraders(supabase: any): Promise<any[]> {
-  const traders: any[] = [];
-  const styles = ['scalper', 'swing', 'holder', 'momentum'];
-  const symbols = ['BTC', 'ETH', 'SOL', 'ARB', 'OP', 'AVAX', 'LINK', 'MATIC'];
-  
-  // Get existing traders to update them
-  const { data: existingTraders } = await supabase
-    .from('top_traders')
-    .select('*')
-    .order('win_rate', { ascending: false })
-    .limit(20);
-  
-  const tradersToUpdate = existingTraders || [];
-  
-  for (let i = 0; i < Math.max(15, tradersToUpdate.length); i++) {
-    const existing = tradersToUpdate[i];
-    const winRate = existing?.win_rate || (Math.random() * 35 + 55);
-    const totalTrades = existing?.total_trades || Math.floor(Math.random() * 800) + 100;
-    const avgProfit = Math.random() * 300 - 50;
-    
-    const traderSymbols = symbols.slice(0, Math.floor(Math.random() * 4) + 2);
-    
-    traders.push({
-      wallet_address: existing?.wallet_address || `0x${generateRandomHex(40)}`,
-      display_name: existing?.display_name || `Trader_${generateRandomHex(4)}`,
-      total_pnl_usd: existing?.total_pnl_usd ? existing.total_pnl_usd + avgProfit : avgProfit * totalTrades,
-      win_rate: Math.min(95, winRate + (Math.random() - 0.5) * 2), // Slight variation
-      total_trades: totalTrades + Math.floor(Math.random() * 5),
-      avg_trade_size_usd: existing?.avg_trade_size_usd || Math.random() * 30000 + 1000,
-      best_performing_assets: traderSymbols,
-      trading_style: existing?.trading_style || styles[Math.floor(Math.random() * styles.length)],
-      risk_score: Math.random() * 100,
-      followers_count: existing?.followers_count || Math.floor(Math.random() * 5000),
-      last_active_at: new Date(Date.now() - Math.random() * 3600000).toISOString(), // Active within last hour
+// ── REAL top traders (Hyperliquid mainnet leaderboard + that wallet's own fills) ──
+// Nothing here is generated: wallets, PnL, ROI, win rate, sizing and activity all
+// come from public on-chain data.
+async function syncRealTopTraders(supabase: any): Promise<number> {
+  const candidates = await fetchTopTraderCandidates(TRADER_SCAN_LIMIT);
+  logStep(`Leaderboard candidates`, { count: candidates.length });
+
+  const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // a week of real fills
+  let saved = 0;
+
+  for (const c of candidates) {
+    let stats;
+    try {
+      stats = statsFromFills(await fetchFills(c.wallet, since));
+    } catch (e) {
+      logStep(`Fills fetch failed for ${c.wallet}`, { error: String(e) });
+      continue;
+    }
+
+    // A trader with no measurable closed trades cannot be judged, so don't list them.
+    if (stats.winRate === null || stats.bestAssets.length === 0) continue;
+
+    const { error } = await supabase.from('top_traders').upsert({
+      wallet_address: c.wallet,
+      display_name: c.displayName || `${c.wallet.slice(0, 6)}…${c.wallet.slice(-4)}`,
+      total_pnl_usd: Math.round(c.allTimePnl),
+      win_rate: Number(stats.winRate.toFixed(2)),
+      total_trades: stats.closedTrades,
+      avg_trade_size_usd: Math.round(stats.avgTradeSizeUsd),
+      best_performing_assets: stats.bestAssets,
+      trading_style: stats.tradingStyle,
+      risk_score: stats.riskScore,
+      last_active_at: stats.lastActiveAt,
       updated_at: new Date().toISOString(),
-    });
+    }, { onConflict: 'wallet_address' });
+
+    if (error) {
+      logStep(`Upsert failed for ${c.wallet}`, { error: error.message });
+      continue;
+    }
+    saved++;
   }
-  
-  return traders;
+
+  // Drop traders that have gone quiet so the list never shows stale performance.
+  await supabase
+    .from('top_traders')
+    .delete()
+    .lt('last_active_at', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString());
+
+  return saved;
 }
 
-// Generate copy trade signals when traders "make moves"
-async function generateCopyTradeSignals(supabase: any, marketData: any[]): Promise<number> {
-  logStep("Generating copy trade signals from trader activity");
-  
-  // Get top traders who are being followed
+// ── REAL copy trade signals — one per actual fill by a followed wallet ─────────
+async function generateCopyTradeSignals(supabase: any): Promise<number> {
   const { data: followedTraderIds } = await supabase
     .from('followed_traders')
     .select('trader_id')
     .eq('is_active', true);
-  
+
   if (!followedTraderIds || followedTraderIds.length === 0) {
     logStep("No followed traders, skipping signal generation");
     return 0;
   }
-  
+
   const uniqueTraderIds = [...new Set(followedTraderIds.map((f: any) => f.trader_id))];
-  
+
   const { data: traders } = await supabase
     .from('top_traders')
-    .select('*')
+    .select('id, wallet_address, display_name')
     .in('id', uniqueTraderIds);
-  
-  if (!traders || traders.length === 0) {
-    return 0;
-  }
-  
+
+  if (!traders || traders.length === 0) return 0;
+
+  const since = Date.now() - SIGNAL_LOOKBACK_MINUTES * 60 * 1000;
   let signalsGenerated = 0;
-  
-  // Simulate trader activity based on market conditions
+
   for (const trader of traders) {
-    // 30% chance each trader makes a move per scan
-    if (Math.random() > 0.3) continue;
-    
-    const bestAssets = trader.best_performing_assets || ['BTC', 'ETH'];
-    const symbol = bestAssets[Math.floor(Math.random() * bestAssets.length)];
-    
-    // Find market data for this symbol
-    const coinData = marketData.find((c: any) => 
-      c.symbol?.toUpperCase() === symbol || 
-      c.id?.includes(symbol.toLowerCase())
-    );
-    
-    if (!coinData) continue;
-    
-    const currentPrice = coinData.current_price || 100;
-    const priceChange24h = coinData.price_change_percentage_24h || 0;
-    
-    // Determine action based on trader style and market conditions
-    let action: 'buy' | 'sell' = 'buy';
-    
-    if (trader.trading_style === 'scalper') {
-      // Scalpers buy dips, sell pumps
-      action = priceChange24h < -2 ? 'buy' : priceChange24h > 2 ? 'sell' : (Math.random() > 0.5 ? 'buy' : 'sell');
-    } else if (trader.trading_style === 'swing') {
-      // Swing traders follow momentum
-      action = priceChange24h > 0 ? 'buy' : 'sell';
-    } else if (trader.trading_style === 'momentum') {
-      // Momentum traders accumulate on dips
-      action = priceChange24h < -3 ? 'buy' : (Math.random() > 0.7 ? 'sell' : 'buy');
-    } else {
-      // Holders mainly buy
-      action = Math.random() > 0.2 ? 'buy' : 'sell';
-    }
-    
-    // Calculate trade value based on trader's avg size
-    const tradeValue = (trader.avg_trade_size_usd || 5000) * (0.5 + Math.random());
-    const quantity = tradeValue / currentPrice;
-    
-    // Check if signal already exists recently
-    const { data: recentSignal } = await supabase
-      .from('copy_trade_signals')
-      .select('id')
-      .eq('trader_id', trader.id)
-      .eq('symbol', symbol)
-      .eq('action', action)
-      .gte('created_at', new Date(Date.now() - 300000).toISOString()) // Last 5 mins
-      .single();
-    
-    if (recentSignal) {
-      logStep(`Skipping duplicate signal for ${symbol} from ${trader.display_name}`);
+    let fills: Awaited<ReturnType<typeof fetchFills>>;
+    try {
+      fills = await fetchFills(trader.wallet_address, since);
+    } catch (e) {
+      logStep(`Fills fetch failed for ${trader.wallet_address}`, { error: String(e) });
       continue;
     }
-    
-    // Create copy trade signal
-    const { error } = await supabase.from('copy_trade_signals').insert({
-      trader_id: trader.id,
-      symbol: symbol,
-      action: action,
-      entry_price: currentPrice,
-      quantity: quantity,
-      trade_value_usd: tradeValue,
-      status: 'pending',
-    });
-    
-    if (!error) {
-      signalsGenerated++;
-      logStep(`📊 New signal: ${trader.display_name} ${action.toUpperCase()} ${symbol} @ $${currentPrice.toFixed(2)}`);
+    if (fills.length === 0) continue;
+
+    // Collapse the wallet's fills into one intent per coin+action, newest price wins.
+    const intents = new Map<string, { symbol: string; action: 'buy' | 'sell'; px: number; sz: number; time: number }>();
+    for (const f of fills.sort((a, b) => a.time - b.time)) {
+      if (!TRADABLE_SYMBOLS.has(f.coin)) continue; // we can only copy what we can trade
+      const action = fillToAction(f.dir);
+      if (!action) continue;
+      const key = `${f.coin}:${action}`;
+      const prev = intents.get(key);
+      intents.set(key, {
+        symbol: f.coin,
+        action,
+        px: f.px,
+        sz: (prev?.sz ?? 0) + f.sz,
+        time: f.time,
+      });
+    }
+
+    for (const intent of intents.values()) {
+      // Don't re-file the same move on the next scan.
+      const { data: recentSignal } = await supabase
+        .from('copy_trade_signals')
+        .select('id')
+        .eq('trader_id', trader.id)
+        .eq('symbol', intent.symbol)
+        .eq('action', intent.action)
+        .gte('created_at', new Date(since).toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (recentSignal) continue;
+
+      const tradeValue = intent.px * intent.sz;
+
+      const { error } = await supabase.from('copy_trade_signals').insert({
+        trader_id: trader.id,
+        symbol: intent.symbol,
+        action: intent.action,
+        entry_price: intent.px,
+        quantity: intent.sz,
+        trade_value_usd: tradeValue,
+        status: 'pending',
+      });
+
+      if (!error) {
+        signalsGenerated++;
+        logStep(`📊 Real fill copied: ${trader.display_name} ${intent.action.toUpperCase()} ${intent.symbol} @ $${intent.px}`);
+      } else {
+        logStep(`Signal insert failed`, { error: error.message });
+      }
     }
   }
-  
-  return signalsGenerated;
-}
 
-function generateRandomHex(length: number): string {
-  const chars = '0123456789abcdef';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return result;
+  return signalsGenerated;
 }
