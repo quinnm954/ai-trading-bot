@@ -4826,7 +4826,7 @@ serve(async (req) => {
       // and the winner's net gain is MIN_REWARD_RISK × the loser's net cost.
       // WIDE-STOP MODE: only reachable while the tape gate is open (the gate stands the
       // whole cycle down otherwise), so the wide geometry is regime-conditional by
-      // construction. Stop scales with the asset's own ATR, target is fixed at 8%.
+      // construction. Stop scales with the asset's own ATR, target is fixed at 7.68%.
       const wideMode = !!scalpCfg.wide_stop_mode;
       // Stops scale off HOURLY ATR (swing scale). The 5m ATR is entry-quality only.
       const candidateAtrPct = Number((coinData as any)?.swingAtrPct) > 0

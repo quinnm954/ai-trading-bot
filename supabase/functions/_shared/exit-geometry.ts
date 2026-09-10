@@ -105,7 +105,9 @@ export function describeGeometry(geo: ExitGeometry): string {
 // showed a wide target with a wider stop and a 48h hold is the only variant
 // that turns positive — but ONLY while the aggregate tape is rising, so this mode is
 // gated by the tape read and stands down otherwise.
-export const WIDE_TP_GROSS_PCT = 5.0;      // gross take-profit
+// A 3.5% maximum stop costs 4.3% after the 0.8% round trip. A 7.68% gross target
+// nets 6.88%, preserving the required 1.6:1 fee-adjusted reward:risk ratio.
+export const WIDE_TP_GROSS_PCT = 7.68;     // gross take-profit
 // STOP SIZING BASIS: the HOURLY ATR, not the 5-minute ATR. Every one of the 14 closed
 // swings exited at exactly the 1.2% floor because 5m ATR (~0.4%) × 2.5 lands inside
 // intraday noise while the target needs 48h to travel. Hourly ATR × 2.5 puts the stop
