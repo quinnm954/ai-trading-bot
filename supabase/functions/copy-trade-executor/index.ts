@@ -238,12 +238,22 @@ serve(async (req) => {
 
           const balance = Number(paperAccount?.balance ?? 0);
 
+          // ── MIRROR MODE ────────────────────────────────────────────────────
+          // With a signed risk acknowledgement the copied trade follows the
+          // trader's own moves instead of our exit contract: no stop, no target,
+          // no time-based exit — it closes when the trader closes. The SIZE is
+          // still governed by the same risk rules (copy %, per-copy cap, max
+          // position size, capital-usage ceiling, concurrency).
+          const mirrorMode = !!cfg.risk_acknowledged;
+
           const copyPercentage = Number(follower.copy_percentage ?? cfg.copy_percentage);
           const maxCopyAmount = Number(follower.max_copy_amount_usd ?? cfg.max_copy_amount_usd);
+          const maxPositionPct = Number(settings.max_position_size) > 0 ? Number(settings.max_position_size) : 100;
 
           const tradeValue = Math.min(
             (balance * copyPercentage) / 100,
             maxCopyAmount,
+            (balance * maxPositionPct) / 100,
             Number(signal.trade_value_usd) > 0 ? Number(signal.trade_value_usd) : maxCopyAmount,
           );
 
@@ -257,6 +267,7 @@ serve(async (req) => {
           }
 
           const quantity = tradeValue / executionPrice;
+
 
           if (signal.action === 'buy') {
             const { data: existingPosition } = await supabase
