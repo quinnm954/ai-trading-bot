@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
   fetchTopTraderCandidates,
-  fetchFills,
+  fetchRecentFills,
   statsFromFills,
   fillToAction,
 } from "../_shared/hyperliquid.ts";
@@ -20,7 +20,7 @@ const logStep = (step: string, details?: any) => {
 // How many leaderboard wallets to profile per scan (each costs one fills request).
 const TRADER_SCAN_LIMIT = 20;
 // Fills newer than this become copy signals; matches the 15-minute scan cadence.
-const SIGNAL_LOOKBACK_MINUTES = 20;
+const SIGNAL_LOOKBACK_MINUTES = 90;
 
 // Top crypto IDs for CoinGecko
 const COINGECKO_IDS: Record<string, string> = {
@@ -343,20 +343,29 @@ async function syncRealTopTraders(supabase: any): Promise<number> {
   const candidates = await fetchTopTraderCandidates(TRADER_SCAN_LIMIT);
   logStep(`Leaderboard candidates`, { count: candidates.length });
 
-  const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // a week of real fills
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   let saved = 0;
 
   for (const c of candidates) {
-    let stats;
+    let fills;
     try {
-      stats = statsFromFills(await fetchFills(c.wallet, since));
+      fills = (await fetchRecentFills(c.wallet)).filter((f) => f.time >= weekAgo);
     } catch (e) {
       logStep(`Fills fetch failed for ${c.wallet}`, { error: String(e) });
       continue;
     }
 
+    // Only list traders whose recent activity is actually copyable: fills in the
+    // last 24h, on coins we can trade. Otherwise following them yields no signals.
+    const copyable = fills.filter((f) => TRADABLE_SYMBOLS.has(f.coin) && f.time >= dayAgo);
+    if (copyable.length < 5) continue;
+
+    const stats = statsFromFills(fills);
+
     // A trader with no measurable closed trades cannot be judged, so don't list them.
     if (stats.winRate === null || stats.bestAssets.length === 0) continue;
+
 
     const { error } = await supabase.from('top_traders').upsert({
       wallet_address: c.wallet,
@@ -413,9 +422,9 @@ async function generateCopyTradeSignals(supabase: any): Promise<number> {
   let signalsGenerated = 0;
 
   for (const trader of traders) {
-    let fills: Awaited<ReturnType<typeof fetchFills>>;
+    let fills: Awaited<ReturnType<typeof fetchRecentFills>>;
     try {
-      fills = await fetchFills(trader.wallet_address, since);
+      fills = (await fetchRecentFills(trader.wallet_address)).filter((f) => f.time >= since);
     } catch (e) {
       logStep(`Fills fetch failed for ${trader.wallet_address}`, { error: String(e) });
       continue;
