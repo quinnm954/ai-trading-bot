@@ -477,6 +477,8 @@ export default function CryptoSignals() {
             {/* Copy Trading Tab */}
             <TabsContent value="copy">
               <div className="space-y-6">
+                <CopyTradeMirrorToggle />
+
                 {/* Followed Traders Section */}
                 {followedTraders && followedTraders.length > 0 && (
                   <Card className="bg-card/50 border-green-500/30">
