@@ -1952,9 +1952,33 @@ function computeAggregateTape(marketData: MarketData[]): {
 
 
 
+// Every stand-down must be visible to the user in notifications, not just in logs.
+// Each reason gets its own event_type so the notifications panel (which collapses
+// repeats of the same type) always shows the latest explanation per cause.
+async function logStandDown(
+  supabase: any,
+  userId: string,
+  eventType: string,
+  message: string,
+  details: Record<string, unknown> = {}
+) {
+  try {
+    await supabase.from('risk_events').insert({
+      user_id: userId,
+      event_type: eventType,
+      severity: 'warning',
+      message,
+      details: { ...details, standing_down: true, at: new Date().toISOString() },
+    });
+  } catch (e) {
+    console.error('failed to log stand-down risk event', e);
+  }
+}
+
 // SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
 // Async because we fetch short-window candles for the survivors of the pre-filter.
 async function filterByTrend(
+
   marketData: MarketData[],
   cfg: ScalpCfg = SCALP_CFG_DEFAULTS,
   opts: { memeOnly?: boolean } = {}
