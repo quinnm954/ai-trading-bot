@@ -1,13 +1,15 @@
-import { Bot, Zap, Activity, Brain } from 'lucide-react';
+import { Bot, Zap, Activity, Brain, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAISettings } from '@/hooks/useAISettings';
 import { useLastExitCheck } from '@/hooks/useLastExitCheck';
+import { useCopyTradingStatus } from '@/hooks/useCopyTradingStatus';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
 export function AIStatusCard() {
   const { settings, isLoading } = useAISettings();
   const { lastCheck, hasOpenPositions, isStale } = useLastExitCheck();
+  const copy = useCopyTradingStatus();
 
   if (isLoading || !settings) {
     return (
@@ -111,6 +113,38 @@ export function AIStatusCard() {
           </div>
         </>
       )}
+
+      <div className="mt-4 p-3 rounded-lg bg-secondary/30">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-foreground">Copy Trading</span>
+          </div>
+          <span className={cn('text-xs font-medium', copy.enabled ? 'text-success' : 'text-muted-foreground')}>
+            {copy.isLoading ? '…' : copy.enabled ? 'Active' : 'Off'}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="text-sm font-semibold text-foreground">{copy.followedTraders}</p>
+            <p className="text-[10px] text-muted-foreground">Traders followed</p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">{copy.signals24h}</p>
+            <p className="text-[10px] text-muted-foreground">Signals 24h</p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">{copy.copied24h}</p>
+            <p className="text-[10px] text-muted-foreground">Copied 24h</p>
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          {copy.openMirrorPositions > 0 && `${copy.openMirrorPositions} copied position${copy.openMirrorPositions === 1 ? '' : 's'} open • `}
+          {copy.lastSignalAt
+            ? `Last trader move ${copy.lastSignalAt.toLocaleString()}`
+            : 'No trader moves detected yet — checks run every 5 minutes'}
+        </p>
+      </div>
 
       {!settings.enabled && (
         <div className="flex items-center gap-3 p-4 rounded-lg bg-secondary/30">

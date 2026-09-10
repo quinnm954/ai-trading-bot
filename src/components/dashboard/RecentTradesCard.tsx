@@ -54,7 +54,14 @@ export function RecentTradesCard() {
                   )}
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">{trade.symbol}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-foreground">{trade.symbol}</p>
+                    {/^(copy|mirror)/i.test(trade.aiReasoning || '') || /copy trade|copied from|mirror/i.test(trade.aiReasoning || '') ? (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-primary/20 text-primary">
+                        COPY
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {trade.strategy || 'manual'} • {trade.quantity.toFixed(6)} units
                     {trade.aiReasoning?.includes('direct swap') && ' • 🔄 converted'}
