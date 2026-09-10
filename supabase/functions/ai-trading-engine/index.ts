@@ -4101,6 +4101,9 @@ serve(async (req) => {
 
     if (standDownOnLoss) {
       console.log(`🛡️ STAND-DOWN: dayPnL=$${todaysNetPnL.toFixed(2)} (${dayLossPct.toFixed(2)}%), regime=${regimeReport.profile}. No new entries until day turns green or regime flips bullish.`);
+      await logStandDown(supabase, user.id, 'stand_down_daily_loss',
+        `Bots standing down — today is down $${Math.abs(todaysNetPnL).toFixed(2)} (${dayLossPct.toFixed(2)}%) in a ${regimeReport.profile.replace(/_/g, ' ')} market. No new entries until the day turns green or the trend turns up.`,
+        { day_pnl: todaysNetPnL, day_loss_pct: dayLossPct, regime_profile: regimeReport.profile });
       decisions = [];
     } else if (decisions.length === 0) {
       // Single, regime-appropriate fallback. No more "always find something" cascade.
@@ -4110,8 +4113,12 @@ serve(async (req) => {
         decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy);
       } else {
         console.log(`📊 Regime policy is stand-down (${regimeReport.profile}). Skipping rule fallback.`);
+        await logStandDown(supabase, user.id, 'stand_down_regime_policy',
+          `Bots standing down — the ${regimeReport.profile.replace(/_/g, ' ')} regime policy allows no entries this cycle`,
+          { regime, regime_profile: regimeReport.profile, rationale: regimePolicy.rationale });
       }
     }
+
 
     // Apply regime-driven confidence floor — in volatile/down-trending regimes we only act on high-conviction setups.
     // Default rule/AI minimum is ~0.6; the policy can raise this to filter weak signals.
