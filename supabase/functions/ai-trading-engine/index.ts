@@ -3719,6 +3719,16 @@ serve(async (req) => {
     const memeOnly = !!(settings as any).meme_coins_only;
     if (memeOnly) console.log('🐸 MEME-ONLY MODE ENABLED — restricting universe to meme-coin allowlist');
     let { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly });
+
+    // The tape gate inside filterByTrend is the most common reason for a quiet day —
+    // surface it in notifications with the exact numbers every cycle it blocks entries.
+    const tapeRead = computeAggregateTape(marketData);
+    if (!tapeRead.rising) {
+      await logStandDown(supabase, user.id, 'stand_down_market_tape',
+        `Bots standing down — market tape not rising: ${tapeRead.label}`,
+        { avg24h: tapeRead.avg24h, avg1h: tapeRead.avg1h, breadth: tapeRead.breadth });
+    }
+
     console.log(`📈 Trend Analysis:`);
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
 
