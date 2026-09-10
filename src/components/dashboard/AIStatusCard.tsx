@@ -1,13 +1,15 @@
-import { Bot, Zap, Activity, Brain } from 'lucide-react';
+import { Bot, Zap, Activity, Brain, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAISettings } from '@/hooks/useAISettings';
 import { useLastExitCheck } from '@/hooks/useLastExitCheck';
+import { useCopyTradingStatus } from '@/hooks/useCopyTradingStatus';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
 export function AIStatusCard() {
   const { settings, isLoading } = useAISettings();
   const { lastCheck, hasOpenPositions, isStale } = useLastExitCheck();
+  const copy = useCopyTradingStatus();
 
   if (isLoading || !settings) {
     return (
