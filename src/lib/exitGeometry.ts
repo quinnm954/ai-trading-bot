@@ -56,7 +56,8 @@ export function expectancyPctPerTrade(winRatePct: number, geo: ExitGeometry): nu
 }
 
 // ── Wide-stop swing mode (mirror of supabase/functions/_shared/exit-geometry.ts) ──
-export const WIDE_TP_GROSS_PCT = 5.0;
+// Matches the engine: 7.68% gross nets 6.88% against a worst-case 4.3% fee-adjusted loss.
+export const WIDE_TP_GROSS_PCT = 7.68;
 export const WIDE_STOP_ATR_MULT = 2.5; // stop = 2.5 × HOURLY ATR% (clamped to the band below)
 export const WIDE_STOP_MIN_PCT = 2.0;
 export const WIDE_STOP_MAX_PCT = 3.5; // worst-case loss cap
