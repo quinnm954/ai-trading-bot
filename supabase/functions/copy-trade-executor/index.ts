@@ -238,12 +238,22 @@ serve(async (req) => {
 
           const balance = Number(paperAccount?.balance ?? 0);
 
+          // ── MIRROR MODE ────────────────────────────────────────────────────
+          // With a signed risk acknowledgement the copied trade follows the
+          // trader's own moves instead of our exit contract: no stop, no target,
+          // no time-based exit — it closes when the trader closes. The SIZE is
+          // still governed by the same risk rules (copy %, per-copy cap, max
+          // position size, capital-usage ceiling, concurrency).
+          const mirrorMode = !!cfg.risk_acknowledged;
+
           const copyPercentage = Number(follower.copy_percentage ?? cfg.copy_percentage);
           const maxCopyAmount = Number(follower.max_copy_amount_usd ?? cfg.max_copy_amount_usd);
+          const maxPositionPct = Number(settings.max_position_size) > 0 ? Number(settings.max_position_size) : 100;
 
           const tradeValue = Math.min(
             (balance * copyPercentage) / 100,
             maxCopyAmount,
+            (balance * maxPositionPct) / 100,
             Number(signal.trade_value_usd) > 0 ? Number(signal.trade_value_usd) : maxCopyAmount,
           );
 
@@ -257,6 +267,7 @@ serve(async (req) => {
           }
 
           const quantity = tradeValue / executionPrice;
+
 
           if (signal.action === 'buy') {
             const { data: existingPosition } = await supabase
@@ -314,7 +325,14 @@ serve(async (req) => {
               0,
             );
 
-            try {
+            // In mirror mode the acknowledged user has accepted that the trader's
+            // own exits replace our stop/target contract, so the geometry veto is
+            // waived. Sizing limits above still bound the loss to a capped stake.
+            if (mirrorMode) {
+              log(`📋 MIRROR MODE ${signal.symbol} — trader-driven exits, risk veto acknowledged`, {
+                stake: tradeValue.toFixed(2),
+              });
+            } else try {
               const riskResp = await fetch(
                 `${Deno.env.get('SUPABASE_URL')}/functions/v1/risk-manager`,
                 {
@@ -368,10 +386,11 @@ serve(async (req) => {
                 is_paper: isPaperUser,
                 market_type: 'crypto',
                 strategy: 'custom',
-                stop_loss_pct: Number(geo.stopLossPct.toFixed(4)),
-                take_profit_pct: Number(geo.takeProfitPct.toFixed(4)),
-                max_hold_minutes: holdMinutes,
-                trailing_enabled: wideMode ? WIDE_TRAILING_ENABLED : true,
+                mirror_only: mirrorMode,
+                stop_loss_pct: mirrorMode ? null : Number(geo.stopLossPct.toFixed(4)),
+                take_profit_pct: mirrorMode ? null : Number(geo.takeProfitPct.toFixed(4)),
+                max_hold_minutes: mirrorMode ? null : holdMinutes,
+                trailing_enabled: mirrorMode ? false : (wideMode ? WIDE_TRAILING_ENABLED : true),
               });
 
             if (posError) {
@@ -399,19 +418,22 @@ serve(async (req) => {
               is_paper: isPaperUser,
               market_type: 'crypto',
               strategy: 'custom',
-              stop_loss_price: executionPrice * (1 - geo.stopLossPct / 100),
-              take_profit_price: executionPrice * (1 + geo.takeProfitPct / 100),
-              risk_reward: Number(geo.netRewardRisk.toFixed(2)),
-              entry_reasoning: describeGeometry(geo),
+              stop_loss_price: mirrorMode ? null : executionPrice * (1 - geo.stopLossPct / 100),
+              take_profit_price: mirrorMode ? null : executionPrice * (1 + geo.takeProfitPct / 100),
+              risk_reward: mirrorMode ? null : Number(geo.netRewardRisk.toFixed(2)),
+              entry_reasoning: mirrorMode
+                ? `Mirror copy: exits follow the trader, stake capped at $${tradeValue.toFixed(2)} by risk sizing rules`
+                : describeGeometry(geo),
               ai_reasoning: `📋 Copy trade from ${signal.top_traders?.display_name || 'followed trader'} (${traderWinRate.toFixed(1)}% win rate)`,
             });
+
 
             await supabase.from('ai_decisions').insert({
               user_id: follower.user_id,
               decision_type: 'copy_trade',
               symbol: signal.symbol,
               action: 'buy',
-              reasoning: `Copied ${String(signal.action).toUpperCase()} from ${signal.top_traders?.display_name}. $${tradeValue.toFixed(2)} @ $${executionPrice}. ${describeGeometry(geo)}`,
+              reasoning: `Copied ${String(signal.action).toUpperCase()} from ${signal.top_traders?.display_name}. $${tradeValue.toFixed(2)} @ $${executionPrice}. ${mirrorMode ? 'Mirror mode: exits follow the trader; stake capped by risk sizing rules.' : describeGeometry(geo)}`,
               strategy: 'custom',
             });
 

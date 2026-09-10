@@ -1028,6 +1028,23 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const entryPrice = Number(position.avg_entry_price);
     const quantity = Number(position.quantity);
     const positionValue = currentPrice * quantity;
+
+    // ── MIRROR COPY POSITIONS ────────────────────────────────────────────────
+    // The user acknowledged that a mirrored copy trade follows the trader's own
+    // exits, so no stop, target, trailing, rotation or time exit may touch it.
+    // Only mark it to market; the copy executor closes it on the trader's sell.
+    if (position.mirror_only) {
+      const mirrorPnl = position.side === 'buy'
+        ? (currentPrice - entryPrice) * quantity
+        : (entryPrice - currentPrice) * quantity;
+      await supabase.from('positions').update({
+        current_price: currentPrice,
+        unrealized_pnl: mirrorPnl,
+        updated_at: new Date().toISOString(),
+      }).eq('id', position.id);
+      continue;
+    }
+
     
     // Handle positions with $0 entry price (synced from broker)
     // These are REAL holdings that should be sold when profitable!

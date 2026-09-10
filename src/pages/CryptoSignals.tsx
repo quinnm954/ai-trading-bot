@@ -33,6 +33,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { FeatureGate } from '@/components/subscription/UpgradePrompt';
 import { useFollowedTraders } from '@/hooks/useFollowedTraders';
 import { useCopyTradeSignals } from '@/hooks/useCopyTradeSignals';
+import { CopyTradeMirrorToggle } from '@/components/CopyTradeMirrorToggle';
 import { NewsFeedCard } from '@/components/trading/NewsFeedCard';
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -477,6 +478,8 @@ export default function CryptoSignals() {
             {/* Copy Trading Tab */}
             <TabsContent value="copy">
               <div className="space-y-6">
+                <CopyTradeMirrorToggle />
+
                 {/* Followed Traders Section */}
                 {followedTraders && followedTraders.length > 0 && (
                   <Card className="bg-card/50 border-green-500/30">
