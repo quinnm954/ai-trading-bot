@@ -3987,6 +3987,10 @@ serve(async (req) => {
     // skip this cycle entirely instead of falling back to a forced scalp.
     if (bestStrategy === 'none') {
       console.log(`🧠 Learning-driven stand-down: no healthy strategy for regime=${regimeReport.profile}. Skipping cycle.`);
+      await logStandDown(supabase, user.id, 'stand_down_no_healthy_strategy',
+        `Bots standing down — no strategy has a healthy score for a ${regimeReport.profile.replace(/_/g, ' ')} market`,
+        { regime, regime_profile: regimeReport.profile });
+
       await supabase.from('ai_settings').update({
         current_regime: regime,
         bot_status: 'idle',
