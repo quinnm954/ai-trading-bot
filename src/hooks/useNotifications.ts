@@ -60,14 +60,14 @@ export function useNotifications() {
         .eq('user_id', user.id)
         .gte('created_at', since)
         .order('created_at', { ascending: false })
-        .limit(40),
+        .limit(150),
       supabase
         .from('risk_events')
         .select('id, event_type, message, severity, created_at')
         .eq('user_id', user.id)
         .gte('created_at', since)
         .order('created_at', { ascending: false })
-        .limit(25),
+        .limit(75),
       supabase
         .from('agent_messages')
         .select('id, from_agent, subject, message_type, priority, created_at')
@@ -75,7 +75,7 @@ export function useNotifications() {
         .gte('created_at', since)
         .in('priority', ['high', 'critical'])
         .order('created_at', { ascending: false })
-        .limit(25),
+        .limit(75),
     ]);
 
     const items: AppNotification[] = [];
@@ -143,7 +143,7 @@ export function useNotifications() {
     }
 
     items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    setNotifications(items.slice(0, 50));
+    setNotifications(items.slice(0, 300));
     setIsLoading(false);
   }, [user, prefs]);
 
