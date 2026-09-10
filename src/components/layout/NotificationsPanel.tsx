@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bell, CheckCheck, TrendingUp, TrendingDown, ShieldAlert, Bot, Activity } from 'lucide-react';
+import { Bell, CheckCheck, TrendingUp, TrendingDown, ShieldAlert, Bot, Activity, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13,6 +13,7 @@ const ICONS: Record<AppNotification['kind'], typeof Bell> = {
   loss: TrendingDown,
   risk: ShieldAlert,
   ai: Bot,
+  copy: Users,
 };
 
 function timeAgo(iso: string) {
