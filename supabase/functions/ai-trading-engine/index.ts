@@ -3698,7 +3698,12 @@ serve(async (req) => {
         market_regime: regime,
       });
 
+      await logStandDown(supabase, user.id, 'stand_down_dead_market',
+        `Bots standing down: ${regimePolicy.rationale}`,
+        { regime, regime_profile: regimeReport.profile, avg24h: regimeReport.avg24h, risers_share: regimeReport.risersShare });
+
       console.log('💤 STAND-DOWN: Dead market — no new entries this cycle');
+
       return new Response(JSON.stringify({
         status: 'standing_down',
         reason: regimePolicy.rationale,
