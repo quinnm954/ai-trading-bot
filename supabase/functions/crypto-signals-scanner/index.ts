@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import {
+  fetchTopTraderCandidates,
+  fetchFills,
+  statsFromFills,
+  fillToAction,
+} from "../_shared/hyperliquid.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +17,11 @@ const logStep = (step: string, details?: any) => {
   console.log(`[CRYPTO-SIGNALS] ${step}${detailsStr}`);
 };
 
+// How many leaderboard wallets to profile per scan (each costs one fills request).
+const TRADER_SCAN_LIMIT = 20;
+// Fills newer than this become copy signals; matches the 15-minute scan cadence.
+const SIGNAL_LOOKBACK_MINUTES = 20;
+
 // Top crypto IDs for CoinGecko
 const COINGECKO_IDS: Record<string, string> = {
   'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin', 'SOL': 'solana',
@@ -19,6 +30,9 @@ const COINGECKO_IDS: Record<string, string> = {
   'ATOM': 'cosmos', 'LTC': 'litecoin', 'FIL': 'filecoin', 'APT': 'aptos',
   'ARB': 'arbitrum', 'OP': 'optimism', 'INJ': 'injective-protocol', 'SUI': 'sui'
 };
+
+// Only coins this app can actually trade may become copy signals.
+const TRADABLE_SYMBOLS = new Set(Object.keys(COINGECKO_IDS));
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -79,22 +93,14 @@ serve(async (req) => {
       results.mevOpportunities = mevOpportunities.length;
     }
 
-    // Update top traders and generate copy trade signals
+    // Update top traders and generate copy trade signals — all from real on-chain data
     if (scanType === 'all' || scanType === 'traders') {
-      logStep("Updating top traders and generating copy trade signals");
-      const topTraders = await scanTopTraders(supabase);
-      for (const trader of topTraders) {
-        await supabase.from('top_traders').upsert(trader, {
-          onConflict: 'wallet_address'
-        });
-      }
-      results.topTraders = topTraders.length;
-      
-      // Generate copy trade signals from trader activity
-      const marketData = await fetchCoinGeckoMarketData();
-      const signalsGenerated = await generateCopyTradeSignals(supabase, marketData);
+      logStep("Syncing real Hyperliquid traders and their fills");
+      results.topTraders = await syncRealTopTraders(supabase);
+
+      const signalsGenerated = await generateCopyTradeSignals(supabase);
       results.copyTradeSignals = signalsGenerated;
-      logStep("Copy trade signals generated", { count: signalsGenerated });
+      logStep("Copy trade signals generated from real fills", { count: signalsGenerated });
     }
 
     logStep("Scan complete with live data", results);
