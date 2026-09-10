@@ -433,7 +433,7 @@ serve(async (req) => {
               decision_type: 'copy_trade',
               symbol: signal.symbol,
               action: 'buy',
-              reasoning: `Copied ${String(signal.action).toUpperCase()} from ${signal.top_traders?.display_name}. $${tradeValue.toFixed(2)} @ $${executionPrice}. ${describeGeometry(geo)}`,
+              reasoning: `Copied ${String(signal.action).toUpperCase()} from ${signal.top_traders?.display_name}. $${tradeValue.toFixed(2)} @ $${executionPrice}. ${mirrorMode ? 'Mirror mode: exits follow the trader; stake capped by risk sizing rules.' : describeGeometry(geo)}`,
               strategy: 'custom',
             });
 
