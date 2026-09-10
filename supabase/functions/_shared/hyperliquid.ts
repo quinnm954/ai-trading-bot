@@ -4,14 +4,17 @@
 // module replaces that with actual wallets and actual fills:
 //
 //   • https://stats-data.hyperliquid.xyz/Mainnet/leaderboard  — every mainnet
-//     account with real PnL / ROI / volume windows. The payload is ~37 MB, so it
-//     is parsed as a stream and only the best candidates are ever held in memory.
+//     account with real PnL / ROI / volume windows. The full payload is ~37 MB of
+//     pretty-printed JSON; parsing all 45k rows blows the function's compute budget,
+//     so only the first few MB are pulled with a Range request and scanned with
+//     field regexes. That slice still yields hundreds of qualifying real traders.
 //   • POST https://api.hyperliquid.xyz/info {"type":"userFillsByTime", ...} —
 //     the wallet's real executed fills, which become copy-trade signals.
 
 const LEADERBOARD_URL = 'https://stats-data.hyperliquid.xyz/Mainnet/leaderboard';
 const INFO_URL = 'https://api.hyperliquid.xyz/info';
-const ROW_MARKER = '{"ethAddress"';
+const LEADERBOARD_SLICE_BYTES = 6_000_000;
+const ROW_MARKER = '"ethAddress"';
 
 export interface TraderCandidate {
   wallet: string;
@@ -52,39 +55,49 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function windowPerf(row: any, name: string) {
-  const entry = (row?.windowPerformances ?? []).find((w: any) => w?.[0] === name);
-  const p = entry?.[1] ?? {};
-  return { pnl: num(p.pnl), roi: num(p.roi), vlm: num(p.vlm) };
+const WALLET_RE = /:\s*"(0x[0-9a-fA-F]{40})"/;
+const ACCOUNT_VALUE_RE = /"accountValue":\s*"(-?[\d.eE+]+)"/;
+const DISPLAY_NAME_RE = /"displayName":\s*(?:null|"([^"]*)")/;
+
+function windowPerf(segment: string, name: string) {
+  const re = new RegExp(
+    `"${name}",\\s*\\{\\s*"pnl":\\s*"(-?[\\d.eE+]+)",\\s*"roi":\\s*"(-?[\\d.eE+]+)",\\s*"vlm":\\s*"(-?[\\d.eE+]+)"`,
+  );
+  const m = segment.match(re);
+  if (!m) return null;
+  return { pnl: num(m[1]), roi: num(m[2]), vlm: num(m[3]) };
 }
 
 /**
  * Traders worth copying: real capital at risk, positive month and lifetime, and
  * actively trading. Ranked by month ROI with a lifetime-consistency bonus.
  */
-function toCandidate(row: any): TraderCandidate | null {
-  const wallet = String(row?.ethAddress ?? '').toLowerCase();
-  if (!wallet.startsWith('0x')) return null;
+function toCandidate(segment: string): TraderCandidate | null {
+  const walletMatch = segment.match(WALLET_RE);
+  const avMatch = segment.match(ACCOUNT_VALUE_RE);
+  if (!walletMatch || !avMatch) return null;
 
-  const accountValue = num(row?.accountValue);
-  const day = windowPerf(row, 'day');
-  const week = windowPerf(row, 'week');
-  const month = windowPerf(row, 'month');
-  const allTime = windowPerf(row, 'allTime');
+  const day = windowPerf(segment, 'day');
+  const week = windowPerf(segment, 'week');
+  const month = windowPerf(segment, 'month');
+  const allTime = windowPerf(segment, 'allTime');
+  if (!month || !allTime) return null;
 
-  if (accountValue < 100_000) return null;      // real skin in the game
+  const accountValue = num(avMatch[1]);
+  if (accountValue < 100_000) return null;              // real skin in the game
   if (month.pnl <= 0 || month.roi <= 0.03) return null; // profitable this month
-  if (allTime.pnl <= 0) return null;            // profitable lifetime
-  if (month.vlm <= 0) return null;              // actually trading
+  if (allTime.pnl <= 0) return null;                    // profitable lifetime
+  if (month.vlm <= 0) return null;                      // actually trading
+  if ((day?.vlm ?? 0) <= 0) return null;                // traded in the last 24h
 
-  const score = month.roi * 100 + Math.min(50, allTime.roi * 50) + (week.pnl > 0 ? 5 : 0);
+  const score = month.roi * 100 + Math.min(50, allTime.roi * 50) + ((week?.pnl ?? 0) > 0 ? 5 : 0);
 
   return {
-    wallet,
-    displayName: row?.displayName ?? null,
+    wallet: walletMatch[1].toLowerCase(),
+    displayName: segment.match(DISPLAY_NAME_RE)?.[1] ?? null,
     accountValue,
-    dayPnl: day.pnl,
-    weekPnl: week.pnl,
+    dayPnl: day?.pnl ?? 0,
+    weekPnl: week?.pnl ?? 0,
     monthPnl: month.pnl,
     monthRoi: month.roi,
     allTimePnl: allTime.pnl,
@@ -94,73 +107,28 @@ function toCandidate(row: any): TraderCandidate | null {
   };
 }
 
-/** Stream the leaderboard and keep only the top `limit` candidates. */
-export async function fetchTopTraderCandidates(limit = 25): Promise<TraderCandidate[]> {
-  const res = await fetch(LEADERBOARD_URL);
-  if (!res.ok || !res.body) throw new Error(`Leaderboard fetch failed: ${res.status}`);
+/** Pull a slice of the leaderboard and return the best `limit` real traders in it. */
+export async function fetchTopTraderCandidates(limit = 20): Promise<TraderCandidate[]> {
+  const res = await fetch(LEADERBOARD_URL, {
+    headers: { Range: `bytes=0-${LEADERBOARD_SLICE_BYTES}` },
+  });
+  if (!res.ok && res.status !== 206) throw new Error(`Leaderboard fetch failed: ${res.status}`);
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
+  const text = await res.text();
+  const segments = text.split(ROW_MARKER).slice(1);
+
   const keep: TraderCandidate[] = [];
-  let buf = '';
-  let scanned = 0;
-
-  const consume = (segment: string) => {
-    const start = segment.indexOf(ROW_MARKER);
-    if (start < 0) return;
-    let json = segment.slice(start).trim();
-    while (json.endsWith(',') || json.endsWith(']') || json.endsWith('}')) {
-      // Row objects are self-closing; strip the array/object tail of the payload.
-      if (json.endsWith(',')) { json = json.slice(0, -1).trim(); continue; }
-      break;
-    }
-    // Trailing `]}` from the end of the document must go, the row's own `}` stays.
-    if (json.endsWith(']}')) json = json.slice(0, -2).trim();
-    if (json.endsWith(',')) json = json.slice(0, -1).trim();
-    try {
-      const row = JSON.parse(json);
-      scanned++;
-      const cand = toCandidate(row);
-      if (cand) {
-        keep.push(cand);
-        if (keep.length > limit * 4) {
-          keep.sort((a, b) => b.score - a.score);
-          keep.length = limit * 2;
-        }
-      }
-    } catch {
-      // Partial or malformed row — skip it rather than failing the whole scan.
-    }
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf(ROW_MARKER, 1)) > 0) {
-      consume(buf.slice(0, idx));
-      buf = buf.slice(idx);
-    }
-    // Guard against a pathological buffer if the marker never reappears.
-    if (buf.length > 2_000_000) buf = buf.slice(-1_000_000);
+  for (const segment of segments) {
+    const cand = toCandidate(segment);
+    if (cand) keep.push(cand);
   }
-  consume(buf);
 
   keep.sort((a, b) => b.score - a.score);
-  console.log(`[HYPERLIQUID] scanned ${scanned} leaderboard rows, kept ${Math.min(keep.length, limit)}`);
+  console.log(`[HYPERLIQUID] scanned ${segments.length} leaderboard rows, ${keep.length} qualified`);
   return keep.slice(0, limit);
 }
 
-/** Real executed fills for a wallet since `startTime` (ms epoch). */
-export async function fetchFills(wallet: string, startTime: number): Promise<Fill[]> {
-  const res = await fetch(INFO_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'userFillsByTime', user: wallet, startTime }),
-  });
-  if (!res.ok) throw new Error(`userFillsByTime ${wallet} failed: ${res.status}`);
-  const raw = await res.json();
+function mapFills(raw: unknown): Fill[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((f: any) => ({
     coin: String(f?.coin ?? '').toUpperCase(),
@@ -171,6 +139,32 @@ export async function fetchFills(wallet: string, startTime: number): Promise<Fil
     dir: String(f?.dir ?? ''),
     closedPnl: num(f?.closedPnl),
   })).filter((f) => f.coin && f.px > 0 && f.sz > 0);
+}
+
+/** Real executed fills for a wallet since `startTime` (ms epoch). */
+export async function fetchFills(wallet: string, startTime: number): Promise<Fill[]> {
+  const res = await fetch(INFO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'userFillsByTime', user: wallet, startTime }),
+  });
+  if (!res.ok) throw new Error(`userFillsByTime ${wallet} failed: ${res.status}`);
+  return mapFills(await res.json());
+}
+
+/**
+ * The wallet's most recent real fills (API caps at 2000). `userFillsByTime` fills
+ * that cap from the *oldest* end, so busy traders' latest activity is invisible
+ * through it — profiling and activity checks must use this instead.
+ */
+export async function fetchRecentFills(wallet: string): Promise<Fill[]> {
+  const res = await fetch(INFO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'userFills', user: wallet }),
+  });
+  if (!res.ok) throw new Error(`userFills ${wallet} failed: ${res.status}`);
+  return mapFills(await res.json());
 }
 
 /** Win rate, style and sizing derived from the wallet's own closing fills. */

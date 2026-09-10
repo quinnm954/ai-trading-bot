@@ -338,6 +338,9 @@ serve(async (req) => {
                       positionValue: tradeValue,
                       stopLoss: executionPrice * (1 - geo.stopLossPct / 100),
                       takeProfit: executionPrice * (1 + geo.takeProfitPct / 100),
+                      // Wide-stop swings are ATR-scaled, so the risk manager must judge
+                      // them against the wide cap rather than the scalp cap.
+                      wideStop: wideMode,
                     },
                   }),
                 },
