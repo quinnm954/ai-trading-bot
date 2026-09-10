@@ -325,7 +325,14 @@ serve(async (req) => {
               0,
             );
 
-            try {
+            // In mirror mode the acknowledged user has accepted that the trader's
+            // own exits replace our stop/target contract, so the geometry veto is
+            // waived. Sizing limits above still bound the loss to a capped stake.
+            if (mirrorMode) {
+              log(`📋 MIRROR MODE ${signal.symbol} — trader-driven exits, risk veto acknowledged`, {
+                stake: tradeValue.toFixed(2),
+              });
+            } else try {
               const riskResp = await fetch(
                 `${Deno.env.get('SUPABASE_URL')}/functions/v1/risk-manager`,
                 {
@@ -379,10 +386,11 @@ serve(async (req) => {
                 is_paper: isPaperUser,
                 market_type: 'crypto',
                 strategy: 'custom',
-                stop_loss_pct: Number(geo.stopLossPct.toFixed(4)),
-                take_profit_pct: Number(geo.takeProfitPct.toFixed(4)),
-                max_hold_minutes: holdMinutes,
-                trailing_enabled: wideMode ? WIDE_TRAILING_ENABLED : true,
+                mirror_only: mirrorMode,
+                stop_loss_pct: mirrorMode ? null : Number(geo.stopLossPct.toFixed(4)),
+                take_profit_pct: mirrorMode ? null : Number(geo.takeProfitPct.toFixed(4)),
+                max_hold_minutes: mirrorMode ? null : holdMinutes,
+                trailing_enabled: mirrorMode ? false : (wideMode ? WIDE_TRAILING_ENABLED : true),
               });
 
             if (posError) {
@@ -410,12 +418,15 @@ serve(async (req) => {
               is_paper: isPaperUser,
               market_type: 'crypto',
               strategy: 'custom',
-              stop_loss_price: executionPrice * (1 - geo.stopLossPct / 100),
-              take_profit_price: executionPrice * (1 + geo.takeProfitPct / 100),
-              risk_reward: Number(geo.netRewardRisk.toFixed(2)),
-              entry_reasoning: describeGeometry(geo),
+              stop_loss_price: mirrorMode ? null : executionPrice * (1 - geo.stopLossPct / 100),
+              take_profit_price: mirrorMode ? null : executionPrice * (1 + geo.takeProfitPct / 100),
+              risk_reward: mirrorMode ? null : Number(geo.netRewardRisk.toFixed(2)),
+              entry_reasoning: mirrorMode
+                ? `Mirror copy: exits follow the trader, stake capped at $${tradeValue.toFixed(2)} by risk sizing rules`
+                : describeGeometry(geo),
               ai_reasoning: `📋 Copy trade from ${signal.top_traders?.display_name || 'followed trader'} (${traderWinRate.toFixed(1)}% win rate)`,
             });
+
 
             await supabase.from('ai_decisions').insert({
               user_id: follower.user_id,
