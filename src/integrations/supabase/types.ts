@@ -624,6 +624,8 @@ export type Database = {
           max_copy_amount_usd: number | null
           min_trader_trades: number | null
           min_trader_win_rate: number | null
+          risk_acknowledged: boolean
+          risk_acknowledged_at: string | null
           updated_at: string
           user_id: string
         }
@@ -637,6 +639,8 @@ export type Database = {
           max_copy_amount_usd?: number | null
           min_trader_trades?: number | null
           min_trader_win_rate?: number | null
+          risk_acknowledged?: boolean
+          risk_acknowledged_at?: string | null
           updated_at?: string
           user_id: string
         }
@@ -650,6 +654,8 @@ export type Database = {
           max_copy_amount_usd?: number | null
           min_trader_trades?: number | null
           min_trader_win_rate?: number | null
+          risk_acknowledged?: boolean
+          risk_acknowledged_at?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1656,6 +1662,7 @@ export type Database = {
           is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           max_hold_minutes: number | null
+          mirror_only: boolean
           partial_tp_done: boolean
           peak_pnl_percent: number | null
           quantity: number
@@ -1677,6 +1684,7 @@ export type Database = {
           is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           max_hold_minutes?: number | null
+          mirror_only?: boolean
           partial_tp_done?: boolean
           peak_pnl_percent?: number | null
           quantity: number
@@ -1698,6 +1706,7 @@ export type Database = {
           is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
           max_hold_minutes?: number | null
+          mirror_only?: boolean
           partial_tp_done?: boolean
           peak_pnl_percent?: number | null
           quantity?: number

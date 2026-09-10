@@ -92,6 +92,13 @@
       "when": 1789072056529,
       "tag": "0012_schedule_copy_trade_executor",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789073249524,
+      "tag": "0013_copy_trade_mirror_mode",
+      "breakpoints": true
     }
   ]
 }
