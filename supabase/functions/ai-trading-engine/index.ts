@@ -1952,9 +1952,33 @@ function computeAggregateTape(marketData: MarketData[]): {
 
 
 
+// Every stand-down must be visible to the user in notifications, not just in logs.
+// Each reason gets its own event_type so the notifications panel (which collapses
+// repeats of the same type) always shows the latest explanation per cause.
+async function logStandDown(
+  supabase: any,
+  userId: string,
+  eventType: string,
+  message: string,
+  details: Record<string, unknown> = {}
+) {
+  try {
+    await supabase.from('risk_events').insert({
+      user_id: userId,
+      event_type: eventType,
+      severity: 'warning',
+      message,
+      details: { ...details, standing_down: true, at: new Date().toISOString() },
+    });
+  } catch (e) {
+    console.error('failed to log stand-down risk event', e);
+  }
+}
+
 // SCALP UNIVERSE FILTER: Buyable Coinbase assets that are RISING RIGHT NOW (5m + 1h positive).
 // Async because we fetch short-window candles for the survivors of the pre-filter.
 async function filterByTrend(
+
   marketData: MarketData[],
   cfg: ScalpCfg = SCALP_CFG_DEFAULTS,
   opts: { memeOnly?: boolean } = {}
@@ -3674,7 +3698,12 @@ serve(async (req) => {
         market_regime: regime,
       });
 
+      await logStandDown(supabase, user.id, 'stand_down_dead_market',
+        `Bots standing down: ${regimePolicy.rationale}`,
+        { regime, regime_profile: regimeReport.profile, avg24h: regimeReport.avg24h, risers_share: regimeReport.risersShare });
+
       console.log('💤 STAND-DOWN: Dead market — no new entries this cycle');
+
       return new Response(JSON.stringify({
         status: 'standing_down',
         reason: regimePolicy.rationale,
@@ -3690,6 +3719,16 @@ serve(async (req) => {
     const memeOnly = !!(settings as any).meme_coins_only;
     if (memeOnly) console.log('🐸 MEME-ONLY MODE ENABLED — restricting universe to meme-coin allowlist');
     let { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly });
+
+    // The tape gate inside filterByTrend is the most common reason for a quiet day —
+    // surface it in notifications with the exact numbers every cycle it blocks entries.
+    const tapeRead = computeAggregateTape(marketData);
+    if (!tapeRead.rising) {
+      await logStandDown(supabase, user.id, 'stand_down_market_tape',
+        `Bots standing down — market tape not rising: ${tapeRead.label}`,
+        { avg24h: tapeRead.avg24h, avg1h: tapeRead.avg1h, breadth: tapeRead.breadth });
+    }
+
     console.log(`📈 Trend Analysis:`);
     trendAnalysis.forEach(t => console.log(`  ${t.symbol}: ${t.trend} | Trade: ${t.shouldTrade} | ${t.reason}`));
 
@@ -3948,6 +3987,10 @@ serve(async (req) => {
     // skip this cycle entirely instead of falling back to a forced scalp.
     if (bestStrategy === 'none') {
       console.log(`🧠 Learning-driven stand-down: no healthy strategy for regime=${regimeReport.profile}. Skipping cycle.`);
+      await logStandDown(supabase, user.id, 'stand_down_no_healthy_strategy',
+        `Bots standing down — no strategy has a healthy score for a ${regimeReport.profile.replace(/_/g, ' ')} market`,
+        { regime, regime_profile: regimeReport.profile });
+
       await supabase.from('ai_settings').update({
         current_regime: regime,
         bot_status: 'idle',
@@ -4058,6 +4101,9 @@ serve(async (req) => {
 
     if (standDownOnLoss) {
       console.log(`🛡️ STAND-DOWN: dayPnL=$${todaysNetPnL.toFixed(2)} (${dayLossPct.toFixed(2)}%), regime=${regimeReport.profile}. No new entries until day turns green or regime flips bullish.`);
+      await logStandDown(supabase, user.id, 'stand_down_daily_loss',
+        `Bots standing down — today is down $${Math.abs(todaysNetPnL).toFixed(2)} (${dayLossPct.toFixed(2)}%) in a ${regimeReport.profile.replace(/_/g, ' ')} market. No new entries until the day turns green or the trend turns up.`,
+        { day_pnl: todaysNetPnL, day_loss_pct: dayLossPct, regime_profile: regimeReport.profile });
       decisions = [];
     } else if (decisions.length === 0) {
       // Single, regime-appropriate fallback. No more "always find something" cascade.
@@ -4067,8 +4113,12 @@ serve(async (req) => {
         decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy);
       } else {
         console.log(`📊 Regime policy is stand-down (${regimeReport.profile}). Skipping rule fallback.`);
+        await logStandDown(supabase, user.id, 'stand_down_regime_policy',
+          `Bots standing down — the ${regimeReport.profile.replace(/_/g, ' ')} regime policy allows no entries this cycle`,
+          { regime, regime_profile: regimeReport.profile, rationale: regimePolicy.rationale });
       }
     }
+
 
     // Apply regime-driven confidence floor — in volatile/down-trending regimes we only act on high-conviction setups.
     // Default rule/AI minimum is ~0.6; the policy can raise this to filter weak signals.
