@@ -8,7 +8,7 @@ import {
   type NotificationPrefs,
 } from '@/lib/notificationPrefs';
 
-export type NotificationKind = 'trade' | 'profit' | 'loss' | 'risk' | 'ai';
+export type NotificationKind = 'trade' | 'profit' | 'loss' | 'risk' | 'ai' | 'copy';
 
 export interface AppNotification {
   id: string;
@@ -56,7 +56,7 @@ export function useNotifications() {
     const [tradesRes, riskRes, agentRes] = await Promise.all([
       supabase
         .from('trades')
-        .select('id, symbol, side, pnl, status, strategy, exit_reason, closed_at, created_at, is_paper')
+        .select('id, symbol, side, pnl, status, strategy, exit_reason, closed_at, created_at, is_paper, ai_reasoning, entry_reasoning')
         .eq('user_id', user.id)
         .gte('created_at', since)
         .order('created_at', { ascending: false })
@@ -84,14 +84,22 @@ export function useNotifications() {
       const closed = t.status === 'closed';
       const pnl = Number(t.pnl ?? 0);
       const when = (closed ? t.closed_at : t.created_at) || t.created_at || since;
+      const reasoning = `${t.ai_reasoning ?? ''} ${t.entry_reasoning ?? ''}`;
+      const isCopy = /copy trade from|mirror copy|copied /i.test(reasoning);
+      const traderName = t.ai_reasoning?.match(/Copy trade from ([^(]+)/i)?.[1]?.trim();
+      const mirror = /mirror copy/i.test(reasoning);
+      const copySuffix = `${traderName ? `from ${traderName}` : 'copied trader'}${mirror ? ' · mirror' : ''}`;
+      const mode = t.is_paper ? ' · paper' : ' · live';
       if (closed) {
         const win = pnl >= 0;
         if (win ? !prefs.profits : !prefs.losses) continue;
         items.push({
           id: `trade-close-${t.id}`,
           kind: win ? 'profit' : 'loss',
-          title: `${t.symbol} closed ${fmt(pnl)}`,
-          description: `${t.strategy ?? 'strategy'} · ${t.exit_reason ?? 'exit'}${t.is_paper ? ' · paper' : ' · live'}`,
+          title: `${isCopy ? 'Copy · ' : ''}${t.symbol} closed ${fmt(pnl)}`,
+          description: isCopy
+            ? `${copySuffix} · ${t.exit_reason ?? 'exit'}${mode}`
+            : `${t.strategy ?? 'strategy'} · ${t.exit_reason ?? 'exit'}${mode}`,
           createdAt: when,
           severity: win ? 'success' : 'warning',
           link: '/trades',
@@ -100,12 +108,14 @@ export function useNotifications() {
         if (!prefs.trades) continue;
         items.push({
           id: `trade-open-${t.id}`,
-          kind: 'trade',
-          title: `${t.symbol} ${String(t.side).toUpperCase()} opened`,
-          description: `${t.strategy ?? 'strategy'}${t.is_paper ? ' · paper' : ' · live'}`,
+          kind: isCopy ? 'copy' : 'trade',
+          title: isCopy
+            ? `Copy trade: ${t.symbol} ${String(t.side).toUpperCase()}`
+            : `${t.symbol} ${String(t.side).toUpperCase()} opened`,
+          description: isCopy ? `${copySuffix}${mode}` : `${t.strategy ?? 'strategy'}${mode}`,
           createdAt: when,
           severity: 'info',
-          link: '/trades',
+          link: isCopy ? '/crypto-signals' : '/trades',
         });
       }
     }
