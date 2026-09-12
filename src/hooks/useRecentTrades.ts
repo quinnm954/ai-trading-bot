@@ -18,6 +18,10 @@ export interface Trade {
   createdAt: Date;
   closedAt: Date | null;
   aiReasoning: string | null;
+  /** Live mark price for open trades */
+  currentPrice?: number | null;
+  /** P&L as a percent of cost basis */
+  pnlPercent?: number | null;
 }
 
 export function useRecentTrades(isPaper: boolean = true, limit: number = 4, sinceHours: number = 24) {
