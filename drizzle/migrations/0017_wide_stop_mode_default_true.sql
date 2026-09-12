@@ -1,0 +1,1 @@
+ALTER TABLE public.scalp_settings ALTER COLUMN wide_stop_mode SET DEFAULT true;
