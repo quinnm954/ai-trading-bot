@@ -99,6 +99,13 @@
       "when": 1789073249524,
       "tag": "0013_copy_trade_mirror_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789238528071,
+      "tag": "0014_standardize_account_defaults",
+      "breakpoints": true
     }
   ]
 }
