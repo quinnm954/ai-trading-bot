@@ -72,7 +72,7 @@ const SCALP_CFG_DEFAULTS = {
   trailing_drop_pct: 0.35,
   hard_stop_loss_pct: MAX_RISK_PCT,
   momentum_rotation_min_pct: 0.5,
-  loss_rotation_enabled: true,
+  loss_rotation_enabled: false,
   loss_rotation_max_loss_pct: -MAX_RISK_PCT,
   loss_rotation_momentum_edge_pct: 0.5,
   loss_rotation_min_age_sec: 300,
@@ -82,7 +82,7 @@ const SCALP_CFG_DEFAULTS = {
   max_capital_usage_pct: 80,
   // WIDE-STOP SWING MODE — when on, entries taken while the tape gate is open use
   // 8% TP / 2.5×ATR stop / 48h hold instead of the locked 3.36%/0.80% geometry.
-  wide_stop_mode: false,
+  wide_stop_mode: true,
 };
 type ScalpCfg = typeof SCALP_CFG_DEFAULTS;
 
