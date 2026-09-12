@@ -17,7 +17,7 @@ export function RecentTradesCard() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Recent Trades</h3>
-          <p className="text-sm text-muted-foreground">Last 24 hours</p>
+          <p className="text-sm text-muted-foreground">Open trades (live) &amp; last 24 hours</p>
         </div>
         <Link to="/trades">
           <Button variant="ghost" size="sm" className="gap-2">
