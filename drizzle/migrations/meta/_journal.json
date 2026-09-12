@@ -120,6 +120,13 @@
       "when": 1789239860580,
       "tag": "0016_disable_loss_rotation_default",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789239890294,
+      "tag": "0017_wide_stop_mode_default_true",
+      "breakpoints": true
     }
   ]
 }
