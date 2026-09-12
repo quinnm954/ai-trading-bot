@@ -4202,8 +4202,33 @@ serve(async (req) => {
       console.log(`🛑 STANDBY: no candidates this cycle (regime=${regimeReport.profile}). Holding cash.`);
     }
 
-    // 🛡️ LOSS PREVENTION FILTER REMOVED — per user request, no cooldown after losing trades.
-    // The bot will retry symbols regardless of recent loss history.
+    // 🛡️ LOSS PREVENTION FILTER (reinstated) — stop doubling down on losers.
+    // A symbol that just cost money is off the table for LOSS_REENTRY_COOLDOWN_HOURS,
+    // measured across BOTH paper and live history for this user.
+    if (decisions.length > 0) {
+      const lossCooldownMap = await getRecentLosingSymbols(
+        supabase,
+        userId,
+        isPaperMode,
+        LOSS_REENTRY_COOLDOWN_HOURS,
+      );
+      if (lossCooldownMap.size > 0) {
+        decisions = decisions.filter((d) => {
+          if (d.action !== 'buy') return true;
+          const check = shouldBlockSymbolDueToLosses(
+            String(d.symbol).toUpperCase(),
+            lossCooldownMap,
+            LOSS_REENTRY_COOLDOWN_HOURS,
+          );
+          if (check.blocked) {
+            console.log(`🛑 ${check.reason} — refusing to double down on ${d.symbol}`);
+            return false;
+          }
+          return true;
+        });
+      }
+    }
+
 
     // Double-check: Filter out any decisions for coins in downtrend (safety net)
     decisions = decisions.filter(d => {
