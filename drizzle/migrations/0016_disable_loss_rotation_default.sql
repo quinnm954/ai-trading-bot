@@ -1,0 +1,1 @@
+ALTER TABLE public.scalp_settings ALTER COLUMN loss_rotation_enabled SET DEFAULT false;

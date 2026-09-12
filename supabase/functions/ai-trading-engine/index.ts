@@ -982,6 +982,13 @@ async function tryLossRotation(
     console.log('🔁 LOSS-ROTATION: disabled by user settings');
     return false;
   }
+  // WIDE-STOP SWING MODE holds for 48h with no intermediate exits: cutting a red
+  // position early is exactly the churn that produced a run of small losses, so
+  // rotation is structurally off while wide mode is on.
+  if (cfg.wide_stop_mode) {
+    console.log('🔁 LOSS-ROTATION: disabled — wide-stop swing mode holds to TP / stop / time exit');
+    return false;
+  }
   const MAX_LOSS_PCT = cfg.loss_rotation_max_loss_pct;
   const MIN_AGE_SEC = cfg.loss_rotation_min_age_sec;
   const MOMENTUM_EDGE = cfg.loss_rotation_momentum_edge_pct;
