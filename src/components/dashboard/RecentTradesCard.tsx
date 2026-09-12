@@ -56,6 +56,11 @@ export function RecentTradesCard() {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-foreground">{trade.symbol}</p>
+                    {trade.status === 'open' ? (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-warning/20 text-warning">
+                        OPEN
+                      </span>
+                    ) : null}
                     {/^(copy|mirror)/i.test(trade.aiReasoning || '') || /copy trade|copied from|mirror/i.test(trade.aiReasoning || '') ? (
                       <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-primary/20 text-primary">
                         COPY
@@ -71,12 +76,19 @@ export function RecentTradesCard() {
               <div className="text-right">
                 <p className={cn(
                   'font-mono font-medium',
-                  trade.pnl && trade.pnl >= 0 ? 'text-profit' : 'text-loss'
+                  (trade.pnl ?? 0) >= 0 ? 'text-profit' : 'text-loss'
                 )}>
-                  {trade.pnl && trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toFixed(2) || '0.00'}
+                  {(trade.pnl ?? 0) >= 0 ? '+' : '-'}${Math.abs(trade.pnl ?? 0).toFixed(2)}
+                  {trade.pnlPercent != null && (
+                    <span className="ml-1 text-xs">
+                      ({trade.pnlPercent >= 0 ? '+' : ''}{trade.pnlPercent.toFixed(2)}%)
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {trade.closedAt?.toLocaleDateString()}
+                  {trade.status === 'open'
+                    ? 'Unrealized • live'
+                    : trade.closedAt?.toLocaleDateString()}
                 </p>
               </div>
             </div>
