@@ -1785,6 +1785,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     const closes = sorted.map((c: any) => Number(c.close));
     const highs = sorted.map((c: any) => Number(c.high));
     const lows = sorted.map((c: any) => Number(c.low));
+    const volumes = sorted.map((c: any) => Number(c.volume) || 0);
     const last = closes[closes.length - 1];
     const prev5 = closes[closes.length - 2];
     const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
@@ -1794,6 +1795,14 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     const rsi = computeRSI(closes, 14);
     const bb = computeBollinger(closes, 20, 2);
     const percentB = bb && bb.upper > bb.lower ? (last - bb.lower) / (bb.upper - bb.lower) : undefined;
+
+    // 📚 Playbook inputs — trend structure, momentum turn, participation and value.
+    const ema9 = computeEMA(closes, 9);
+    const ema21 = computeEMA(closes, 21);
+    const macd = computeMacdHistogram(closes);
+    const vwap = computeVWAP(closes, highs, lows, volumes, 20);
+    const volumeRatio = computeVolumeRatio(volumes, 3, 20);
+    const higherLows = hasHigherLows(lows, 3);
 
     // ATR(14) on 5m → realized volatility as % of last price
     let atrPct: number | undefined;
