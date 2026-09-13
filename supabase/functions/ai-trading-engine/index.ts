@@ -1650,6 +1650,16 @@ interface CandleTechnicals {
   supportPrice?: number;
   distanceToSupportPct?: number;
   supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
+  // 📚 Playbook inputs
+  ema9?: number;
+  ema21?: number;
+  macdHist?: number;
+  macdHistPrev?: number;
+  vwap?: number;
+  volumeRatio?: number;
+  higherLows?: boolean;
+  htfAboveEma?: boolean;
+  htfSlopePct?: number;
 }
 
 // Detect the nearest swing-low support below `price` using ±`window` pivot lows.
