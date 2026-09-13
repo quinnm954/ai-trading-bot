@@ -16,6 +16,27 @@ import {
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
+import { evaluateEntryPlaybook, PLAYBOOK_MIN_SCORE } from "../_shared/entry-playbook.ts";
+
+// 🎓 LEARNED SETUP MEMORY — setup fingerprints that have proven negative expectancy
+// over a real sample are benched by record_setup_outcome() and never traded again
+// until they earn their way back. Cached briefly per cycle to avoid re-querying.
+const benchedSetupCache = new Map<string, { keys: Set<string>; at: number }>();
+
+// deno-lint-ignore no-explicit-any
+async function getBenchedSetups(supabase: any, userId: string): Promise<Set<string>> {
+  const cached = benchedSetupCache.get(userId);
+  if (cached && Date.now() - cached.at < 60_000) return cached.keys;
+  const { data } = await supabase
+    .from('setup_scorecard')
+    .select('setup_key')
+    .eq('user_id', userId)
+    .eq('benched', true);
+  const keys = new Set<string>((data ?? []).map((r: any) => r.setup_key));
+  benchedSetupCache.set(userId, { keys, at: Date.now() });
+  return keys;
+}
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
