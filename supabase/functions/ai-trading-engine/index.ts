@@ -1916,12 +1916,26 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<
     coin.techSetup = t.techSetup;
     coin.techScore = t.techScore;
     coin.atrPct = t.atrPct;
-    coin.swingAtrPct = t.swingAtrPct ?? (await fetchSwingAtrPct(productId));
     coin.volClass = t.volClass;
     coin.volScore = t.volScore;
     coin.supportPrice = t.supportPrice;
     coin.distanceToSupportPct = t.distanceToSupportPct;
     coin.supportContext = t.supportContext;
+    // 📚 Playbook inputs: 5m structure/participation/value
+    (coin as any).change15m = t.change15m;
+    (coin as any).lastClose = t.lastClose;
+    (coin as any).ema9 = t.ema9;
+    (coin as any).ema21 = t.ema21;
+    (coin as any).macdHist = t.macdHist;
+    (coin as any).macdHistPrev = t.macdHistPrev;
+    (coin as any).vwap = t.vwap;
+    (coin as any).higherLows = t.higherLows;
+    (coin as any).volumeRatio = t.volumeRatio;
+    // Higher-timeframe (1h) trend + swing ATR from one hourly candle fetch
+    const htf = await fetchHtfContext(productId);
+    coin.swingAtrPct = t.swingAtrPct ?? htf?.swingAtrPct;
+    (coin as any).htfAboveEma = htf?.htfAboveEma;
+    (coin as any).htfSlopePct = htf?.htfSlopePct;
   });
   return { attempted: targets.length, failures };
 }
