@@ -3046,17 +3046,13 @@ function analyzeWithRules(
         break;
         
       case 'volatility_breakout':
-        // AGGRESSIVE VOLATILITY - High range = opportunity
-        if (volatilityPercent > 5 && pricePosition < 0.35) {
+        // Volatility is only an opportunity when price is actually breaking UP.
+        // The old "low entry / low in range" branches are removed.
+        if (volatilityPercent > 3 && coin.change24h > 0.5 && coin.change5m > 0) {
           action = 'buy';
-          confidence = 0.9;
-          reason = `⚡ VOLATILITY SCALP: ${volatilityPercent.toFixed(1)}% range, low entry`;
-          pattern = 'volatility_extreme';
-        } else if (volatilityPercent > 3 && pricePosition < 0.45) {
-          action = 'buy';
-          confidence = 0.8;
-          reason = `⚡ VOLATILITY SCALP: ${volatilityPercent.toFixed(1)}% range opportunity`;
-          pattern = 'volatility_play';
+          confidence = volatilityPercent > 5 ? 0.88 : 0.8;
+          reason = `⚡ VOLATILITY BREAKOUT: ${volatilityPercent.toFixed(1)}% range, +${coin.change24h.toFixed(2)}% and rising`;
+          pattern = 'volatility_breakout_up';
         }
         break;
         
