@@ -16,6 +16,27 @@ import {
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
+import { evaluateEntryPlaybook } from "../_shared/entry-playbook.ts";
+
+// 🎓 LEARNED SETUP MEMORY — setup fingerprints that have proven negative expectancy
+// over a real sample are benched by record_setup_outcome() and never traded again
+// until they earn their way back. Cached briefly per cycle to avoid re-querying.
+const benchedSetupCache = new Map<string, { keys: Set<string>; at: number }>();
+
+// deno-lint-ignore no-explicit-any
+async function getBenchedSetups(supabase: any, userId: string): Promise<Set<string>> {
+  const cached = benchedSetupCache.get(userId);
+  if (cached && Date.now() - cached.at < 60_000) return cached.keys;
+  const { data } = await supabase
+    .from('setup_scorecard')
+    .select('setup_key')
+    .eq('user_id', userId)
+    .eq('benched', true);
+  const keys = new Set<string>((data ?? []).map((r: any) => r.setup_key));
+  benchedSetupCache.set(userId, { keys, at: Date.now() });
+  return keys;
+}
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1650,6 +1671,16 @@ interface CandleTechnicals {
   supportPrice?: number;
   distanceToSupportPct?: number;
   supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
+  // 📚 Playbook inputs
+  ema9?: number;
+  ema21?: number;
+  macdHist?: number;
+  macdHistPrev?: number;
+  vwap?: number;
+  volumeRatio?: number;
+  higherLows?: boolean;
+  htfAboveEma?: boolean;
+  htfSlopePct?: number;
 }
 
 // Detect the nearest swing-low support below `price` using ±`window` pivot lows.
@@ -1704,6 +1735,84 @@ function computeBollinger(closes: number[], period = 20, mult = 2) {
   return { mid, upper, lower, width: mid > 0 ? (upper - lower) / mid : 0 };
 }
 
+// ── 📚 PLAYBOOK INDICATORS ────────────────────────────────────────────────────
+/** Exponential moving average of the last `period` closes. */
+function computeEMA(values: number[], period: number): number | undefined {
+  if (values.length < period) return undefined;
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < values.length; i++) ema = values[i] * k + ema * (1 - k);
+  return ema;
+}
+
+/** Full EMA series (needed for the MACD signal line). */
+function emaSeries(values: number[], period: number): number[] {
+  if (values.length < period) return [];
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const out = [ema];
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+    out.push(ema);
+  }
+  return out;
+}
+
+/** MACD(12,26,9) histogram — current and previous bar, to detect a momentum turn. */
+function computeMacdHistogram(closes: number[]): { hist: number; prevHist: number } | undefined {
+  if (closes.length < 35) return undefined;
+  const fast = emaSeries(closes, 12);
+  const slow = emaSeries(closes, 26);
+  if (!fast.length || !slow.length) return undefined;
+  // Align tails so both series describe the same bars.
+  const len = Math.min(fast.length, slow.length);
+  const macdLine = Array.from({ length: len }, (_, i) =>
+    fast[fast.length - len + i] - slow[slow.length - len + i]);
+  const signal = emaSeries(macdLine, 9);
+  if (signal.length < 2) return undefined;
+  const histAt = (back: number) =>
+    macdLine[macdLine.length - 1 - back] - signal[signal.length - 1 - back];
+  return { hist: histAt(0), prevHist: histAt(1) };
+}
+
+/** Rolling VWAP over the last `period` candles using typical price × volume. */
+function computeVWAP(closes: number[], highs: number[], lows: number[], volumes: number[], period = 20): number | undefined {
+  const n = Math.min(period, closes.length, volumes.length);
+  if (n < 5) return undefined;
+  let pv = 0, vol = 0;
+  for (let i = closes.length - n; i < closes.length; i++) {
+    const typical = (highs[i] + lows[i] + closes[i]) / 3;
+    const v = volumes[i] || 0;
+    pv += typical * v;
+    vol += v;
+  }
+  if (!(vol > 0)) return undefined;
+  return pv / vol;
+}
+
+/** Trigger-window volume vs its own baseline — participation confirmation. */
+function computeVolumeRatio(volumes: number[], recent = 3, baseline = 20): number | undefined {
+  if (volumes.length < baseline + recent) return undefined;
+  const recentSlice = volumes.slice(-recent);
+  const baseSlice = volumes.slice(-(baseline + recent), -recent);
+  const recentAvg = recentSlice.reduce((a, b) => a + b, 0) / recentSlice.length;
+  const baseAvg = baseSlice.reduce((a, b) => a + b, 0) / baseSlice.length;
+  if (!(baseAvg > 0)) return undefined;
+  return recentAvg / baseAvg;
+}
+
+/** Rising-low structure over the last three swing windows. */
+function hasHigherLows(lows: number[], windows = 3): boolean | undefined {
+  const size = 6;
+  if (lows.length < size * windows) return undefined;
+  const mins: number[] = [];
+  for (let w = windows; w >= 1; w--) {
+    const slice = lows.slice(lows.length - size * w, lows.length - size * (w - 1));
+    mins.push(Math.min(...slice));
+  }
+  return mins.every((v, i) => i === 0 || v >= mins[i - 1]);
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Run an async mapper over items with bounded concurrency (Coinbase rate limits hard). */
@@ -1737,8 +1846,12 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
   return null;
 }
 
-/** ATR(14) on ONE_HOUR candles as % of price — swing-scale volatility for stop sizing. */
-async function fetchSwingAtrPct(productId: string): Promise<number | undefined> {
+/**
+ * ONE_HOUR candle context in a single fetch:
+ *  - swingAtrPct: ATR(14) as % of price — swing-scale volatility for stop sizing
+ *  - htfAboveEma / htfSlopePct: higher-timeframe trend, so nothing buys into an hourly downtrend
+ */
+async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number } | undefined> {
   try {
     const now = Math.floor(Date.now() / 1000);
     const start = now - 3600 * 48; // 48 hourly candles → ATR(14) with headroom
@@ -1763,8 +1876,23 @@ async function fetchSwingAtrPct(productId: string): Promise<number | undefined> 
     const slice = trs.slice(-14);
     const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
     const last = closes[closes.length - 1];
-    if (!(last > 0) || !(atr > 0)) return undefined;
-    return (atr / last) * 100;
+    if (!(last > 0)) return undefined;
+
+    // Higher-timeframe trend: price vs 1h EMA(20) and the EMA's own slope over 6 hours.
+    const ema20 = computeEMA(closes, 20);
+    let htfAboveEma: boolean | undefined;
+    let htfSlopePct: number | undefined;
+    if (ema20 !== undefined && ema20 > 0) {
+      htfAboveEma = last >= ema20;
+      const past = computeEMA(closes.slice(0, Math.max(21, closes.length - 6)), 20);
+      if (past !== undefined && past > 0) htfSlopePct = ((ema20 - past) / past) * 100;
+    }
+
+    return {
+      swingAtrPct: atr > 0 ? (atr / last) * 100 : undefined,
+      htfAboveEma,
+      htfSlopePct,
+    };
   } catch (_e) {
     return undefined;
   }
@@ -1785,6 +1913,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     const closes = sorted.map((c: any) => Number(c.close));
     const highs = sorted.map((c: any) => Number(c.high));
     const lows = sorted.map((c: any) => Number(c.low));
+    const volumes = sorted.map((c: any) => Number(c.volume) || 0);
     const last = closes[closes.length - 1];
     const prev5 = closes[closes.length - 2];
     const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
@@ -1794,6 +1923,14 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     const rsi = computeRSI(closes, 14);
     const bb = computeBollinger(closes, 20, 2);
     const percentB = bb && bb.upper > bb.lower ? (last - bb.lower) / (bb.upper - bb.lower) : undefined;
+
+    // 📚 Playbook inputs — trend structure, momentum turn, participation and value.
+    const ema9 = computeEMA(closes, 9);
+    const ema21 = computeEMA(closes, 21);
+    const macd = computeMacdHistogram(closes);
+    const vwap = computeVWAP(closes, highs, lows, volumes, 20);
+    const volumeRatio = computeVolumeRatio(volumes, 3, 20);
+    const higherLows = hasHigherLows(lows, 3);
 
     // ATR(14) on 5m → realized volatility as % of last price
     let atrPct: number | undefined;
@@ -1884,6 +2021,8 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       techSetup, techScore: score,
       atrPct, volClass, volScore,
       supportPrice, distanceToSupportPct, supportContext,
+      ema9, ema21, macdHist: macd?.hist, macdHistPrev: macd?.prevHist,
+      vwap, volumeRatio, higherLows,
     };
   } catch (_e) {
     return null;
@@ -1916,12 +2055,26 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<
     coin.techSetup = t.techSetup;
     coin.techScore = t.techScore;
     coin.atrPct = t.atrPct;
-    coin.swingAtrPct = t.swingAtrPct ?? (await fetchSwingAtrPct(productId));
     coin.volClass = t.volClass;
     coin.volScore = t.volScore;
     coin.supportPrice = t.supportPrice;
     coin.distanceToSupportPct = t.distanceToSupportPct;
     coin.supportContext = t.supportContext;
+    // 📚 Playbook inputs: 5m structure/participation/value
+    (coin as any).change15m = t.change15m;
+    (coin as any).lastClose = t.lastClose;
+    (coin as any).ema9 = t.ema9;
+    (coin as any).ema21 = t.ema21;
+    (coin as any).macdHist = t.macdHist;
+    (coin as any).macdHistPrev = t.macdHistPrev;
+    (coin as any).vwap = t.vwap;
+    (coin as any).higherLows = t.higherLows;
+    (coin as any).volumeRatio = t.volumeRatio;
+    // Higher-timeframe (1h) trend + swing ATR from one hourly candle fetch
+    const htf = await fetchHtfContext(productId);
+    coin.swingAtrPct = t.swingAtrPct ?? htf?.swingAtrPct;
+    (coin as any).htfAboveEma = htf?.htfAboveEma;
+    (coin as any).htfSlopePct = htf?.htfSlopePct;
   });
   return { attempted: targets.length, failures };
 }
@@ -2964,40 +3117,47 @@ function analyzeWithRules(
         }
     }
 
-    // ── 🕯️ CANDLE + BAND CONFIRMATION (applies to EVERY rule-strategy buy) ──────
-    // The 24h-percentage branches above are blind to what the candles are doing, so
-    // "grid level -1", "low in range", "dca dip" and "approaching resistance" were
-    // all buying coins that were actively falling. Nothing enters now unless the
-    // 5-minute candles and Bollinger bands agree the move is turning up.
+    // ── 📚 PLAYBOOK CONFIRMATION (applies to EVERY rule-strategy buy) ───────────
+    // The 24h-percentage branches above are blind to what price is actually doing, so
+    // "grid level -1", "low in range", "dca dip" and "approaching resistance" were all
+    // buying coins that were actively falling. Nothing enters now unless the full rule
+    // library — candles, EMAs, MACD, volume, bands, 1h trend, location, volatility and
+    // VWAP — agrees this is a competent entry.
     if (action === 'buy') {
-      const tScore = coin.techScore;
-      const rsi = coin.rsi14;
-      const pB = coin.percentB;
-      const c5 = coin.change5m;
-      const c1h = (coin as any).change1h as number | undefined;
-      const veto: string[] = [];
+      const verdict = evaluateEntryPlaybook({
+        symbol: coin.symbol,
+        change5m: coin.change5m,
+        change15m: (coin as any).change15m,
+        change1h: (coin as any).change1h,
+        change24h: (coin as any).changePercent24h ?? (coin as any).change24h,
+        rsi14: coin.rsi14,
+        percentB: coin.percentB,
+        bbWidth: coin.bbWidth,
+        ema9: (coin as any).ema9,
+        ema21: (coin as any).ema21,
+        lastClose: (coin as any).lastClose ?? coin.price,
+        macdHist: (coin as any).macdHist,
+        macdHistPrev: (coin as any).macdHistPrev,
+        vwap: (coin as any).vwap,
+        higherLows: (coin as any).higherLows,
+        volumeRatio: (coin as any).volumeRatio,
+        atrPct: coin.atrPct,
+        swingAtrPct: (coin as any).swingAtrPct,
+        volClass: coin.volClass,
+        supportContext: coin.supportContext,
+        distanceToSupportPct: coin.distanceToSupportPct,
+        htfAboveEma: (coin as any).htfAboveEma,
+        htfSlopePct: (coin as any).htfSlopePct,
+        regime,
+        strategy: String(bestStrategy),
+      });
 
-      // No candle data = no trade. Never enter blind.
-      if (tScore === undefined || c5 === undefined) veto.push('no candle data');
-      else {
-        if (tScore < MIN_TECH_SCORE) veto.push(`techScore ${tScore} < ${MIN_TECH_SCORE}`);
-        // Last candle must be up — this is the falling-knife filter.
-        if (c5 <= 0) veto.push(`5m candle ${c5.toFixed(2)}% not rising`);
-        if (c1h !== undefined && c1h < -0.5) veto.push(`1h ${c1h.toFixed(2)}% rolling over`);
-        if (rsi !== undefined && rsi > 70) veto.push(`RSI ${rsi.toFixed(0)} overbought`);
-        if (pB !== undefined && pB > 0.85) veto.push(`%B ${pB.toFixed(2)} at upper band`);
-        // Below the lower band with no upturn = still breaking down.
-        if (pB !== undefined && pB < 0 && c5 <= 0.1) veto.push(`%B ${pB.toFixed(2)} below lower band, no bounce`);
-        if (coin.supportContext === 'below_support') veto.push('price below support');
-        if (coin.supportContext === 'far_above_support') veto.push('far above support (poor R:R)');
-      }
-
-      if (veto.length) {
-        console.log(`🕯️ CANDLE VETO ${coin.symbol} [${bestStrategy}/${pattern}]: ${veto.join(', ')}`);
+      if (!verdict.passed) {
+        console.log(`📚 PLAYBOOK VETO ${coin.symbol} [${bestStrategy}/${pattern}]: ${verdict.summary}`);
         action = 'hold';
         confidence = 0;
       } else {
-        reason += ` | 🕯️ RSI ${(rsi ?? 50).toFixed(0)} · %B ${(pB ?? 0.5).toFixed(2)} · 5m +${(c5 ?? 0).toFixed(2)}%`;
+        reason += ` | ${verdict.summary}`;
       }
     }
 
@@ -4791,27 +4951,60 @@ serve(async (req) => {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price above upper BB (%B ${liveMomentumCoin.percentB.toFixed(2)})`);
           continue;
         }
-        // 🕯️ LIVE CANDLE + BAND GATE — applies to model-generated decisions too, so no
-        // path can buy an asset whose latest candle is still falling or that sits at the
-        // top of its band with no room left to the target.
+        // 📚 FULL PLAYBOOK GATE — the complete professional rule set (trend, structure,
+        // momentum, participation, band room, location, volatility, VWAP) applied at the
+        // moment of execution, so model decisions and every legacy strategy path obey the
+        // same discipline. Plus the LEARNED scorecard: a setup fingerprint that has proven
+        // negative expectancy over a real sample is benched automatically.
         if (!(decision as any)._topup && !(decision as any)._mirror) {
           if (!freshMomentum) {
-            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: no live candle read — refusing blind entry`);
+            console.log(`📚 FINAL BUY BLOCK ${symbolUpper}: no live candle read — refusing blind entry`);
             continue;
           }
-          const bandVeto: string[] = [];
-          if (freshMomentum.change5m <= 0) bandVeto.push(`5m candle ${freshMomentum.change5m.toFixed(2)}% not rising`);
-          if (freshMomentum.rsi14 !== undefined && freshMomentum.rsi14 > 70) bandVeto.push(`RSI ${freshMomentum.rsi14.toFixed(0)} overbought`);
-          if (freshMomentum.percentB !== undefined && freshMomentum.percentB > 0.85) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} at upper band`);
-          if (freshMomentum.percentB !== undefined && freshMomentum.percentB < 0 && freshMomentum.change5m <= 0.1) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} below lower band, no bounce`);
-          if (freshMomentum.techScore < MIN_TECH_SCORE) bandVeto.push(`techScore ${freshMomentum.techScore} < ${MIN_TECH_SCORE}`);
-          if (freshMomentum.supportContext === 'below_support') bandVeto.push('below support');
-          if (freshMomentum.supportContext === 'far_above_support') bandVeto.push('far above support (poor R:R)');
-          if (bandVeto.length) {
-            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: ${bandVeto.join(', ')} (${freshMomentum.techSetup})`);
+          const verdict = evaluateEntryPlaybook({
+            symbol: symbolUpper,
+            change5m: freshMomentum.change5m,
+            change15m: freshMomentum.change15m,
+            change1h: coinData.change1h,
+            change24h: (coinData as any).change24h ?? (coinData as any).changePercent24h,
+            rsi14: freshMomentum.rsi14,
+            percentB: freshMomentum.percentB,
+            bbWidth: freshMomentum.bbWidth,
+            ema9: freshMomentum.ema9,
+            ema21: freshMomentum.ema21,
+            lastClose: freshMomentum.lastClose,
+            macdHist: freshMomentum.macdHist,
+            macdHistPrev: freshMomentum.macdHistPrev,
+            vwap: freshMomentum.vwap,
+            higherLows: freshMomentum.higherLows,
+            volumeRatio: freshMomentum.volumeRatio,
+            atrPct: freshMomentum.atrPct,
+            swingAtrPct: freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct,
+            volClass: freshMomentum.volClass,
+            supportContext: freshMomentum.supportContext,
+            distanceToSupportPct: freshMomentum.distanceToSupportPct,
+            htfAboveEma: freshMomentum.htfAboveEma ?? (coinData as any).htfAboveEma,
+            htfSlopePct: freshMomentum.htfSlopePct ?? (coinData as any).htfSlopePct,
+            regime: String(regime ?? 'na'),
+            strategy: String((decision as any).strategy ?? "scalp"),
+            targetPct: scalpCfg.wide_stop_mode
+              ? solveWideGeometry(freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct).takeProfitPct
+              : scalpCfg.take_profit_pct,
+          });
+
+          if (!verdict.passed) {
+            console.log(`📚 FINAL BUY BLOCK ${symbolUpper}: ${verdict.summary}`);
             continue;
           }
-          console.log(`🕯️ CANDLE OK ${symbolUpper}: RSI ${(freshMomentum.rsi14 ?? 50).toFixed(0)} · %B ${(freshMomentum.percentB ?? 0.5).toFixed(2)} · 5m +${freshMomentum.change5m.toFixed(2)}% · tech ${freshMomentum.techScore} (${freshMomentum.techSetup})`);
+
+          const benched = await getBenchedSetups(supabase, user.id);
+          if (benched.has(verdict.setupKey)) {
+            console.log(`🎓 LEARNED BLOCK ${symbolUpper}: setup "${verdict.setupKey}" is benched — it has lost money over a real sample`);
+            continue;
+          }
+
+          (decision as any)._playbook = verdict;
+          console.log(`📚 PLAYBOOK ${verdict.grade} ${symbolUpper} (${verdict.score}): ${verdict.confirmations.join(' · ')}${verdict.warnings.length ? ` | ⚠️ ${verdict.warnings.join(', ')}` : ''}`);
         }
 
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
@@ -5090,6 +5283,10 @@ serve(async (req) => {
         take_profit_price: defaultTakeProfit ?? null,
         // Store the NET (post-fee) payoff — the gross ratio flattered the trade.
         risk_reward: defaultStopLoss ? Number(entryGeometry.netRewardRisk.toFixed(2)) : null,
+        // 📚 Playbook fingerprint — how this setup is scored and learned from on close.
+        setup_key: (decision as any)._playbook?.setupKey ?? null,
+        playbook_score: (decision as any)._playbook?.score ?? null,
+        playbook_grade: (decision as any)._playbook?.grade ?? null,
       };
 
 
