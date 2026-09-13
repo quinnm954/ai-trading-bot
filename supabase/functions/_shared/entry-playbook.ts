@@ -127,6 +127,7 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   const confirmations: string[] = [];
   const warnings: string[] = [];
   let score = 50;
+  const T = resolveTuning(i.tuning);
 
   const c5 = i.change5m;
   const c15 = i.change15m;
@@ -141,6 +142,7 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
       confirmations: [], warnings: [],
       setupKey: 'nodata',
       summary: 'No candle data — entry refused.',
+      minScore: T.minScore,
     };
   }
 
