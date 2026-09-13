@@ -35,7 +35,7 @@ export async function closeOpenTrade(supabase: any, opts: CloseTradeOpts): Promi
 
   let query = supabase
     .from('trades')
-    .select('id, created_at')
+    .select('id, created_at, setup_key, playbook_grade, strategy')
     .eq('user_id', opts.userId)
     .eq('symbol', opts.symbol)
     .eq('is_paper', opts.isPaper)
@@ -65,6 +65,21 @@ export async function closeOpenTrade(supabase: any, opts: CloseTradeOpts): Promi
         ...(opts.extra || {}),
       })
       .eq('id', openTrade.id);
+
+    // 🎓 LEARN FROM IT: score this outcome against the setup fingerprint the trade was
+    // taken on. Fingerprints that keep losing get benched automatically, so the bots
+    // stop repeating setups that have already been proven wrong with real results.
+    if (openTrade.setup_key) {
+      const { error: learnError } = await supabase.rpc('record_setup_outcome', {
+        p_user_id: opts.userId,
+        p_setup_key: openTrade.setup_key,
+        p_pnl: opts.pnl,
+        p_regime: String(openTrade.setup_key).split('|')[0] || null,
+        p_strategy: openTrade.strategy ?? opts.strategy ?? null,
+        p_grade: openTrade.playbook_grade ?? null,
+      });
+      if (learnError) console.error('record_setup_outcome failed:', learnError.message);
+    }
     return 'updated';
   }
 
