@@ -57,6 +57,21 @@ export interface PlaybookInput {
   regime?: string;
   strategy?: string;
   targetPct?: number; // take-profit distance the trade needs to travel
+  /** Per-account tuned thresholds (adaptive tuner owns these). */
+  tuning?: PlaybookTuning;
+}
+
+/**
+ * Per-account tunable thresholds. The adaptive tuner moves these inside
+ * PLAYBOOK_TUNING_BOUNDS based on that account's own realised results, so each
+ * account sharpens its own entry filter without manual edits.
+ */
+export interface PlaybookTuning {
+  minScore?: number;        // discipline floor an entry must clear
+  minVolumeRatio?: number;  // below this = no participation, hard veto
+  maxPercentB?: number;     // above this = pinned to upper band, hard veto
+  rsiMax?: number;          // above this = overbought, hard veto
+  maxChase5m?: number;      // 5m % move above this = vertical spike, hard veto
 }
 
 export interface PlaybookVerdict {
@@ -68,10 +83,43 @@ export interface PlaybookVerdict {
   warnings: string[];        // soft demerits
   setupKey: string;          // stable fingerprint for outcome learning
   summary: string;           // one-line human explanation
+  minScore: number;          // floor actually applied
 }
 
-/** Minimum discipline score an entry must earn. */
+/** Minimum discipline score an entry must earn (default / fallback). */
 export const PLAYBOOK_MIN_SCORE = 55;
+
+export const PLAYBOOK_TUNING_DEFAULTS: Required<PlaybookTuning> = {
+  minScore: PLAYBOOK_MIN_SCORE,
+  minVolumeRatio: 0.6,
+  maxPercentB: 0.85,
+  rsiMax: 70,
+  maxChase5m: 3,
+};
+
+/**
+ * Hard safety rails. The tuner may never move a threshold outside these — the
+ * rule library stays professional no matter what the recent results look like.
+ */
+export const PLAYBOOK_TUNING_BOUNDS: Record<keyof Required<PlaybookTuning>, [number, number]> = {
+  minScore: [48, 72],
+  minVolumeRatio: [0.5, 1.2],
+  maxPercentB: [0.7, 0.9],
+  rsiMax: [62, 74],
+  maxChase5m: [1.5, 5],
+};
+
+function resolveTuning(t?: PlaybookTuning): Required<PlaybookTuning> {
+  const out = { ...PLAYBOOK_TUNING_DEFAULTS };
+  for (const k of Object.keys(PLAYBOOK_TUNING_DEFAULTS) as (keyof Required<PlaybookTuning>)[]) {
+    const v = t?.[k];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      const [lo, hi] = PLAYBOOK_TUNING_BOUNDS[k];
+      out[k] = Math.max(lo, Math.min(hi, v));
+    }
+  }
+  return out;
+}
 
 /** Grade an entry against the full rule library. */
 export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
