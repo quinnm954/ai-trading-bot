@@ -3308,16 +3308,24 @@ async function adaptParametersFromRecentTrades(
     let e5 = Number(ss.entry_min_5m_pct);
     let e15 = Number(ss.entry_min_15m_pct);
     let e1h = Number(ss.entry_min_1h_pct);
+    // Ceilings kept BELOW the playbook's own momentum requirements: quality is decided by
+    // the playbook (structure, MACD, volume, band room, HTF trend), not by a blunt
+    // percent-move pre-filter that would starve it of candidates.
+    const E_MAX_SHORT = 0.35;
+    const E_MAX_1H = 0.4;
     if (streak <= -3) {
-      // Ceilings kept low enough that a cold streak slows entries instead of stopping them.
-      e5 = clamp(e5 + 0.05, 0.1, 0.6);
-      e15 = clamp(e15 + 0.05, 0.1, 0.6);
-      e1h = clamp(e1h + 0.05, 0.1, 0.8);
+      e5 = clamp(e5 + 0.05, 0.1, E_MAX_SHORT);
+      e15 = clamp(e15 + 0.05, 0.1, E_MAX_SHORT);
+      e1h = clamp(e1h + 0.05, 0.1, E_MAX_1H);
     } else if (streak >= 3 && expectancy > 0) {
-      e5 = clamp(e5 - 0.05, 0.1, 0.6);
-      e15 = clamp(e15 - 0.05, 0.1, 0.6);
-      e1h = clamp(e1h - 0.05, 0.1, 0.8);
+      e5 = clamp(e5 - 0.05, 0.1, E_MAX_SHORT);
+      e15 = clamp(e15 - 0.05, 0.1, E_MAX_SHORT);
+      e1h = clamp(e1h - 0.05, 0.1, E_MAX_1H);
     }
+    // Hard-clamp whatever is stored, even when the tuner isn't adjusting this cycle.
+    e5 = Math.min(e5, E_MAX_SHORT);
+    e15 = Math.min(e15, E_MAX_SHORT);
+    e1h = Math.min(e1h, E_MAX_1H);
     if (Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
     if (Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
     if (Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
