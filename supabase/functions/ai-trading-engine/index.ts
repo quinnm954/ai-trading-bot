@@ -3025,13 +3025,9 @@ function analyzeWithRules(
           confidence = 0.75;
           reason = `⬆️ MOMENTUM SCALP: Early move +${coin.change24h.toFixed(2)}%`;
           pattern = 'momentum_early';
-        } else if (isIn7dUptrend && coin.change24h >= -3) {
-          // DIP-BUY: 7d uptrend with intraday pullback — filterByTrend already validated this is a dip candidate
-          action = 'buy';
-          confidence = 0.78;
-          reason = `🔄 DIP-BUY: 7d uptrend with ${coin.change24h.toFixed(2)}% pullback`;
-          pattern = 'momentum_dip';
         }
+        // Removed: the "7d uptrend with intraday pullback" dip-buy. A negative 24h
+        // move is no longer a reason to enter on any path.
         break;
         
       case 'trend_breakout':
