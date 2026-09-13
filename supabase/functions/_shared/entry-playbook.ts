@@ -193,13 +193,13 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   if (i.volumeRatio !== undefined) {
     if (i.volumeRatio >= 1.5) { volState = 'surge'; score += 12; confirmations.push(`volume ${i.volumeRatio.toFixed(2)}× average`); }
     else if (i.volumeRatio >= 1.0) { volState = 'ok'; score += 6; confirmations.push(`volume ${i.volumeRatio.toFixed(2)}× average`); }
-    else if (i.volumeRatio >= 0.6) { volState = 'thin'; score -= 5; warnings.push(`thin volume ${i.volumeRatio.toFixed(2)}×`); }
+    else if (i.volumeRatio >= T.minVolumeRatio) { volState = 'thin'; score -= 5; warnings.push(`thin volume ${i.volumeRatio.toFixed(2)}×`); }
     else { volState = 'dead'; vetoes.push(`no participation — volume ${i.volumeRatio.toFixed(2)}× average`); }
   }
 
   // ── RULE 6: room to the target ───────────────────────────────────────────────
   if (i.percentB !== undefined) {
-    if (i.percentB > 0.85) vetoes.push(`%B ${i.percentB.toFixed(2)} pinned at upper band — no room to target`);
+    if (i.percentB > T.maxPercentB) vetoes.push(`%B ${i.percentB.toFixed(2)} pinned at upper band — no room to target`);
     else if (i.percentB < 0 && c5 <= 0.1) vetoes.push(`%B ${i.percentB.toFixed(2)} below lower band with no bounce`);
     else if (i.percentB <= 0.45) { score += 10; confirmations.push(`%B ${i.percentB.toFixed(2)} lower half — room to run`); }
     else if (i.percentB <= 0.7) { score += 4; }
@@ -214,10 +214,10 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   }
 
   // ── RULE 7: not extended, not a chase ────────────────────────────────────────
-  if (c5 > 3) vetoes.push(`5m +${c5.toFixed(2)}% vertical spike — chasing`);
+  if (c5 > T.maxChase5m) vetoes.push(`5m +${c5.toFixed(2)}% vertical spike — chasing`);
   if (c15 !== undefined && c15 > 6) vetoes.push(`15m +${c15.toFixed(2)}% extended — chasing`);
   if (i.rsi14 !== undefined) {
-    if (i.rsi14 > 70) vetoes.push(`RSI ${i.rsi14.toFixed(0)} overbought`);
+    if (i.rsi14 > T.rsiMax) vetoes.push(`RSI ${i.rsi14.toFixed(0)} overbought`);
     else if (i.rsi14 < 20 && c5 < 0.3) vetoes.push(`RSI ${i.rsi14.toFixed(0)} freefall with no reversal candle`);
     else if (i.rsi14 >= 35 && i.rsi14 <= 60) { score += 8; confirmations.push(`RSI ${i.rsi14.toFixed(0)} constructive`); }
     else if (i.rsi14 > 60) { score -= 5; warnings.push(`RSI ${i.rsi14.toFixed(0)} hot`); }
@@ -263,8 +263,8 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   }
 
   score = Math.max(0, Math.min(100, Math.round(score)));
-  const grade: PlaybookVerdict['grade'] = score >= 80 ? 'A' : score >= 68 ? 'B' : score >= PLAYBOOK_MIN_SCORE ? 'C' : 'D';
-  const passed = vetoes.length === 0 && score >= PLAYBOOK_MIN_SCORE;
+  const grade: PlaybookVerdict['grade'] = score >= 80 ? 'A' : score >= 68 ? 'B' : score >= T.minScore ? 'C' : 'D';
+  const passed = vetoes.length === 0 && score >= T.minScore;
 
   const setupKey = [
     i.regime ?? 'na',
@@ -283,5 +283,5 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
     ? `📚 Playbook ${grade} (${score}): ${confirmations.slice(0, 4).join(' · ')}`
     : `📚 Playbook FAIL (${score}): ${(vetoes.length ? vetoes : ['score below floor']).join(', ')}`;
 
-  return { passed, score, grade, vetoes, confirmations, warnings, setupKey, summary };
+  return { passed, score, grade, vetoes, confirmations, warnings, setupKey, summary, minScore: T.minScore };
 }
