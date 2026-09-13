@@ -1794,6 +1794,11 @@ export type Database = {
           max_capital_usage_pct: number
           max_concurrent_positions: number
           momentum_rotation_min_pct: number
+          playbook_max_chase_5m_pct: number
+          playbook_max_percent_b: number
+          playbook_min_score: number
+          playbook_min_volume_ratio: number
+          playbook_rsi_max: number
           preset: string
           reentry_breakout_pct: number
           take_profit_pct: number
@@ -1820,6 +1825,11 @@ export type Database = {
           max_capital_usage_pct?: number
           max_concurrent_positions?: number
           momentum_rotation_min_pct?: number
+          playbook_max_chase_5m_pct?: number
+          playbook_max_percent_b?: number
+          playbook_min_score?: number
+          playbook_min_volume_ratio?: number
+          playbook_rsi_max?: number
           preset?: string
           reentry_breakout_pct?: number
           take_profit_pct?: number
@@ -1846,6 +1856,11 @@ export type Database = {
           max_capital_usage_pct?: number
           max_concurrent_positions?: number
           momentum_rotation_min_pct?: number
+          playbook_max_chase_5m_pct?: number
+          playbook_max_percent_b?: number
+          playbook_min_score?: number
+          playbook_min_volume_ratio?: number
+          playbook_rsi_max?: number
           preset?: string
           reentry_breakout_pct?: number
           take_profit_pct?: number

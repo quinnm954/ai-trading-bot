@@ -134,6 +134,13 @@
       "when": 1789275169162,
       "tag": "0018_setup_playbook_learning",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789300231246,
+      "tag": "0019_playbook_tuning_per_account",
+      "breakpoints": true
     }
   ]
 }
