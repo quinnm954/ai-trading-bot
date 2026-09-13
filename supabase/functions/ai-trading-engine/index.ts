@@ -1737,8 +1737,12 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
   return null;
 }
 
-/** ATR(14) on ONE_HOUR candles as % of price — swing-scale volatility for stop sizing. */
-async function fetchSwingAtrPct(productId: string): Promise<number | undefined> {
+/**
+ * ONE_HOUR candle context in a single fetch:
+ *  - swingAtrPct: ATR(14) as % of price — swing-scale volatility for stop sizing
+ *  - htfAboveEma / htfSlopePct: higher-timeframe trend, so nothing buys into an hourly downtrend
+ */
+async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number } | undefined> {
   try {
     const now = Math.floor(Date.now() / 1000);
     const start = now - 3600 * 48; // 48 hourly candles → ATR(14) with headroom
