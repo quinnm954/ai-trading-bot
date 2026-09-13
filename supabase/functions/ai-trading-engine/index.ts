@@ -2963,6 +2963,45 @@ function analyzeWithRules(
           pattern = 'adaptive_volatility';
         }
     }
+
+    // ── 🕯️ CANDLE + BAND CONFIRMATION (applies to EVERY rule-strategy buy) ──────
+    // The 24h-percentage branches above are blind to what the candles are doing, so
+    // "grid level -1", "low in range", "dca dip" and "approaching resistance" were
+    // all buying coins that were actively falling. Nothing enters now unless the
+    // 5-minute candles and Bollinger bands agree the move is turning up.
+    if (action === 'buy') {
+      const tScore = coin.techScore;
+      const rsi = coin.rsi14;
+      const pB = coin.percentB;
+      const c5 = coin.change5m;
+      const c1h = (coin as any).change1h as number | undefined;
+      const veto: string[] = [];
+
+      // No candle data = no trade. Never enter blind.
+      if (tScore === undefined || c5 === undefined) veto.push('no candle data');
+      else {
+        if (tScore < MIN_TECH_SCORE) veto.push(`techScore ${tScore} < ${MIN_TECH_SCORE}`);
+        // Last candle must be up — this is the falling-knife filter.
+        if (c5 <= 0) veto.push(`5m candle ${c5.toFixed(2)}% not rising`);
+        if (c1h !== undefined && c1h < -0.5) veto.push(`1h ${c1h.toFixed(2)}% rolling over`);
+        if (rsi !== undefined && rsi > 70) veto.push(`RSI ${rsi.toFixed(0)} overbought`);
+        if (pB !== undefined && pB > 0.85) veto.push(`%B ${pB.toFixed(2)} at upper band`);
+        // Below the lower band with no upturn = still breaking down.
+        if (pB !== undefined && pB < 0 && c5 <= 0.1) veto.push(`%B ${pB.toFixed(2)} below lower band, no bounce`);
+        if (coin.supportContext === 'below_support') veto.push('price below support');
+        if (coin.supportContext === 'far_above_support') veto.push('far above support (poor R:R)');
+      }
+
+      if (veto.length) {
+        console.log(`🕯️ CANDLE VETO ${coin.symbol} [${bestStrategy}/${pattern}]: ${veto.join(', ')}`);
+        action = 'hold';
+        confidence = 0;
+      } else {
+        reason += ` | 🕯️ RSI ${(rsi ?? 50).toFixed(0)} · %B ${(pB ?? 0.5).toFixed(2)} · 5m +${(c5 ?? 0).toFixed(2)}%`;
+      }
+    }
+
+
     
     // SPEED BOOST: Regime multipliers
     if (regime === 'trending') confidence *= 1.5;
@@ -3682,7 +3721,7 @@ serve(async (req) => {
     // Enrich the liquid market sample before regime scoring so missing values can
     // never be misread as a perfectly flat/dead market. Candidate filtering reuses
     // these same technicals and only fetches any remaining eligible names.
-    const regimeFeed = await enrichCandleTechnicals(marketData, 30);
+    const regimeFeed = await enrichCandleTechnicals(marketData, 45);
     console.log(`📡 Regime candle feed: ${regimeFeed.attempted - regimeFeed.failures}/${regimeFeed.attempted} liquid markets enriched`);
 
     // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
@@ -4752,6 +4791,29 @@ serve(async (req) => {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price above upper BB (%B ${liveMomentumCoin.percentB.toFixed(2)})`);
           continue;
         }
+        // 🕯️ LIVE CANDLE + BAND GATE — applies to model-generated decisions too, so no
+        // path can buy an asset whose latest candle is still falling or that sits at the
+        // top of its band with no room left to the target.
+        if (!(decision as any)._topup && !(decision as any)._mirror) {
+          if (!freshMomentum) {
+            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: no live candle read — refusing blind entry`);
+            continue;
+          }
+          const bandVeto: string[] = [];
+          if (freshMomentum.change5m <= 0) bandVeto.push(`5m candle ${freshMomentum.change5m.toFixed(2)}% not rising`);
+          if (freshMomentum.rsi14 !== undefined && freshMomentum.rsi14 > 70) bandVeto.push(`RSI ${freshMomentum.rsi14.toFixed(0)} overbought`);
+          if (freshMomentum.percentB !== undefined && freshMomentum.percentB > 0.85) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} at upper band`);
+          if (freshMomentum.percentB !== undefined && freshMomentum.percentB < 0 && freshMomentum.change5m <= 0.1) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} below lower band, no bounce`);
+          if (freshMomentum.techScore < MIN_TECH_SCORE) bandVeto.push(`techScore ${freshMomentum.techScore} < ${MIN_TECH_SCORE}`);
+          if (freshMomentum.supportContext === 'below_support') bandVeto.push('below support');
+          if (freshMomentum.supportContext === 'far_above_support') bandVeto.push('far above support (poor R:R)');
+          if (bandVeto.length) {
+            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: ${bandVeto.join(', ')} (${freshMomentum.techSetup})`);
+            continue;
+          }
+          console.log(`🕯️ CANDLE OK ${symbolUpper}: RSI ${(freshMomentum.rsi14 ?? 50).toFixed(0)} · %B ${(freshMomentum.percentB ?? 0.5).toFixed(2)} · 5m +${freshMomentum.change5m.toFixed(2)}% · tech ${freshMomentum.techScore} (${freshMomentum.techSetup})`);
+        }
+
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
         if (!momentumStatus.ok) {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
