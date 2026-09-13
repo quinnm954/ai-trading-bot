@@ -1893,6 +1893,8 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       techSetup, techScore: score,
       atrPct, volClass, volScore,
       supportPrice, distanceToSupportPct, supportContext,
+      ema9, ema21, macdHist: macd?.hist, macdHistPrev: macd?.prevHist,
+      vwap, volumeRatio, higherLows,
     };
   } catch (_e) {
     return null;
