@@ -4791,27 +4791,58 @@ serve(async (req) => {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price above upper BB (%B ${liveMomentumCoin.percentB.toFixed(2)})`);
           continue;
         }
-        // 🕯️ LIVE CANDLE + BAND GATE — applies to model-generated decisions too, so no
-        // path can buy an asset whose latest candle is still falling or that sits at the
-        // top of its band with no room left to the target.
+        // 📚 FULL PLAYBOOK GATE — the complete professional rule set (trend, structure,
+        // momentum, participation, band room, location, volatility, VWAP) applied at the
+        // moment of execution, so model decisions and every legacy strategy path obey the
+        // same discipline. Plus the LEARNED scorecard: a setup fingerprint that has proven
+        // negative expectancy over a real sample is benched automatically.
         if (!(decision as any)._topup && !(decision as any)._mirror) {
           if (!freshMomentum) {
-            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: no live candle read — refusing blind entry`);
+            console.log(`📚 FINAL BUY BLOCK ${symbolUpper}: no live candle read — refusing blind entry`);
             continue;
           }
-          const bandVeto: string[] = [];
-          if (freshMomentum.change5m <= 0) bandVeto.push(`5m candle ${freshMomentum.change5m.toFixed(2)}% not rising`);
-          if (freshMomentum.rsi14 !== undefined && freshMomentum.rsi14 > 70) bandVeto.push(`RSI ${freshMomentum.rsi14.toFixed(0)} overbought`);
-          if (freshMomentum.percentB !== undefined && freshMomentum.percentB > 0.85) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} at upper band`);
-          if (freshMomentum.percentB !== undefined && freshMomentum.percentB < 0 && freshMomentum.change5m <= 0.1) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} below lower band, no bounce`);
-          if (freshMomentum.techScore < MIN_TECH_SCORE) bandVeto.push(`techScore ${freshMomentum.techScore} < ${MIN_TECH_SCORE}`);
-          if (freshMomentum.supportContext === 'below_support') bandVeto.push('below support');
-          if (freshMomentum.supportContext === 'far_above_support') bandVeto.push('far above support (poor R:R)');
-          if (bandVeto.length) {
-            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: ${bandVeto.join(', ')} (${freshMomentum.techSetup})`);
+          const verdict = evaluateEntryPlaybook({
+            symbol: symbolUpper,
+            change5m: freshMomentum.change5m,
+            change15m: freshMomentum.change15m,
+            change1h: coinData.change1h,
+            change24h: coinData.change24h ?? coinData.changePercent24h,
+            rsi14: freshMomentum.rsi14,
+            percentB: freshMomentum.percentB,
+            bbWidth: freshMomentum.bbWidth,
+            ema9: freshMomentum.ema9,
+            ema21: freshMomentum.ema21,
+            lastClose: freshMomentum.lastClose,
+            macdHist: freshMomentum.macdHist,
+            macdHistPrev: freshMomentum.macdHistPrev,
+            vwap: freshMomentum.vwap,
+            higherLows: freshMomentum.higherLows,
+            volumeRatio: freshMomentum.volumeRatio,
+            atrPct: freshMomentum.atrPct,
+            swingAtrPct: freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct,
+            volClass: freshMomentum.volClass,
+            supportContext: freshMomentum.supportContext,
+            distanceToSupportPct: freshMomentum.distanceToSupportPct,
+            htfAboveEma: freshMomentum.htfAboveEma ?? (coinData as any).htfAboveEma,
+            htfSlopePct: freshMomentum.htfSlopePct ?? (coinData as any).htfSlopePct,
+            regime: String(regime ?? 'na'),
+            strategy: String(decision.strategy ?? 'scalp'),
+            targetPct: defaultTakeProfitPct,
+          });
+
+          if (!verdict.passed) {
+            console.log(`📚 FINAL BUY BLOCK ${symbolUpper}: ${verdict.summary}`);
             continue;
           }
-          console.log(`🕯️ CANDLE OK ${symbolUpper}: RSI ${(freshMomentum.rsi14 ?? 50).toFixed(0)} · %B ${(freshMomentum.percentB ?? 0.5).toFixed(2)} · 5m +${freshMomentum.change5m.toFixed(2)}% · tech ${freshMomentum.techScore} (${freshMomentum.techSetup})`);
+
+          const benched = await getBenchedSetups(supabase, user.id);
+          if (benched.has(verdict.setupKey)) {
+            console.log(`🎓 LEARNED BLOCK ${symbolUpper}: setup "${verdict.setupKey}" is benched — it has lost money over a real sample`);
+            continue;
+          }
+
+          (decision as any)._playbook = verdict;
+          console.log(`📚 PLAYBOOK ${verdict.grade} ${symbolUpper} (${verdict.score}): ${verdict.confirmations.join(' · ')}${verdict.warnings.length ? ` | ⚠️ ${verdict.warnings.join(', ')}` : ''}`);
         }
 
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
