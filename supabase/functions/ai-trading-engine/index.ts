@@ -3129,7 +3129,7 @@ function analyzeWithRules(
         change5m: coin.change5m,
         change15m: (coin as any).change15m,
         change1h: (coin as any).change1h,
-        change24h: coin.changePercent24h,
+        change24h: (coin as any).changePercent24h ?? (coin as any).change24h,
         rsi14: coin.rsi14,
         percentB: coin.percentB,
         bbWidth: coin.bbWidth,
@@ -4966,7 +4966,7 @@ serve(async (req) => {
             change5m: freshMomentum.change5m,
             change15m: freshMomentum.change15m,
             change1h: coinData.change1h,
-            change24h: coinData.change24h ?? coinData.changePercent24h,
+            change24h: (coinData as any).change24h ?? (coinData as any).changePercent24h,
             rsi14: freshMomentum.rsi14,
             percentB: freshMomentum.percentB,
             bbWidth: freshMomentum.bbWidth,
@@ -4986,7 +4986,7 @@ serve(async (req) => {
             htfAboveEma: freshMomentum.htfAboveEma ?? (coinData as any).htfAboveEma,
             htfSlopePct: freshMomentum.htfSlopePct ?? (coinData as any).htfSlopePct,
             regime: String(regime ?? 'na'),
-            strategy: String(decision.strategy ?? 'scalp'),
+            strategy: String((decision as any).strategy ?? "scalp"),
             targetPct: scalpCfg.wide_stop_mode
               ? solveWideGeometry(freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct).takeProfitPct
               : scalpCfg.take_profit_pct,
