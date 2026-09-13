@@ -3203,7 +3203,7 @@ async function adaptParametersFromRecentTrades(
   try {
     const { data: trades } = await supabase
       .from('trades')
-      .select('pnl, entry_price, exit_price, closed_at, is_paper')
+      .select('pnl, entry_price, exit_price, closed_at, is_paper, playbook_score')
       .eq('user_id', userId)
       .eq('is_paper', isPaperMode)
       .eq('status', 'closed')
@@ -3322,6 +3322,59 @@ async function adaptParametersFromRecentTrades(
     if (Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
     if (Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
     if (Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
+
+    // 4b) 📚 PLAYBOOK THRESHOLDS — per-account candle/band/volume strictness.
+    //     Learned from THIS account's own closed trades: if the losers were scoring
+    //     lower on the rule library than the winners, raise the discipline floor to
+    //     the losers' level; if the account is earning, relax a touch so the skills
+    //     keep seeing enough candidates to work with. Bounds are hard rails.
+    {
+      const pb = (k: keyof typeof PLAYBOOK_TUNING_BOUNDS, v: number) => {
+        const [lo, hi] = PLAYBOOK_TUNING_BOUNDS[k];
+        return clamp(v, lo, hi);
+      };
+      let minScore = Number(ss.playbook_min_score ?? PLAYBOOK_TUNING_DEFAULTS.minScore);
+      let minVol = Number(ss.playbook_min_volume_ratio ?? PLAYBOOK_TUNING_DEFAULTS.minVolumeRatio);
+      let maxPctB = Number(ss.playbook_max_percent_b ?? PLAYBOOK_TUNING_DEFAULTS.maxPercentB);
+      let rsiMax = Number(ss.playbook_rsi_max ?? PLAYBOOK_TUNING_DEFAULTS.rsiMax);
+      let maxChase = Number(ss.playbook_max_chase_5m_pct ?? PLAYBOOK_TUNING_DEFAULTS.maxChase5m);
+
+      // Score separation between winners and losers on this account
+      const scored = (trades as any[]).filter(t => Number(t.playbook_score) > 0);
+      const winScores = scored.filter(t => Number(t.pnl) > 0).map(t => Number(t.playbook_score));
+      const lossScores = scored.filter(t => Number(t.pnl) <= 0).map(t => Number(t.playbook_score));
+      const mean = (xs: number[]) => xs.reduce((a2, b2) => a2 + b2, 0) / xs.length;
+      const avgWinScore = winScores.length >= 3 ? mean(winScores) : null;
+      const avgLossScore = lossScores.length >= 3 ? mean(lossScores) : null;
+
+      const losing = expectancy < 0 || winRate <= 45;
+      const earning = expectancy > 0.3 && winRate >= 55;
+
+      if (losing) {
+        // Cut off the score band the losers were coming from.
+        if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
+          minScore = pb('minScore', Math.max(minScore + 2, Math.round(avgLossScore) + 1));
+        } else {
+          minScore = pb('minScore', minScore + 2);
+        }
+        minVol = pb('minVolumeRatio', minVol + 0.05);   // demand more participation
+        maxPctB = pb('maxPercentB', maxPctB - 0.02);    // demand more room to target
+        rsiMax = pb('rsiMax', rsiMax - 1);              // buy less heat
+        maxChase = pb('maxChase5m', maxChase - 0.25);   // chase less
+      } else if (earning) {
+        minScore = pb('minScore', minScore - 1);
+        minVol = pb('minVolumeRatio', minVol - 0.03);
+        maxPctB = pb('maxPercentB', maxPctB + 0.01);
+        rsiMax = pb('rsiMax', rsiMax + 0.5);
+        maxChase = pb('maxChase5m', maxChase + 0.1);
+      }
+
+      if (Math.abs(minScore - Number(ss.playbook_min_score ?? 55)) >= 1) next.playbook_min_score = Math.round(minScore);
+      if (Math.abs(minVol - Number(ss.playbook_min_volume_ratio ?? 0.6)) >= 0.02) next.playbook_min_volume_ratio = round2(minVol);
+      if (Math.abs(maxPctB - Number(ss.playbook_max_percent_b ?? 0.85)) >= 0.01) next.playbook_max_percent_b = round2(maxPctB);
+      if (Math.abs(rsiMax - Number(ss.playbook_rsi_max ?? 70)) >= 0.5) next.playbook_rsi_max = round2(rsiMax);
+      if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? 3)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
+    }
 
     // 5) Position sizing — scale with expectancy
     let size = Number(ss.target_position_size_usd);
