@@ -2963,6 +2963,45 @@ function analyzeWithRules(
           pattern = 'adaptive_volatility';
         }
     }
+
+    // ── 🕯️ CANDLE + BAND CONFIRMATION (applies to EVERY rule-strategy buy) ──────
+    // The 24h-percentage branches above are blind to what the candles are doing, so
+    // "grid level -1", "low in range", "dca dip" and "approaching resistance" were
+    // all buying coins that were actively falling. Nothing enters now unless the
+    // 5-minute candles and Bollinger bands agree the move is turning up.
+    if (action === 'buy') {
+      const tScore = coin.techScore;
+      const rsi = coin.rsi14;
+      const pB = coin.percentB;
+      const c5 = coin.change5m;
+      const c1h = (coin as any).change1h as number | undefined;
+      const veto: string[] = [];
+
+      // No candle data = no trade. Never enter blind.
+      if (tScore === undefined || c5 === undefined) veto.push('no candle data');
+      else {
+        if (tScore < MIN_TECH_SCORE) veto.push(`techScore ${tScore} < ${MIN_TECH_SCORE}`);
+        // Last candle must be up — this is the falling-knife filter.
+        if (c5 <= 0) veto.push(`5m candle ${c5.toFixed(2)}% not rising`);
+        if (c1h !== undefined && c1h < -0.5) veto.push(`1h ${c1h.toFixed(2)}% rolling over`);
+        if (rsi !== undefined && rsi > 70) veto.push(`RSI ${rsi.toFixed(0)} overbought`);
+        if (pB !== undefined && pB > 0.85) veto.push(`%B ${pB.toFixed(2)} at upper band`);
+        // Below the lower band with no upturn = still breaking down.
+        if (pB !== undefined && pB < 0 && c5 <= 0.1) veto.push(`%B ${pB.toFixed(2)} below lower band, no bounce`);
+        if (coin.supportContext === 'below_support') veto.push('price below support');
+        if (coin.supportContext === 'far_above_support') veto.push('far above support (poor R:R)');
+      }
+
+      if (veto.length) {
+        console.log(`🕯️ CANDLE VETO ${coin.symbol} [${bestStrategy}/${pattern}]: ${veto.join(', ')}`);
+        action = 'hold';
+        confidence = 0;
+      } else {
+        reason += ` | 🕯️ RSI ${(rsi ?? 50).toFixed(0)} · %B ${(pB ?? 0.5).toFixed(2)} · 5m +${(c5 ?? 0).toFixed(2)}%`;
+      }
+    }
+
+
     
     // SPEED BOOST: Regime multipliers
     if (regime === 'trending') confidence *= 1.5;
