@@ -1767,8 +1767,23 @@ async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: numbe
     const slice = trs.slice(-14);
     const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
     const last = closes[closes.length - 1];
-    if (!(last > 0) || !(atr > 0)) return undefined;
-    return (atr / last) * 100;
+    if (!(last > 0)) return undefined;
+
+    // Higher-timeframe trend: price vs 1h EMA(20) and the EMA's own slope over 6 hours.
+    const ema20 = computeEMA(closes, 20);
+    let htfAboveEma: boolean | undefined;
+    let htfSlopePct: number | undefined;
+    if (ema20 !== undefined && ema20 > 0) {
+      htfAboveEma = last >= ema20;
+      const past = computeEMA(closes.slice(0, Math.max(21, closes.length - 6)), 20);
+      if (past !== undefined && past > 0) htfSlopePct = ((ema20 - past) / past) * 100;
+    }
+
+    return {
+      swingAtrPct: atr > 0 ? (atr / last) * 100 : undefined,
+      htfAboveEma,
+      htfSlopePct,
+    };
   } catch (_e) {
     return undefined;
   }
