@@ -104,8 +104,26 @@ const SCALP_CFG_DEFAULTS = {
   // WIDE-STOP SWING MODE — when on, entries taken while the tape gate is open use
   // 8% TP / 2.5×ATR stop / 48h hold instead of the locked 3.36%/0.80% geometry.
   wide_stop_mode: true,
+  // 📚 PLAYBOOK THRESHOLDS — candle/band/volume strictness, tuned PER ACCOUNT by the
+  // adaptive tuner inside PLAYBOOK_TUNING_BOUNDS. Never edited by hand.
+  playbook_min_score: PLAYBOOK_TUNING_DEFAULTS.minScore,
+  playbook_min_volume_ratio: PLAYBOOK_TUNING_DEFAULTS.minVolumeRatio,
+  playbook_max_percent_b: PLAYBOOK_TUNING_DEFAULTS.maxPercentB,
+  playbook_rsi_max: PLAYBOOK_TUNING_DEFAULTS.rsiMax,
+  playbook_max_chase_5m_pct: PLAYBOOK_TUNING_DEFAULTS.maxChase5m,
 };
 type ScalpCfg = typeof SCALP_CFG_DEFAULTS;
+
+/** Map a per-account scalp config onto the playbook's tunable thresholds. */
+function playbookTuningFrom(cfg: ScalpCfg): PlaybookTuning {
+  return {
+    minScore: Number(cfg.playbook_min_score),
+    minVolumeRatio: Number(cfg.playbook_min_volume_ratio),
+    maxPercentB: Number(cfg.playbook_max_percent_b),
+    rsiMax: Number(cfg.playbook_rsi_max),
+    maxChase5m: Number(cfg.playbook_max_chase_5m_pct),
+  };
+}
 
 async function loadScalpCfg(supabase: any, userId: string): Promise<ScalpCfg> {
   try {
