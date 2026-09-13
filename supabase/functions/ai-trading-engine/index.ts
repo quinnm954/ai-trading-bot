@@ -5090,6 +5090,10 @@ serve(async (req) => {
         take_profit_price: defaultTakeProfit ?? null,
         // Store the NET (post-fee) payoff — the gross ratio flattered the trade.
         risk_reward: defaultStopLoss ? Number(entryGeometry.netRewardRisk.toFixed(2)) : null,
+        // 📚 Playbook fingerprint — how this setup is scored and learned from on close.
+        setup_key: (decision as any)._playbook?.setupKey ?? null,
+        playbook_score: (decision as any)._playbook?.score ?? null,
+        playbook_grade: (decision as any)._playbook?.grade ?? null,
       };
 
 
