@@ -1902,6 +1902,66 @@ export type Database = {
         }
         Relationships: []
       }
+      setup_scorecard: {
+        Row: {
+          benched: boolean
+          benched_at: string | null
+          created_at: string
+          grade: string | null
+          gross_loss: number
+          gross_win: number
+          id: string
+          last_outcome: string | null
+          losses: number
+          net_pnl: number
+          regime: string | null
+          samples: number
+          setup_key: string
+          strategy: string | null
+          updated_at: string
+          user_id: string
+          wins: number
+        }
+        Insert: {
+          benched?: boolean
+          benched_at?: string | null
+          created_at?: string
+          grade?: string | null
+          gross_loss?: number
+          gross_win?: number
+          id?: string
+          last_outcome?: string | null
+          losses?: number
+          net_pnl?: number
+          regime?: string | null
+          samples?: number
+          setup_key: string
+          strategy?: string | null
+          updated_at?: string
+          user_id: string
+          wins?: number
+        }
+        Update: {
+          benched?: boolean
+          benched_at?: string | null
+          created_at?: string
+          grade?: string | null
+          gross_loss?: number
+          gross_win?: number
+          id?: string
+          last_outcome?: string | null
+          losses?: number
+          net_pnl?: number
+          regime?: string | null
+          samples?: number
+          setup_key?: string
+          strategy?: string | null
+          updated_at?: string
+          user_id?: string
+          wins?: number
+        }
+        Relationships: []
+      }
       signal_scores: {
         Row: {
           action: string | null
@@ -2229,10 +2289,13 @@ export type Database = {
           id: string
           is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
+          playbook_grade: string | null
+          playbook_score: number | null
           pnl: number | null
           quantity: number
           risk_reward: number | null
           score: number | null
+          setup_key: string | null
           side: Database["public"]["Enums"]["trade_side"]
           slippage_estimate: number | null
           status: Database["public"]["Enums"]["trade_status"]
@@ -2256,10 +2319,13 @@ export type Database = {
           id?: string
           is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
+          playbook_grade?: string | null
+          playbook_score?: number | null
           pnl?: number | null
           quantity: number
           risk_reward?: number | null
           score?: number | null
+          setup_key?: string | null
           side: Database["public"]["Enums"]["trade_side"]
           slippage_estimate?: number | null
           status?: Database["public"]["Enums"]["trade_status"]
@@ -2283,10 +2349,13 @@ export type Database = {
           id?: string
           is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
+          playbook_grade?: string | null
+          playbook_score?: number | null
           pnl?: number | null
           quantity?: number
           risk_reward?: number | null
           score?: number | null
+          setup_key?: string | null
           side?: Database["public"]["Enums"]["trade_side"]
           slippage_estimate?: number | null
           status?: Database["public"]["Enums"]["trade_status"]
@@ -2477,6 +2546,17 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      record_setup_outcome: {
+        Args: {
+          p_grade?: string
+          p_pnl: number
+          p_regime?: string
+          p_setup_key: string
+          p_strategy?: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       reject_payment_claim: {
         Args: { p_admin_notes?: string; p_claim_id: string }
         Returns: undefined
