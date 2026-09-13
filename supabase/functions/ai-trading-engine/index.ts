@@ -3048,7 +3048,7 @@ function analyzeWithRules(
       case 'volatility_breakout':
         // Volatility is only an opportunity when price is actually breaking UP.
         // The old "low entry / low in range" branches are removed.
-        if (volatilityPercent > 3 && coin.change24h > 0.5 && coin.change5m > 0) {
+        if (volatilityPercent > 3 && coin.change24h > 0.5 && (coin.change5m ?? 0) > 0) {
           action = 'buy';
           confidence = volatilityPercent > 5 ? 0.88 : 0.8;
           reason = `⚡ VOLATILITY BREAKOUT: ${volatilityPercent.toFixed(1)}% range, +${coin.change24h.toFixed(2)}% and rising`;
@@ -3062,7 +3062,7 @@ function analyzeWithRules(
       // only enter on confirmed upward continuation, same as momentum.
       case 'grid':
       case 'dca':
-        if (coin.change24h > 0.5 && coin.change5m > 0) {
+        if (coin.change24h > 0.5 && (coin.change5m ?? 0) > 0) {
           action = 'buy';
           confidence = 0.8;
           reason = `📈 ${String(bestStrategy).toUpperCase()} CONTINUATION: +${coin.change24h.toFixed(2)}% and rising`;
@@ -3077,7 +3077,7 @@ function analyzeWithRules(
           confidence = 0.85;
           reason = `🎯 SCALP: Momentum +${coin.change24h.toFixed(2)}%`;
           pattern = 'adaptive_momentum';
-        } else if (volatilityPercent > 4 && coin.change24h > 0 && coin.change5m > 0) {
+        } else if (volatilityPercent > 4 && coin.change24h > 0 && (coin.change5m ?? 0) > 0) {
           action = 'buy';
           confidence = 0.75;
           reason = `🎯 SCALP: High volatility play (rising)`;
