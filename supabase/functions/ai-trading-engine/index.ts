@@ -4791,6 +4791,29 @@ serve(async (req) => {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper}: price above upper BB (%B ${liveMomentumCoin.percentB.toFixed(2)})`);
           continue;
         }
+        // 🕯️ LIVE CANDLE + BAND GATE — applies to model-generated decisions too, so no
+        // path can buy an asset whose latest candle is still falling or that sits at the
+        // top of its band with no room left to the target.
+        if (!(decision as any)._topup && !(decision as any)._mirror) {
+          if (!freshMomentum) {
+            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: no live candle read — refusing blind entry`);
+            continue;
+          }
+          const bandVeto: string[] = [];
+          if (freshMomentum.change5m <= 0) bandVeto.push(`5m candle ${freshMomentum.change5m.toFixed(2)}% not rising`);
+          if (freshMomentum.rsi14 !== undefined && freshMomentum.rsi14 > 70) bandVeto.push(`RSI ${freshMomentum.rsi14.toFixed(0)} overbought`);
+          if (freshMomentum.percentB !== undefined && freshMomentum.percentB > 0.85) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} at upper band`);
+          if (freshMomentum.percentB !== undefined && freshMomentum.percentB < 0 && freshMomentum.change5m <= 0.1) bandVeto.push(`%B ${freshMomentum.percentB.toFixed(2)} below lower band, no bounce`);
+          if (freshMomentum.techScore < MIN_TECH_SCORE) bandVeto.push(`techScore ${freshMomentum.techScore} < ${MIN_TECH_SCORE}`);
+          if (freshMomentum.supportContext === 'below_support') bandVeto.push('below support');
+          if (freshMomentum.supportContext === 'far_above_support') bandVeto.push('far above support (poor R:R)');
+          if (bandVeto.length) {
+            console.log(`🕯️ FINAL BUY BLOCK ${symbolUpper}: ${bandVeto.join(', ')} (${freshMomentum.techSetup})`);
+            continue;
+          }
+          console.log(`🕯️ CANDLE OK ${symbolUpper}: RSI ${(freshMomentum.rsi14 ?? 50).toFixed(0)} · %B ${(freshMomentum.percentB ?? 0.5).toFixed(2)} · 5m +${freshMomentum.change5m.toFixed(2)}% · tech ${freshMomentum.techScore} (${freshMomentum.techSetup})`);
+        }
+
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
         if (!momentumStatus.ok) {
           console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
