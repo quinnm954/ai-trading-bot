@@ -16,7 +16,12 @@ import {
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
-import { evaluateEntryPlaybook } from "../_shared/entry-playbook.ts";
+import {
+  evaluateEntryPlaybook,
+  PLAYBOOK_TUNING_DEFAULTS,
+  PLAYBOOK_TUNING_BOUNDS,
+  type PlaybookTuning,
+} from "../_shared/entry-playbook.ts";
 
 // 🎓 LEARNED SETUP MEMORY — setup fingerprints that have proven negative expectancy
 // over a real sample are benched by record_setup_outcome() and never traded again
