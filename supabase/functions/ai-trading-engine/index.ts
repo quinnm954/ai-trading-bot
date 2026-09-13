@@ -1704,6 +1704,84 @@ function computeBollinger(closes: number[], period = 20, mult = 2) {
   return { mid, upper, lower, width: mid > 0 ? (upper - lower) / mid : 0 };
 }
 
+// ── 📚 PLAYBOOK INDICATORS ────────────────────────────────────────────────────
+/** Exponential moving average of the last `period` closes. */
+function computeEMA(values: number[], period: number): number | undefined {
+  if (values.length < period) return undefined;
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < values.length; i++) ema = values[i] * k + ema * (1 - k);
+  return ema;
+}
+
+/** Full EMA series (needed for the MACD signal line). */
+function emaSeries(values: number[], period: number): number[] {
+  if (values.length < period) return [];
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const out = [ema];
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+    out.push(ema);
+  }
+  return out;
+}
+
+/** MACD(12,26,9) histogram — current and previous bar, to detect a momentum turn. */
+function computeMacdHistogram(closes: number[]): { hist: number; prevHist: number } | undefined {
+  if (closes.length < 35) return undefined;
+  const fast = emaSeries(closes, 12);
+  const slow = emaSeries(closes, 26);
+  if (!fast.length || !slow.length) return undefined;
+  // Align tails so both series describe the same bars.
+  const len = Math.min(fast.length, slow.length);
+  const macdLine = Array.from({ length: len }, (_, i) =>
+    fast[fast.length - len + i] - slow[slow.length - len + i]);
+  const signal = emaSeries(macdLine, 9);
+  if (signal.length < 2) return undefined;
+  const histAt = (back: number) =>
+    macdLine[macdLine.length - 1 - back] - signal[signal.length - 1 - back];
+  return { hist: histAt(0), prevHist: histAt(1) };
+}
+
+/** Rolling VWAP over the last `period` candles using typical price × volume. */
+function computeVWAP(closes: number[], highs: number[], lows: number[], volumes: number[], period = 20): number | undefined {
+  const n = Math.min(period, closes.length, volumes.length);
+  if (n < 5) return undefined;
+  let pv = 0, vol = 0;
+  for (let i = closes.length - n; i < closes.length; i++) {
+    const typical = (highs[i] + lows[i] + closes[i]) / 3;
+    const v = volumes[i] || 0;
+    pv += typical * v;
+    vol += v;
+  }
+  if (!(vol > 0)) return undefined;
+  return pv / vol;
+}
+
+/** Trigger-window volume vs its own baseline — participation confirmation. */
+function computeVolumeRatio(volumes: number[], recent = 3, baseline = 20): number | undefined {
+  if (volumes.length < baseline + recent) return undefined;
+  const recentSlice = volumes.slice(-recent);
+  const baseSlice = volumes.slice(-(baseline + recent), -recent);
+  const recentAvg = recentSlice.reduce((a, b) => a + b, 0) / recentSlice.length;
+  const baseAvg = baseSlice.reduce((a, b) => a + b, 0) / baseSlice.length;
+  if (!(baseAvg > 0)) return undefined;
+  return recentAvg / baseAvg;
+}
+
+/** Rising-low structure over the last three swing windows. */
+function hasHigherLows(lows: number[], windows = 3): boolean | undefined {
+  const size = 6;
+  if (lows.length < size * windows) return undefined;
+  const mins: number[] = [];
+  for (let w = windows; w >= 1; w--) {
+    const slice = lows.slice(lows.length - size * w, lows.length - size * (w - 1));
+    mins.push(Math.min(...slice));
+  }
+  return mins.every((v, i) => i === 0 || v >= mins[i - 1]);
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Run an async mapper over items with bounded concurrency (Coinbase rate limits hard). */
