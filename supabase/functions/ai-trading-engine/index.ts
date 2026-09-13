@@ -2905,7 +2905,8 @@ function analyzeWithRules(
   regime: string,
   maxPositionSize: number,
   balance: number,
-  bestStrategy: string
+  bestStrategy: string,
+  playbookTuning?: PlaybookTuning
 ): AITradingDecision[] {
   const decisions: AITradingDecision[] = [];
   
@@ -3141,6 +3142,7 @@ function analyzeWithRules(
         htfSlopePct: (coin as any).htfSlopePct,
         regime,
         strategy: String(bestStrategy),
+        tuning: playbookTuning,
       });
 
       if (!verdict.passed) {
@@ -4318,7 +4320,7 @@ serve(async (req) => {
       const policyStrategy = regimePolicy.strategy === 'none' ? null : (regimePolicy.strategy === 'grid' ? 'grid' : bestStrategy);
       if (policyStrategy) {
         console.log(`📊 AI returned no decisions, trying rule-based ${policyStrategy} (regime=${regimeReport.profile})`);
-        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy);
+        decisions = analyzeWithRules(prioritizedTradeable, regime, dynMaxPositionSize, balance, policyStrategy, playbookTuningFrom(scalpCfg));
       } else {
         console.log(`📊 Regime policy is stand-down (${regimeReport.profile}). Skipping rule fallback.`);
         await logStandDown(supabase, user.id, 'stand_down_regime_policy',
@@ -4989,6 +4991,7 @@ serve(async (req) => {
             targetPct: scalpCfg.wide_stop_mode
               ? solveWideGeometry(freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct).takeProfitPct
               : scalpCfg.take_profit_pct,
+            tuning: playbookTuningFrom(scalpCfg),
           });
 
           if (!verdict.passed) {
