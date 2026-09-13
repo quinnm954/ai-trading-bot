@@ -3064,55 +3064,31 @@ function analyzeWithRules(
         }
         break;
         
-      case 'grid': {
-        // DYNAMIC GRID — ATR-tuned spacing, regime-aware, entries at discrete levels.
-        const gd = dynamicGridDecision(coin, regime);
-        if (gd.enter) {
-          action = 'buy';
-          confidence = gd.confidence;
-          reason = gd.reason;
-          pattern = gd.pattern;
-        } else if (pricePosition < 0.35 && (regime === 'ranging' || regime === 'low_volatility')) {
-          action = 'buy';
-          confidence = 0.72;
-          reason = `📊 GRID FALLBACK: Low in range (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'grid_low';
-        }
-        break;
-      }
-
-        
+      // GRID / DCA — the dip-buying entries ("grid level -N", "low in range",
+      // "dca dip", "below average") are REMOVED. They bought coins that were
+      // actively falling and produced the stop-out clusters. These strategies now
+      // only enter on confirmed upward continuation, same as momentum.
+      case 'grid':
       case 'dca':
-        // AGGRESSIVE DCA - Accumulate on any dip
-        if (coin.change24h < -1) {
+        if (coin.change24h > 0.5 && coin.change5m > 0) {
           action = 'buy';
-          confidence = 0.88;
-          reason = `💰 DCA SCALP: Dip accumulate (${coin.change24h.toFixed(2)}%)`;
-          pattern = 'dca_dip';
-        } else if (pricePosition < 0.5) {
-          action = 'buy';
-          confidence = 0.75;
-          reason = `💰 DCA SCALP: Below average (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'dca_low';
+          confidence = 0.8;
+          reason = `📈 ${String(bestStrategy).toUpperCase()} CONTINUATION: +${coin.change24h.toFixed(2)}% and rising`;
+          pattern = `${bestStrategy}_continuation`;
         }
         break;
-        
+
       default:
-        // ULTRA-AGGRESSIVE FALLBACK - Find any edge
+        // Momentum-only fallback. The old "deep support" dip branch is removed.
         if (coin.change24h > 0.5) {
           action = 'buy';
           confidence = 0.85;
           reason = `🎯 SCALP: Momentum +${coin.change24h.toFixed(2)}%`;
           pattern = 'adaptive_momentum';
-        } else if (pricePosition < 0.3) {
-          action = 'buy';
-          confidence = 0.85;
-          reason = `🎯 SCALP: Deep support (${(pricePosition * 100).toFixed(0)}%)`;
-          pattern = 'adaptive_support';
-        } else if (volatilityPercent > 4) {
+        } else if (volatilityPercent > 4 && coin.change24h > 0 && coin.change5m > 0) {
           action = 'buy';
           confidence = 0.75;
-          reason = `🎯 SCALP: High volatility play`;
+          reason = `🎯 SCALP: High volatility play (rising)`;
           pattern = 'adaptive_volatility';
         }
     }
