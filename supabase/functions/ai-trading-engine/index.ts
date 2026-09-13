@@ -4827,7 +4827,9 @@ serve(async (req) => {
             htfSlopePct: freshMomentum.htfSlopePct ?? (coinData as any).htfSlopePct,
             regime: String(regime ?? 'na'),
             strategy: String(decision.strategy ?? 'scalp'),
-            targetPct: defaultTakeProfitPct,
+            targetPct: scalpCfg.wide_stop_mode
+              ? solveWideGeometry(freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct).takeProfitPct
+              : scalpCfg.take_profit_pct,
           });
 
           if (!verdict.passed) {
