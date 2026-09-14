@@ -3942,7 +3942,7 @@ serve(async (req) => {
     // Enrich the liquid market sample before regime scoring so missing values can
     // never be misread as a perfectly flat/dead market. Candidate filtering reuses
     // these same technicals and only fetches any remaining eligible names.
-    const regimeFeed = await enrichCandleTechnicals(marketData, 45);
+    const regimeFeed = await enrichCandleTechnicals(marketData, CANDLE_SCAN_LIMIT);
     console.log(`📡 Regime candle feed: ${regimeFeed.attempted - regimeFeed.failures}/${regimeFeed.attempted} liquid markets enriched`);
 
     // Detect market regime (enum value for DB) + richer policy profile (drives behavior)
