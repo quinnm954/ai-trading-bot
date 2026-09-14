@@ -5,8 +5,7 @@
 // — rule strategies, model decisions, grid/DCA fallbacks — is graded here, so no
 // path can enter a trade on partial information again.
 //
-// The rules encode standard discipline that the engine previously applied only in
-// scattered pieces:
+// The rules encode standard discipline:
 //   1. Trigger candle must be UP (never catch a falling knife)
 //   2. Short-term structure up (EMA9 ≥ EMA21, or a confirmed reclaim)
 //   3. Momentum turning up (MACD histogram rising)
@@ -17,6 +16,13 @@
 //   8. Location (near support, not below it, not miles above it)
 //   9. Tradeable volatility (not dead, not extreme)
 //  10. VWAP context (buying below/at value, or reclaiming it)
+//
+// SCORING — recalibrated. The previous additive scheme started at 50 and added
+// bonuses, so almost every entry landed at 84–100 and every closed trade was graded
+// "A" while losing: the score carried no information. Scoring is now a WEIGHTED
+// PERCENTAGE of the evidence actually available (earned ÷ possible), so a setup that
+// merely avoids vetoes lands in the 40s and only genuine multi-factor alignment
+// reaches the 70s and 80s.
 //
 // It also produces a stable `setupKey` fingerprint so real outcomes can be scored
 // per setup type and losing setups can be benched automatically.
@@ -76,7 +82,7 @@ export interface PlaybookTuning {
 
 export interface PlaybookVerdict {
   passed: boolean;
-  score: number;             // 0–100 discipline score
+  score: number;             // 0–100 discipline score (weighted % of available evidence)
   grade: 'A' | 'B' | 'C' | 'D';
   vetoes: string[];          // hard failures — any one blocks the trade
   confirmations: string[];   // rules that passed and why it's a good entry
@@ -84,17 +90,22 @@ export interface PlaybookVerdict {
   setupKey: string;          // stable fingerprint for outcome learning
   summary: string;           // one-line human explanation
   minScore: number;          // floor actually applied
+  /** How much of the rule library could actually be evaluated, 0–1. */
+  coverage: number;
 }
 
 /** Minimum discipline score an entry must earn (default / fallback). */
-export const PLAYBOOK_MIN_SCORE = 55;
+export const PLAYBOOK_MIN_SCORE = 70;
+
+/** At least this share of the rule library must be evaluable, or no entry. */
+export const PLAYBOOK_MIN_COVERAGE = 0.7;
 
 export const PLAYBOOK_TUNING_DEFAULTS: Required<PlaybookTuning> = {
   minScore: PLAYBOOK_MIN_SCORE,
-  minVolumeRatio: 0.6,
-  maxPercentB: 0.85,
-  rsiMax: 70,
-  maxChase5m: 3,
+  minVolumeRatio: 0.9,
+  maxPercentB: 0.8,
+  rsiMax: 68,
+  maxChase5m: 2.5,
 };
 
 /**
@@ -102,11 +113,11 @@ export const PLAYBOOK_TUNING_DEFAULTS: Required<PlaybookTuning> = {
  * rule library stays professional no matter what the recent results look like.
  */
 export const PLAYBOOK_TUNING_BOUNDS: Record<keyof Required<PlaybookTuning>, [number, number]> = {
-  minScore: [48, 72],
-  minVolumeRatio: [0.5, 1.2],
-  maxPercentB: [0.7, 0.9],
-  rsiMax: [62, 74],
-  maxChase5m: [1.5, 5],
+  minScore: [62, 85],
+  minVolumeRatio: [0.7, 1.5],
+  maxPercentB: [0.6, 0.85],
+  rsiMax: [60, 72],
+  maxChase5m: [1.5, 4],
 };
 
 function resolveTuning(t?: PlaybookTuning): Required<PlaybookTuning> {
@@ -121,13 +132,37 @@ function resolveTuning(t?: PlaybookTuning): Required<PlaybookTuning> {
   return out;
 }
 
+/** Weight of each rule in the recalibrated score. */
+const W = {
+  trigger: 10,
+  structure: 12,
+  macd: 10,
+  htf: 16,
+  volume: 14,
+  band: 12,
+  extension: 8,
+  location: 10,
+  volatility: 12,
+  vwap: 8,
+  reach: 6,
+};
+
 /** Grade an entry against the full rule library. */
 export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   const vetoes: string[] = [];
   const confirmations: string[] = [];
   const warnings: string[] = [];
-  let score = 50;
   const T = resolveTuning(i.tuning);
+
+  // Weighted evidence accumulator: a rule only counts toward the denominator when the
+  // data needed to judge it is present, so score = quality, not data availability.
+  let earned = 0;
+  let possible = 0;
+  const award = (weight: number, fraction: number) => {
+    possible += weight;
+    earned += weight * Math.max(0, Math.min(1, fraction));
+  };
+  const totalWeight = Object.values(W).reduce((a, b) => a + b, 0);
 
   const c5 = i.change5m;
   const c15 = i.change15m;
@@ -143,26 +178,33 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
       setupKey: 'nodata',
       summary: 'No candle data — entry refused.',
       minScore: T.minScore,
+      coverage: 0,
     };
   }
 
   // ── RULE 1: trigger candle must be rising ────────────────────────────────────
-  if (c5 <= 0) vetoes.push(`5m candle ${c5.toFixed(2)}% not rising`);
-  else { score += 8; confirmations.push(`5m candle +${c5.toFixed(2)}%`); }
+  if (c5 <= 0) {
+    vetoes.push(`5m candle ${c5.toFixed(2)}% not rising`);
+    award(W.trigger, 0);
+  } else {
+    award(W.trigger, c5 >= 0.2 ? 1 : 0.6);
+    confirmations.push(`5m candle +${c5.toFixed(2)}%`);
+  }
 
   // ── RULE 2: short-term structure ─────────────────────────────────────────────
   let structure = 'flat';
   if (i.ema9 !== undefined && i.ema21 !== undefined) {
     if (i.ema9 >= i.ema21) {
       structure = 'up';
-      score += 10;
+      award(W.structure, 1);
       confirmations.push('EMA9 above EMA21');
     } else if (c15 !== undefined && c15 > 0.3 && c5 > 0.15) {
       structure = 'reclaim';
-      score += 3;
+      award(W.structure, 0.3);
       warnings.push('EMA9 below EMA21 — treated as reclaim attempt');
     } else {
       structure = 'down';
+      award(W.structure, 0);
       vetoes.push('EMA9 below EMA21 with no reclaim');
     }
   }
@@ -172,44 +214,48 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   if (i.macdHist !== undefined && i.macdHistPrev !== undefined) {
     const rising = i.macdHist > i.macdHistPrev;
     macdState = rising ? (i.macdHist >= 0 ? 'pos_rising' : 'neg_rising') : 'falling';
-    if (rising) { score += 8; confirmations.push('MACD histogram rising'); }
-    else if (c15 !== undefined && c15 <= 0) vetoes.push('MACD histogram falling and 15m negative');
-    else { score -= 6; warnings.push('MACD histogram falling'); }
+    if (macdState === 'pos_rising') { award(W.macd, 1); confirmations.push('MACD histogram positive and rising'); }
+    else if (macdState === 'neg_rising') { award(W.macd, 0.5); warnings.push('MACD rising but still below zero'); }
+    else {
+      award(W.macd, 0);
+      if (c15 !== undefined && c15 <= 0) vetoes.push('MACD histogram falling and 15m negative');
+      else warnings.push('MACD histogram falling');
+    }
   }
 
   // ── RULE 4: higher-timeframe trend must not be hostile ───────────────────────
   let htf = 'na';
   if (i.htfAboveEma !== undefined || i.htfSlopePct !== undefined) {
     const slope = i.htfSlopePct ?? 0;
-    if (i.htfAboveEma && slope >= 0) { htf = 'up'; score += 12; confirmations.push(`1h trend up (slope ${slope.toFixed(2)}%)`); }
-    else if (i.htfAboveEma) { htf = 'flat'; score += 3; warnings.push('above 1h EMA but slope flat/down'); }
-    else if (slope < -0.25) { htf = 'down'; vetoes.push(`1h downtrend (slope ${slope.toFixed(2)}%, below 1h EMA)`); }
-    else { htf = 'basing'; warnings.push('below 1h EMA — basing at best'); score -= 4; }
+    if (i.htfAboveEma && slope > 0.1) { htf = 'up'; award(W.htf, 1); confirmations.push(`1h trend up (slope ${slope.toFixed(2)}%)`); }
+    else if (i.htfAboveEma && slope >= 0) { htf = 'flat'; award(W.htf, 0.45); warnings.push('above 1h EMA but slope flat'); }
+    else if (i.htfAboveEma) { htf = 'fading'; award(W.htf, 0.2); warnings.push('above 1h EMA but slope turning down'); }
+    else if (slope < -0.25) { htf = 'down'; award(W.htf, 0); vetoes.push(`1h downtrend (slope ${slope.toFixed(2)}%, below 1h EMA)`); }
+    else { htf = 'basing'; award(W.htf, 0.1); warnings.push('below 1h EMA — basing at best'); }
   }
   if (c1h !== undefined && c1h < -0.5) vetoes.push(`1h ${c1h.toFixed(2)}% rolling over`);
 
   // ── RULE 5: participation — volume must confirm ───────────────────────────────
   let volState = 'na';
   if (i.volumeRatio !== undefined) {
-    if (i.volumeRatio >= 1.5) { volState = 'surge'; score += 12; confirmations.push(`volume ${i.volumeRatio.toFixed(2)}× average`); }
-    else if (i.volumeRatio >= 1.0) { volState = 'ok'; score += 6; confirmations.push(`volume ${i.volumeRatio.toFixed(2)}× average`); }
-    else if (i.volumeRatio >= T.minVolumeRatio) { volState = 'thin'; score -= 5; warnings.push(`thin volume ${i.volumeRatio.toFixed(2)}×`); }
-    else { volState = 'dead'; vetoes.push(`no participation — volume ${i.volumeRatio.toFixed(2)}× average`); }
+    if (i.volumeRatio >= 1.5) { volState = 'surge'; award(W.volume, 1); confirmations.push(`volume ${i.volumeRatio.toFixed(2)}× average`); }
+    else if (i.volumeRatio >= 1.15) { volState = 'ok'; award(W.volume, 0.7); confirmations.push(`volume ${i.volumeRatio.toFixed(2)}× average`); }
+    else if (i.volumeRatio >= T.minVolumeRatio) { volState = 'thin'; award(W.volume, 0.25); warnings.push(`thin volume ${i.volumeRatio.toFixed(2)}×`); }
+    else { volState = 'dead'; award(W.volume, 0); vetoes.push(`no participation — volume ${i.volumeRatio.toFixed(2)}× average`); }
   }
 
   // ── RULE 6: room to the target ───────────────────────────────────────────────
   if (i.percentB !== undefined) {
-    if (i.percentB > T.maxPercentB) vetoes.push(`%B ${i.percentB.toFixed(2)} pinned at upper band — no room to target`);
-    else if (i.percentB < 0 && c5 <= 0.1) vetoes.push(`%B ${i.percentB.toFixed(2)} below lower band with no bounce`);
-    else if (i.percentB <= 0.45) { score += 10; confirmations.push(`%B ${i.percentB.toFixed(2)} lower half — room to run`); }
-    else if (i.percentB <= 0.7) { score += 4; }
-    else { score -= 6; warnings.push(`%B ${i.percentB.toFixed(2)} upper half`); }
+    if (i.percentB > T.maxPercentB) { award(W.band, 0); vetoes.push(`%B ${i.percentB.toFixed(2)} pinned at upper band — no room to target`); }
+    else if (i.percentB < 0 && c5 <= 0.1) { award(W.band, 0); vetoes.push(`%B ${i.percentB.toFixed(2)} below lower band with no bounce`); }
+    else if (i.percentB <= 0.45) { award(W.band, 1); confirmations.push(`%B ${i.percentB.toFixed(2)} lower half — room to run`); }
+    else if (i.percentB <= 0.7) { award(W.band, 0.5); }
+    else { award(W.band, 0.15); warnings.push(`%B ${i.percentB.toFixed(2)} upper half`); }
   }
   if (i.bbWidth !== undefined && i.targetPct !== undefined) {
     const bandRoomPct = i.bbWidth * 100;
     if (bandRoomPct < i.targetPct * 0.35) {
       warnings.push(`bands narrow (${bandRoomPct.toFixed(2)}%) vs ${i.targetPct.toFixed(2)}% target — needs expansion`);
-      score -= 5;
     }
   }
 
@@ -217,38 +263,45 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   if (c5 > T.maxChase5m) vetoes.push(`5m +${c5.toFixed(2)}% vertical spike — chasing`);
   if (c15 !== undefined && c15 > 6) vetoes.push(`15m +${c15.toFixed(2)}% extended — chasing`);
   if (i.rsi14 !== undefined) {
-    if (i.rsi14 > T.rsiMax) vetoes.push(`RSI ${i.rsi14.toFixed(0)} overbought`);
-    else if (i.rsi14 < 20 && c5 < 0.3) vetoes.push(`RSI ${i.rsi14.toFixed(0)} freefall with no reversal candle`);
-    else if (i.rsi14 >= 35 && i.rsi14 <= 60) { score += 8; confirmations.push(`RSI ${i.rsi14.toFixed(0)} constructive`); }
-    else if (i.rsi14 > 60) { score -= 5; warnings.push(`RSI ${i.rsi14.toFixed(0)} hot`); }
+    if (i.rsi14 > T.rsiMax) { award(W.extension, 0); vetoes.push(`RSI ${i.rsi14.toFixed(0)} overbought`); }
+    else if (i.rsi14 < 20 && c5 < 0.3) { award(W.extension, 0); vetoes.push(`RSI ${i.rsi14.toFixed(0)} freefall with no reversal candle`); }
+    else if (i.rsi14 >= 40 && i.rsi14 <= 60) { award(W.extension, 1); confirmations.push(`RSI ${i.rsi14.toFixed(0)} constructive`); }
+    else if (i.rsi14 >= 30) { award(W.extension, 0.5); }
+    else { award(W.extension, 0.2); warnings.push(`RSI ${i.rsi14.toFixed(0)} weak`); }
   }
-  if (c24 !== undefined && c24 > 12) { score -= 8; warnings.push(`24h +${c24.toFixed(2)}% already run`); }
+  if (c24 !== undefined && c24 > 12) warnings.push(`24h +${c24.toFixed(2)}% already run`);
 
   // ── RULE 8: location relative to support ─────────────────────────────────────
   switch (i.supportContext) {
-    case 'below_support': vetoes.push('price below support — structure broken'); break;
-    case 'far_above_support': vetoes.push('far above support — poor risk placement'); break;
-    case 'at_support': score += 12; confirmations.push('at support'); break;
-    case 'near_support': score += 7; confirmations.push('near support'); break;
+    case 'below_support': award(W.location, 0); vetoes.push('price below support — structure broken'); break;
+    case 'far_above_support': award(W.location, 0); vetoes.push('far above support — poor risk placement'); break;
+    case 'at_support': award(W.location, 1); confirmations.push('at support'); break;
+    case 'near_support': award(W.location, 0.7); confirmations.push('near support'); break;
+    case 'mid_range': award(W.location, 0.35); break;
     default: break;
   }
-  if (i.higherLows) { score += 6; confirmations.push('higher lows forming'); }
+  if (i.higherLows) confirmations.push('higher lows forming');
 
   // ── RULE 9: tradeable volatility ─────────────────────────────────────────────
-  if (i.volClass === 'dead') vetoes.push('volatility dead — target unreachable');
-  else if (i.volClass === 'extreme') vetoes.push('volatility extreme — stop will be run');
-  else if (i.volClass === 'sweet') { score += 10; confirmations.push(`volatility sweet spot (ATR ${(i.atrPct ?? 0).toFixed(2)}%)`); }
-  else if (i.volClass === 'high') { score += 2; }
-  else if (i.volClass === 'low') { score -= 4; warnings.push('volatility low'); }
+  if (i.volClass !== undefined) {
+    if (i.volClass === 'dead') { award(W.volatility, 0); vetoes.push('volatility dead — target unreachable'); }
+    else if (i.volClass === 'extreme') { award(W.volatility, 0); vetoes.push('volatility extreme — stop will be run'); }
+    else if (i.volClass === 'sweet') { award(W.volatility, 1); confirmations.push(`volatility sweet spot (ATR ${(i.atrPct ?? 0).toFixed(2)}%)`); }
+    else if (i.volClass === 'high') { award(W.volatility, 0.5); }
+    else { award(W.volatility, 0.2); warnings.push('volatility low'); }
+  }
 
-  // A 48h swing target has to be reachable by the coin's own hourly range.
+  // A swing target has to be reachable by the coin's own hourly range.
   if (i.swingAtrPct !== undefined && i.targetPct !== undefined && i.swingAtrPct > 0) {
     const hoursToTarget = i.targetPct / i.swingAtrPct;
-    if (hoursToTarget > 40) {
+    if (hoursToTarget > 24) {
+      award(W.reach, 0);
       vetoes.push(`too slow — needs ~${hoursToTarget.toFixed(0)}h of average range to reach ${i.targetPct.toFixed(2)}%`);
-    } else if (hoursToTarget <= 12) {
-      score += 6;
+    } else if (hoursToTarget <= 8) {
+      award(W.reach, 1);
       confirmations.push(`target reachable in ~${hoursToTarget.toFixed(0)}h of average range`);
+    } else {
+      award(W.reach, 0.4);
     }
   }
 
@@ -256,14 +309,22 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
   let vwapState = 'na';
   if (i.vwap !== undefined && i.vwap > 0 && i.lastClose > 0) {
     const distPct = ((i.lastClose - i.vwap) / i.vwap) * 100;
-    if (distPct <= -0.15) { vwapState = 'below'; score += 6; confirmations.push(`${distPct.toFixed(2)}% below VWAP — buying value`); }
-    else if (distPct <= 0.6) { vwapState = 'at'; score += 4; confirmations.push('at VWAP'); }
-    else if (distPct <= 2) { vwapState = 'above'; score -= 3; warnings.push(`${distPct.toFixed(2)}% above VWAP`); }
-    else { vwapState = 'far_above'; score -= 10; warnings.push(`${distPct.toFixed(2)}% extended above VWAP`); }
+    if (distPct <= -0.15) { vwapState = 'below'; award(W.vwap, 1); confirmations.push(`${distPct.toFixed(2)}% below VWAP — buying value`); }
+    else if (distPct <= 0.6) { vwapState = 'at'; award(W.vwap, 0.7); confirmations.push('at VWAP'); }
+    else if (distPct <= 2) { vwapState = 'above'; award(W.vwap, 0.2); warnings.push(`${distPct.toFixed(2)}% above VWAP`); }
+    else { vwapState = 'far_above'; award(W.vwap, 0); warnings.push(`${distPct.toFixed(2)}% extended above VWAP`); }
   }
 
-  score = Math.max(0, Math.min(100, Math.round(score)));
-  const grade: PlaybookVerdict['grade'] = score >= 80 ? 'A' : score >= 68 ? 'B' : score >= T.minScore ? 'C' : 'D';
+  const coverage = possible / totalWeight;
+  const score = possible > 0 ? Math.max(0, Math.min(100, Math.round((earned / possible) * 100))) : 0;
+
+  // Thin evidence is not a pass. A setup judged on a third of the library cannot be
+  // called an A regardless of how the visible pieces scored.
+  if (coverage < PLAYBOOK_MIN_COVERAGE) {
+    vetoes.push(`insufficient evidence — only ${(coverage * 100).toFixed(0)}% of the rule library could be checked`);
+  }
+
+  const grade: PlaybookVerdict['grade'] = score >= 85 ? 'A' : score >= 76 ? 'B' : score >= T.minScore ? 'C' : 'D';
   const passed = vetoes.length === 0 && score >= T.minScore;
 
   const setupKey = [
@@ -283,5 +344,5 @@ export function evaluateEntryPlaybook(i: PlaybookInput): PlaybookVerdict {
     ? `📚 Playbook ${grade} (${score}): ${confirmations.slice(0, 4).join(' · ')}`
     : `📚 Playbook FAIL (${score}): ${(vetoes.length ? vetoes : ['score below floor']).join(', ')}`;
 
-  return { passed, score, grade, vetoes, confirmations, warnings, setupKey, summary, minScore: T.minScore };
+  return { passed, score, grade, vetoes, confirmations, warnings, setupKey, summary, minScore: T.minScore, coverage };
 }

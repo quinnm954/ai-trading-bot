@@ -5,6 +5,8 @@ import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
   solveWideGeometry,
+  solveAdaptiveGeometry,
+  PROFIT_LOCK_ARM_PCT,
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
@@ -3381,11 +3383,12 @@ async function adaptParametersFromRecentTrades(
         maxChase = pb('maxChase5m', maxChase + 0.1);
       }
 
-      if (Math.abs(minScore - Number(ss.playbook_min_score ?? 55)) >= 1) next.playbook_min_score = Math.round(minScore);
-      if (Math.abs(minVol - Number(ss.playbook_min_volume_ratio ?? 0.6)) >= 0.02) next.playbook_min_volume_ratio = round2(minVol);
-      if (Math.abs(maxPctB - Number(ss.playbook_max_percent_b ?? 0.85)) >= 0.01) next.playbook_max_percent_b = round2(maxPctB);
-      if (Math.abs(rsiMax - Number(ss.playbook_rsi_max ?? 70)) >= 0.5) next.playbook_rsi_max = round2(rsiMax);
-      if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? 3)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
+      const D = PLAYBOOK_TUNING_DEFAULTS;
+      if (Math.abs(minScore - Number(ss.playbook_min_score ?? D.minScore)) >= 1) next.playbook_min_score = Math.round(minScore);
+      if (Math.abs(minVol - Number(ss.playbook_min_volume_ratio ?? D.minVolumeRatio)) >= 0.02) next.playbook_min_volume_ratio = round2(minVol);
+      if (Math.abs(maxPctB - Number(ss.playbook_max_percent_b ?? D.maxPercentB)) >= 0.01) next.playbook_max_percent_b = round2(maxPctB);
+      if (Math.abs(rsiMax - Number(ss.playbook_rsi_max ?? D.rsiMax)) >= 0.5) next.playbook_rsi_max = round2(rsiMax);
+      if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? D.maxChase5m)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
     }
 
     // 5) Position sizing — scale with expectancy
@@ -5285,13 +5288,24 @@ serve(async (req) => {
       const candidateAtrPct = Number((coinData as any)?.swingAtrPct) > 0
         ? Number((coinData as any).swingAtrPct)
         : undefined;
+      // Standard entries now use PER-COIN geometry: the stop is sized from this coin's own
+      // hourly ATR (so it sits outside its chop) and the target is re-solved from that stop,
+      // with a hold window long enough for the coin's range to actually reach it. A fixed
+      // target/stop pair produced 16 stop-outs and zero winners.
+      const adaptiveGeo = wideMode
+        ? null
+        : solveAdaptiveGeometry(candidateAtrPct, Number(scalpCfg.hard_stop_loss_pct));
+      if (adaptiveGeo && candidateAtrPct && !adaptiveGeo.reachable) {
+        console.log(`🐌 SKIP ${decision.symbol}: target +${adaptiveGeo.takeProfitPct.toFixed(2)}% needs ~${adaptiveGeo.hoursToTarget.toFixed(1)}h of its own range — unreachable inside ${(adaptiveGeo.holdMinutes / 60).toFixed(0)}h hold`);
+        continue;
+      }
       const entryGeometry = wideMode
         ? solveWideGeometry(candidateAtrPct)
-        : solveExitGeometry(
-            Number(scalpCfg.take_profit_pct),
-            Number(scalpCfg.hard_stop_loss_pct),
-          );
-      const entryHoldMinutes = wideMode ? WIDE_MAX_HOLD_MINUTES : null;
+        : adaptiveGeo!;
+      const entryHoldMinutes = wideMode ? WIDE_MAX_HOLD_MINUTES : adaptiveGeo!.holdMinutes;
+      if (adaptiveGeo) {
+        console.log(`📏 Per-coin geometry ${decision.symbol}: hourly ATR ${(candidateAtrPct ?? 0).toFixed(2)}% → stop -${adaptiveGeo.stopLossPct.toFixed(2)}%, target +${adaptiveGeo.takeProfitPct.toFixed(2)}%, hold ≤${(adaptiveGeo.holdMinutes / 60).toFixed(0)}h, lock arms +${PROFIT_LOCK_ARM_PCT}%`);
+      }
       if (wideMode) {
         console.log(`🪃 WIDE-STOP MODE (tape open): ${decision.symbol} ATR ${(candidateAtrPct ?? 0).toFixed(2)}% → ${describeGeometry(entryGeometry)} | hold ≤${WIDE_MAX_HOLD_MINUTES / 60}h | trail arms +${WIDE_TRAIL_ARM_PCT}% / gives back ${WIDE_TRAIL_DROP_PCT}%`);
       }

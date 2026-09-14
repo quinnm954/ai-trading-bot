@@ -11,6 +11,8 @@ import {
   TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
+  PROFIT_LOCK_ARM_PCT,
+  PROFIT_LOCK_GIVEBACK_PCT,
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAILING_ENABLED,
   WIDE_TRAIL_ARM_PCT,
@@ -1178,8 +1180,13 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const netExitFloorPct = COINBASE_ROUND_TRIP_FEE + MIN_NET_EXIT_PCT;
     // Wide swings protect gains far below the target (arming AT the target made trailing
     // dead code), so they only have to clear the net-exit floor, not a full 1:1 loss.
-    const tightProfitFloorPct = isWideSwing ? netExitFloorPct : oneToOneFloorPct;
-    const trailingProfitFloorPct = isWideSwing ? WIDE_TRAIL_ARM_PCT : oneToOneFloorPct;
+    // Standard entries now protect gains from PROFIT_LOCK_ARM_PCT upward. Arming at 1:1
+    // (0.8 + stop + 0.8) sat just below the take-profit, so trailing never fired and every
+    // +1-2% excursion round-tripped into the stop.
+    const tightProfitFloorPct = netExitFloorPct;
+    const trailingProfitFloorPct = isWideSwing
+      ? WIDE_TRAIL_ARM_PCT
+      : Math.max(netExitFloorPct, PROFIT_LOCK_ARM_PCT);
     const trailingStopActive = posTrailingEnabled && newPeakPnl >= trailingProfitFloorPct;
     const dropFromPeak = newPeakPnl - pnlPercent;
     // Giveback: fixed tight drop for wide swings, otherwise 40% of peak. Capped in both
@@ -1187,10 +1194,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const givebackCap = Math.max(0, newPeakPnl - tightProfitFloorPct);
     const allowedGiveback = isWideSwing
       ? Math.min(WIDE_TRAIL_DROP_PCT, givebackCap)
-      : Math.min(
-          Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
-          givebackCap
-        );
+      : Math.min(PROFIT_LOCK_GIVEBACK_PCT, givebackCap);
     const hitArmedTrailingStop =
       (!isWideSwing || WIDE_TRAILING_ENABLED) &&
       posTrailingEnabled &&
