@@ -2177,6 +2177,8 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_L
     coin.swingAtrPct = t.swingAtrPct ?? htf?.swingAtrPct;
     (coin as any).htfAboveEma = htf?.htfAboveEma;
     (coin as any).htfSlopePct = htf?.htfSlopePct;
+    // True hourly change; keep any existing (CoinGecko) value if the hourly bars were gappy.
+    if (htf?.change1h !== undefined) coin.change1h = htf.change1h;
   });
   return { attempted: targets.length, failures };
 }
