@@ -9,7 +9,8 @@
 export const ROUND_TRIP_FEE_PCT = 0.8; // 0.4% maker in + 0.4% maker out
 export const MIN_REWARD_RISK = 1.6; // minimum NET reward:risk on any scalp
 export const TP_FLOOR_GROSS_PCT = 1.4; // absolute gross take-profit floor
-export const MAX_RISK_PCT = 0.8; // hard cap on gross loss per trade
+export const MAX_RISK_PCT = 2.0; // outer bound of the auto-tuned stop band
+export const TUNED_STOP_MIN_PCT = 0.6; // tightest the tuner may go
 
 export interface ExitGeometry {
   takeProfitPct: number;

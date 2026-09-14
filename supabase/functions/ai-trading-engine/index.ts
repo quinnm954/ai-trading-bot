@@ -14,6 +14,7 @@ import {
   MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
   TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
+  TUNED_STOP_MIN_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
 import {
@@ -3278,8 +3279,8 @@ async function adaptParametersFromRecentTrades(
 
     // 1) Take profit — capture more when winners run, but never below the fee-clearing floor
     let tp = Number(ss.take_profit_pct);
-    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, TP_FLOOR_GROSS_PCT, 4.0);
-    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, TP_FLOOR_GROSS_PCT, 4.0);
+    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, TP_FLOOR_GROSS_PCT, 6.0);
+    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, TP_FLOOR_GROSS_PCT, 6.0);
 
     // 2) Trailing drop — tighten in hot streaks, loosen in cold
     let td = Number(ss.trailing_drop_pct);
@@ -3288,12 +3289,16 @@ async function adaptParametersFromRecentTrades(
     else if (winRate <= 40 || expectancy < 0) td = clamp(td * 1.1, 0.3, 0.6);
     if (Math.abs(td - Number(ss.trailing_drop_pct)) >= 0.05) next.trailing_drop_pct = round2(td);
 
-    // 3) Hard stop loss — may only tighten. Widening it past MAX_RISK_PCT is what made
-    //    the average loss 2.3x the average win, so the tuner can no longer do that.
-    let sl = Math.min(Math.abs(Number(ss.hard_stop_loss_pct)), MAX_RISK_PCT);
+    // 3) Hard stop loss — tuned per account inside [TUNED_STOP_MIN_PCT, MAX_RISK_PCT].
+    //    It may widen toward the observed average loss (noise stop-outs) and tighten again
+    //    when the account is winning. The take-profit is re-solved from it below, so net
+    //    R:R is preserved at every stop width the tuner picks.
+    let sl = clamp(Math.abs(Number(ss.hard_stop_loss_pct)) || MAX_RISK_PCT, TUNED_STOP_MIN_PCT, MAX_RISK_PCT);
     if (avgLoss > 0 && losses.length >= 3) {
-      const target = clamp(avgLoss * 1.25, 0.3, MAX_RISK_PCT);
-      sl = clamp(sl * 0.6 + target * 0.4, 0.3, MAX_RISK_PCT);
+      const target = clamp(avgLoss * 1.25, TUNED_STOP_MIN_PCT, MAX_RISK_PCT);
+      sl = clamp(sl * 0.6 + target * 0.4, TUNED_STOP_MIN_PCT, MAX_RISK_PCT);
+    } else if (winRate >= 60 && expectancy > 0) {
+      sl = clamp(sl * 0.9, TUNED_STOP_MIN_PCT, MAX_RISK_PCT);
     }
 
     // Geometry guard: re-assert on the tuned pair before persisting anything.

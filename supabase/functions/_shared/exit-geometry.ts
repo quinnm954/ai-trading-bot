@@ -19,7 +19,13 @@
 export const ROUND_TRIP_FEE_PCT = 0.8; // 0.4% maker in + 0.4% maker out
 export const MIN_REWARD_RISK = 1.6;    // minimum NET reward:risk on any scalp
 export const TP_FLOOR_GROSS_PCT = 1.4; // absolute gross take-profit floor
-export const MAX_RISK_PCT = 0.8;       // hard cap on gross loss per trade
+// Hard cap on gross loss per trade. 0.80% sat inside one candle of noise and stopped
+// out ~2/3 of entries, so the cap is the OUTER bound of a band the per-account auto-tuner
+// moves within: it widens the stop toward the observed average loss when noise is
+// stopping trades out and tightens it again when results improve. The take-profit is
+// always re-solved from the tuned stop, so net R:R stays at MIN_REWARD_RISK either way.
+export const MAX_RISK_PCT = 2.0;
+export const TUNED_STOP_MIN_PCT = 0.6; // tightest the tuner may go
 
 export interface ExitGeometry {
   /** Gross take-profit distance from entry, in percent (fees not yet paid). */
