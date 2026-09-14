@@ -19,23 +19,33 @@
 export const ROUND_TRIP_FEE_PCT = 0.8; // 0.4% maker in + 0.4% maker out
 export const MIN_REWARD_RISK = 1.6;    // minimum NET reward:risk on any scalp
 export const TP_FLOOR_GROSS_PCT = 1.4; // absolute gross take-profit floor
-// Hard cap on gross loss per trade. 0.80% sat inside one candle of noise and stopped
-// out ~2/3 of entries, so the cap is the OUTER bound of a band the per-account auto-tuner
-// moves within: it widens the stop toward the observed average loss when noise is
-// stopping trades out and tightens it again when results improve. The take-profit is
-// always re-solved from the tuned stop, so net R:R stays at MIN_REWARD_RISK either way.
-export const MAX_RISK_PCT = 2.0;
+// Hard cap on gross loss per trade. The 2.0% ceiling let the tuner widen the stop to
+// 1.89% while the profit lock handed winners back at ~+1.4% gross — we risked more than
+// we collected, so a 20% win rate bled the account. The cap is now 1.2%: the worst case
+// is clearly smaller than a normal win, and the take-profit is always re-solved from the
+// tuned stop so net R:R stays at MIN_REWARD_RISK at every stop width.
+export const MAX_RISK_PCT = 1.2;
 export const TUNED_STOP_MIN_PCT = 0.6; // tightest the tuner may go
 
 // ── PROFIT LOCK (standard, non-wide entries) ─────────────────────────────────
-// 16 of 16 closed trades exited at the stop and NOT ONE reached the 4.48% target,
-// even though several ran +1 to +2% first. Trailing armed at 1:1 (0.8 + stop + 0.8 ≈
-// 3.1% gross) which sat just under the target, so it was effectively dead code.
-// The lock now arms as soon as the gain clears the round trip with real profit on top,
-// and gives back only a small slice of the peak, so an excursion that stalls books a
-// genuine net winner instead of round-tripping into the stop.
-export const PROFIT_LOCK_ARM_PCT = 1.6;      // gross gain that arms the lock (net +0.8%)
-export const PROFIT_LOCK_GIVEBACK_PCT = 0.5; // gross giveback from peak that exits
+// Arming at a fixed +1.6% gross snatched winners at roughly +0.8% net while losers ran
+// the full stop, so the payoff was inverted by design. The lock now arms only once the
+// gain is a real multiple of the risk the trade took (2.5× the stop distance) and gives
+// back a proportional slice of that risk, so a protected winner always beats a stop-out.
+export const PROFIT_LOCK_ARM_STOP_MULT = 2.5;      // arm at 2.5 × stop distance
+export const PROFIT_LOCK_GIVEBACK_STOP_MULT = 0.6; // giveback = 0.6 × stop distance
+/** Fallback arm level when the position's own stop distance is unknown. */
+export const PROFIT_LOCK_ARM_PCT = MAX_RISK_PCT * PROFIT_LOCK_ARM_STOP_MULT;
+export const PROFIT_LOCK_GIVEBACK_PCT = MAX_RISK_PCT * PROFIT_LOCK_GIVEBACK_STOP_MULT;
+
+/** Profit-lock contract derived from the position's actual gross stop distance. */
+export function solveProfitLock(grossStopPct?: number | null): { armPct: number; givebackPct: number } {
+  const stop = Math.abs(Number(grossStopPct)) > 0 ? Math.abs(Number(grossStopPct)) : MAX_RISK_PCT;
+  return {
+    armPct: stop * PROFIT_LOCK_ARM_STOP_MULT,
+    givebackPct: stop * PROFIT_LOCK_GIVEBACK_STOP_MULT,
+  };
+}
 
 // ── ADAPTIVE (per-coin) GEOMETRY ─────────────────────────────────────────────
 // A fixed 4.48% target is unreachable for a coin whose hourly range is 0.3%, while a

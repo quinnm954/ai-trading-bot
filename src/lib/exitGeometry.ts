@@ -9,12 +9,22 @@
 export const ROUND_TRIP_FEE_PCT = 0.8; // 0.4% maker in + 0.4% maker out
 export const MIN_REWARD_RISK = 1.6; // minimum NET reward:risk on any scalp
 export const TP_FLOOR_GROSS_PCT = 1.4; // absolute gross take-profit floor
-export const MAX_RISK_PCT = 2.0; // outer bound of the auto-tuned stop band
+export const MAX_RISK_PCT = 1.2; // outer bound of the auto-tuned stop band
 export const TUNED_STOP_MIN_PCT = 0.6; // tightest the tuner may go
 
 // Profit lock + per-coin adaptive geometry (mirror of the shared module).
-export const PROFIT_LOCK_ARM_PCT = 1.6;
-export const PROFIT_LOCK_GIVEBACK_PCT = 0.5;
+export const PROFIT_LOCK_ARM_STOP_MULT = 2.5;
+export const PROFIT_LOCK_GIVEBACK_STOP_MULT = 0.6;
+export const PROFIT_LOCK_ARM_PCT = MAX_RISK_PCT * PROFIT_LOCK_ARM_STOP_MULT;
+export const PROFIT_LOCK_GIVEBACK_PCT = MAX_RISK_PCT * PROFIT_LOCK_GIVEBACK_STOP_MULT;
+
+export function solveProfitLock(grossStopPct?: number | null): { armPct: number; givebackPct: number } {
+  const stop = Math.abs(Number(grossStopPct)) > 0 ? Math.abs(Number(grossStopPct)) : MAX_RISK_PCT;
+  return {
+    armPct: stop * PROFIT_LOCK_ARM_STOP_MULT,
+    givebackPct: stop * PROFIT_LOCK_GIVEBACK_STOP_MULT,
+  };
+}
 export const ADAPTIVE_STOP_ATR_MULT = 1.4;
 export const ADAPTIVE_MIN_HOLD_MINUTES = 360;
 export const ADAPTIVE_MAX_HOLD_MINUTES = 1440;
