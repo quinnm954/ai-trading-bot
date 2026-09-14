@@ -3406,6 +3406,52 @@ async function adaptParametersFromRecentTrades(
       await supabase.from('scalp_settings').update({ ...next, updated_at: new Date().toISOString() }).eq('user_id', userId);
     }
 
+    // 6b) 🔄 RETUNE OPEN POSITIONS — the tuned stop/target is not entry-only. Positions
+    //     already open in this mode adopt the new geometry so every live trade is exited on
+    //     the same levels the tuner just learned. Skipped for mirror copies (trader-exit only)
+    //     and for wide-mode swings (their stop is ATR-derived, not tuner-derived).
+    if (next.take_profit_pct !== undefined || next.hard_stop_loss_pct !== undefined) {
+      const { data: openPositions } = await supabase
+        .from('positions')
+        .select('id, symbol, avg_entry_price, max_hold_minutes, stop_loss_pct, take_profit_pct')
+        .eq('user_id', userId)
+        .eq('is_paper', isPaperMode)
+        .eq('mirror_only', false);
+
+      const retuneTargets = (openPositions ?? []).filter((p: any) =>
+        Number(p.max_hold_minutes ?? 0) < WIDE_MAX_HOLD_MINUTES
+      );
+
+      if (retuneTargets.length > 0) {
+        const geo = solveExitGeometry(tp, sl);
+        for (const p of retuneTargets) {
+          const patch: Record<string, number> = {
+            stop_loss_pct: Number(geo.stopLossPct.toFixed(4)),
+            take_profit_pct: Number(geo.takeProfitPct.toFixed(4)),
+          };
+          await supabase.from('positions').update(patch).eq('id', p.id);
+
+          const entry = Number(p.avg_entry_price);
+          if (entry > 0) {
+            const prices = exitPricesForLong(entry, geo);
+            await supabase
+              .from('trades')
+              .update({
+                stop_loss_price: Number(prices.stopLossPrice.toFixed(10)),
+                take_profit_price: Number(prices.takeProfitPrice.toFixed(10)),
+              })
+              .eq('user_id', userId)
+              .eq('symbol', p.symbol)
+              .eq('is_paper', isPaperMode)
+              .eq('status', 'open');
+          }
+        }
+        console.log(
+          `🔄 Retuned ${retuneTargets.length} open position(s) to ${describeGeometry(geo)}`,
+        );
+      }
+    }
+
     // 7) ai_settings — tighten max_daily_loss when expectancy is negative
     if (as_) {
       const nextAi: Record<string, number> = {};
