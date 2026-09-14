@@ -3383,11 +3383,12 @@ async function adaptParametersFromRecentTrades(
         maxChase = pb('maxChase5m', maxChase + 0.1);
       }
 
-      if (Math.abs(minScore - Number(ss.playbook_min_score ?? 55)) >= 1) next.playbook_min_score = Math.round(minScore);
-      if (Math.abs(minVol - Number(ss.playbook_min_volume_ratio ?? 0.6)) >= 0.02) next.playbook_min_volume_ratio = round2(minVol);
-      if (Math.abs(maxPctB - Number(ss.playbook_max_percent_b ?? 0.85)) >= 0.01) next.playbook_max_percent_b = round2(maxPctB);
-      if (Math.abs(rsiMax - Number(ss.playbook_rsi_max ?? 70)) >= 0.5) next.playbook_rsi_max = round2(rsiMax);
-      if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? 3)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
+      const D = PLAYBOOK_TUNING_DEFAULTS;
+      if (Math.abs(minScore - Number(ss.playbook_min_score ?? D.minScore)) >= 1) next.playbook_min_score = Math.round(minScore);
+      if (Math.abs(minVol - Number(ss.playbook_min_volume_ratio ?? D.minVolumeRatio)) >= 0.02) next.playbook_min_volume_ratio = round2(minVol);
+      if (Math.abs(maxPctB - Number(ss.playbook_max_percent_b ?? D.maxPercentB)) >= 0.01) next.playbook_max_percent_b = round2(maxPctB);
+      if (Math.abs(rsiMax - Number(ss.playbook_rsi_max ?? D.rsiMax)) >= 0.5) next.playbook_rsi_max = round2(rsiMax);
+      if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? D.maxChase5m)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
     }
 
     // 5) Position sizing — scale with expectancy
