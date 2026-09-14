@@ -286,7 +286,9 @@ function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
   z += add('support', supportW);
 
   if (rsi !== undefined) {
-    if (rsi < 32 && c5 > 0) z += add('rsi_reclaim', 0.35);
+    // No oversold-reclaim bonus: rewarding RSI<32 bounces contradicted the no-falling-knife
+    // policy and was one of the paths that let weak coins clear the edge threshold.
+    if (rsi < 32) z += add('rsi_washed', -0.30);
     else if (rsi >= 45 && rsi <= 62) z += add('rsi_trend', 0.25);
     else if (rsi > 70) z += add('rsi_hot', -0.55);
   }
@@ -1710,9 +1712,13 @@ interface CandleTechnicals {
   htfSlopePct?: number;
 }
 
-// Detect the nearest swing-low support below `price` using ±`window` pivot lows.
-function findSupportLevel(lows: number[], price: number, window = 3): number | undefined {
-  if (lows.length < window * 2 + 1) return undefined;
+// Detect the nearest swing-low support relative to `price` using ±`window` pivot lows.
+// AUDIT FIX: the session low used to be appended as a fallback pivot, which made
+// `below_support` mathematically unreachable (the lowest low is always ≤ price), so that
+// veto never once fired. Support is now pivot-only; if every pivot sits above price, the
+// price really has broken below structure and we say so.
+function findSupportLevel(lows: number[], price: number, window = 3): { support?: number; broken: boolean } {
+  if (lows.length < window * 2 + 1) return { broken: false };
   const pivots: number[] = [];
   for (let i = window; i < lows.length - window; i++) {
     let isPivot = true;
@@ -1721,11 +1727,12 @@ function findSupportLevel(lows: number[], price: number, window = 3): number | u
     }
     if (isPivot) pivots.push(lows[i]);
   }
-  // Also consider the session low as a fallback support.
-  pivots.push(Math.min(...lows));
-  // Nearest pivot that sits at or below the current price.
+  if (!pivots.length) return { broken: false };
   const below = pivots.filter(p => p <= price).sort((a, b) => b - a);
-  return below[0];
+  if (below.length) return { support: below[0], broken: false };
+  // No pivot at or below price → price has traded through its recent swing structure.
+  const above = [...pivots].sort((a, b) => a - b);
+  return { support: above[0], broken: true };
 }
 
 function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' | 'extreme'; score: number } {
@@ -1737,16 +1744,28 @@ function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' |
   return { cls: 'extreme', score: 25 };                          // chaotic — wide stops, poor R:R
 }
 
+/**
+ * RSI(14) with Wilder smoothing — the standard every charting platform uses.
+ * AUDIT FIX: this previously averaged only the last 14 bars' gains/losses with a flat
+ * mean, which read up to 17 points away from a real RSI (measured: VTHO 24.5 vs 41.3).
+ * That made coins look "oversold" that weren't and mis-fired the overbought veto.
+ */
 function computeRSI(closes: number[], period = 14): number | undefined {
   if (closes.length < period + 1) return undefined;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff; else losses -= diff;
+  const gains: number[] = [];
+  const losses: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    gains.push(d > 0 ? d : 0);
+    losses.push(d < 0 ? -d : 0);
   }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
+  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+  }
+  if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
 }
@@ -1877,18 +1896,24 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
  * ONE_HOUR candle context in a single fetch:
  *  - swingAtrPct: ATR(14) as % of price — swing-scale volatility for stop sizing
  *  - htfAboveEma / htfSlopePct: higher-timeframe trend, so nothing buys into an hourly downtrend
+ *  - change1h: the REAL hour-over-hour move (audit fix — the engine used to store the 15m
+ *    move in `change1h`, which read up to 0.8pp away from the true hourly change)
+ * The in-progress hourly candle is dropped: an unfinished bar under-reports both range and
+ * volume, so indicators built on it drift as the hour fills in.
  */
-async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number } | undefined> {
+async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number; change1h?: number } | undefined> {
   try {
     const now = Math.floor(Date.now() / 1000);
-    const start = now - 3600 * 48; // 48 hourly candles → ATR(14) with headroom
+    const start = now - 3600 * 52; // headroom so 48 closed hourly candles survive gaps
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=ONE_HOUR`;
     const resp = await fetchWithRetry(url);
     if (!resp) return undefined;
     const data = await resp.json();
-    const candles = Array.isArray(data?.candles) ? data.candles : [];
-    if (candles.length < 15) return undefined;
-    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const raw = Array.isArray(data?.candles) ? data.candles : [];
+    const sorted = [...raw]
+      .sort((a: any, b: any) => Number(a.start) - Number(b.start))
+      .filter((c: any) => Number(c.start) + 3600 <= now); // closed bars only
+    if (sorted.length < 15) return undefined;
     const closes = sorted.map((c: any) => Number(c.close));
     const highs = sorted.map((c: any) => Number(c.high));
     const lows = sorted.map((c: any) => Number(c.low));
@@ -1905,6 +1930,13 @@ async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: numbe
     const last = closes[closes.length - 1];
     if (!(last > 0)) return undefined;
 
+    // True 1h change — only when the two newest bars really are consecutive hours.
+    let change1h: number | undefined;
+    const tLast = Number(sorted[sorted.length - 1].start);
+    const tPrev = Number(sorted[sorted.length - 2].start);
+    const prevClose = closes[closes.length - 2];
+    if (tLast - tPrev === 3600 && prevClose > 0) change1h = ((last - prevClose) / prevClose) * 100;
+
     // Higher-timeframe trend: price vs 1h EMA(20) and the EMA's own slope over 6 hours.
     const ema20 = computeEMA(closes, 20);
     let htfAboveEma: boolean | undefined;
@@ -1919,33 +1951,59 @@ async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: numbe
       swingAtrPct: atr > 0 ? (atr / last) * 100 : undefined,
       htfAboveEma,
       htfSlopePct,
+      change1h,
     };
   } catch (_e) {
     return undefined;
   }
 }
 
+/** How many closed 5m bars an indicator set needs before it means anything. */
+const MIN_CLOSED_5M_BARS = 36;
+/** Largest tolerated hole in the recent 5m series (seconds). Beyond this the tape is too thin. */
+const MAX_5M_GAP_SECONDS = 900;
+
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
-    // 60 × 5m = 5h of data — enough for BB(20) + RSI(14) on 5m
-    const start = now - 60 * 60 * 5;
+    // 8h window: Coinbase omits bars with no trades, so a 5h window left thin coins with
+    // as few as 8 bars while indicators still "computed" on a compressed timeline.
+    const start = now - 60 * 60 * 8;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
     const resp = await fetchWithRetry(url);
     if (!resp) return null;
     const data = await resp.json();
-    const candles = Array.isArray(data?.candles) ? data.candles : [];
-    if (candles.length < 2) return null;
-    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const raw = Array.isArray(data?.candles) ? data.candles : [];
+    // AUDIT FIX 1: drop the in-progress candle. Measured effect on live coins: change5m read
+    // +0.03% instead of +0.62%, and volume participation 1.06× instead of 2.48× — enough to
+    // flip the volume veto on and off at random.
+    const sorted = [...raw]
+      .sort((a: any, b: any) => Number(a.start) - Number(b.start))
+      .filter((c: any) => Number(c.start) + 300 <= now);
+    if (sorted.length < MIN_CLOSED_5M_BARS) return null;
+
+    const starts = sorted.map((c: any) => Number(c.start));
+    // AUDIT FIX 2: refuse gappy tape. Missing bars mean "no trades happened", so a series with
+    // holes silently stretches RSI/BB/MACD/ATR across hours instead of minutes.
+    const recentStarts = starts.slice(-24);
+    let maxGap = 0;
+    for (let i = 1; i < recentStarts.length; i++) maxGap = Math.max(maxGap, recentStarts[i] - recentStarts[i - 1]);
+    if (maxGap > MAX_5M_GAP_SECONDS) return null;
+
     const closes = sorted.map((c: any) => Number(c.close));
     const highs = sorted.map((c: any) => Number(c.high));
     const lows = sorted.map((c: any) => Number(c.low));
     const volumes = sorted.map((c: any) => Number(c.volume) || 0);
     const last = closes[closes.length - 1];
-    const prev5 = closes[closes.length - 2];
-    const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
-    const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
-    const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
+
+    // AUDIT FIX 3: timestamp-aware short-window changes — only quoted when the bars used
+    // really are 5 and 15 minutes back, never as an implicit 0%.
+    const tLast = starts[starts.length - 1];
+    const idxAt = (secondsBack: number) => starts.lastIndexOf(tLast - secondsBack);
+    const i5 = idxAt(300);
+    const i15 = idxAt(900);
+    const change5m = i5 >= 0 && closes[i5] > 0 ? ((last - closes[i5]) / closes[i5]) * 100 : 0;
+    const change15m = i15 >= 0 && closes[i15] > 0 ? ((last - closes[i15]) / closes[i15]) * 100 : change5m;
 
     const rsi = computeRSI(closes, 14);
     const bb = computeBollinger(closes, 20, 2);
@@ -1983,24 +2041,35 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       }
     }
 
-    // Score the setup: 0–100. Favor oversold-bouncing-in-squeeze near lower band, sweet-spot volatility.
+    // Score the setup: 0–100.
+    // AUDIT FIX 4: this used to REWARD "RSI oversold", "%B at lower band" and "bounce from
+    // lower BB" — the exact falling-knife setups the entry playbook exists to block. The
+    // legacy bonus could lift a weak candidate into range and then be vetoed downstream,
+    // which made the score meaningless. Weakness is no longer rewarded here.
     let score = 50;
     const labels: string[] = [];
     if (rsi !== undefined) {
-      if (rsi < 30) { score += 15; labels.push(`RSI ${rsi.toFixed(0)} oversold`); }
-      else if (rsi < 45) { score += 8; labels.push(`RSI ${rsi.toFixed(0)} cool`); }
+      if (rsi < 30) { score -= 6; labels.push(`RSI ${rsi.toFixed(0)} washed out`); }
+      else if (rsi < 45) { labels.push(`RSI ${rsi.toFixed(0)} cool`); }
+      else if (rsi >= 50 && rsi <= 62) { score += 10; labels.push(`RSI ${rsi.toFixed(0)} constructive`); }
       else if (rsi > 70) { score -= 20; labels.push(`RSI ${rsi.toFixed(0)} overbought`); }
-      else if (rsi > 60) { score -= 8; labels.push(`RSI ${rsi.toFixed(0)} hot`); }
+      else if (rsi > 62) { score -= 8; labels.push(`RSI ${rsi.toFixed(0)} hot`); }
     }
     if (percentB !== undefined) {
-      if (percentB < 0.1) { score += 15; labels.push(`%B ${percentB.toFixed(2)} at lower BB`); }
-      else if (percentB < 0.3) { score += 8; labels.push(`%B ${percentB.toFixed(2)} lower half`); }
+      if (percentB < 0.15) { score -= 10; labels.push(`%B ${percentB.toFixed(2)} pinned to lower band`); }
+      else if (percentB >= 0.45 && percentB <= 0.75) { score += 10; labels.push(`%B ${percentB.toFixed(2)} mid-upper band`); }
       else if (percentB > 0.95) { score -= 20; labels.push(`%B ${percentB.toFixed(2)} above upper BB`); }
       else if (percentB > 0.8) { score -= 8; labels.push(`%B ${percentB.toFixed(2)} upper band`); }
     }
-    if (bb && bb.width < 0.03) { score += 8; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
-    if (change5m > 0 && percentB !== undefined && percentB < 0.4) { score += 10; labels.push('bounce from lower BB'); }
+    if (bb && bb.width < 0.03) { score += 6; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
+    // Strength confirmation, not dip-catching: rising price with the band mid reclaimed.
+    if (change5m > 0 && percentB !== undefined && percentB >= 0.5) { score += 10; labels.push('rising above band mid'); }
     if (change5m > 3) { score -= 15; labels.push('5m spike'); }
+    if (ema9 !== undefined && ema21 !== undefined) {
+      if (ema9 >= ema21) { score += 8; labels.push('EMA9 ≥ EMA21'); }
+      else { score -= 8; labels.push('EMA9 < EMA21'); }
+    }
+    if (macd && macd.hist > macd.prevHist) { score += 6; labels.push('MACD hist rising'); }
 
     // Volatility-aware adjustments
     if (atrPct !== undefined && volClass) {
@@ -2011,8 +2080,9 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       else if (volClass === 'extreme') { score -= 20; labels.push(`vol extreme ATR ${atrPct.toFixed(2)}%`); }
     }
 
-    // Support-level awareness — entries near a recent swing-low are higher-probability bounces.
-    const supportPrice = findSupportLevel(lows, last, 3);
+    // Support-level awareness — structure location, now able to report a real break.
+    const sup = findSupportLevel(lows, last, 3);
+    const supportPrice = sup.support;
     let distanceToSupportPct: number | undefined;
     let supportContext: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support' | undefined;
     if (supportPrice !== undefined && last > 0) {
@@ -2020,7 +2090,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       // Use ATR% as the "what's close?" yardstick when available, else fall back to fixed bands.
       const nearBand = Math.max(0.4, (atrPct ?? 0.5) * 0.6);   // "at support"
       const midBand  = Math.max(1.5, (atrPct ?? 0.5) * 2.0);   // "near support"
-      if (distanceToSupportPct < 0) {
+      if (sup.broken || distanceToSupportPct < 0) {
         supportContext = 'below_support';
         score -= 18; labels.push(`below support ${supportPrice.toFixed(6)}`);
       } else if (distanceToSupportPct <= nearBand) {
@@ -2078,7 +2148,8 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_L
       return;
     }
     coin.change5m = t.change5m;
-    coin.change1h = t.change15m;
+    // change1h is set from the hourly candles below — it used to be overwritten with the
+    // 15-minute move, which quietly turned the "1h tape" gate into a 15-minute gate.
     coin.rsi14 = t.rsi14;
     coin.bbLower = t.bbLower;
     coin.bbMid = t.bbMid;
@@ -2108,6 +2179,8 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_L
     coin.swingAtrPct = t.swingAtrPct ?? htf?.swingAtrPct;
     (coin as any).htfAboveEma = htf?.htfAboveEma;
     (coin as any).htfSlopePct = htf?.htfSlopePct;
+    // True hourly change; keep any existing (CoinGecko) value if the hourly bars were gappy.
+    if (htf?.change1h !== undefined) coin.change1h = htf.change1h;
   });
   return { attempted: targets.length, failures };
 }
@@ -2477,7 +2550,7 @@ TREND ANALYSIS:
 ${trendContext}
 
 LIVE MARKET DATA:
-${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
+${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 1h: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 ${fusionMap && fusionMap.size > 0 ? `TITAN FUSION SIGNALS (multi-source AI conviction, 0-100, fused from Coinbase candles, news sentiment, liquidation clusters, technicals):
 ${marketData.filter(m => fusionMap.has(m.symbol.toUpperCase())).map(m => {
@@ -4629,7 +4702,7 @@ serve(async (req) => {
         if (!coin) return false;
         const momentumStatus = getEntryMomentumStatus(coin, scalpCfg);
         if (!momentumStatus.ok) {
-          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} (${momentumStatus.mode}) — 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}% to reach target)`);
+          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} (${momentumStatus.mode}) — 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 1h ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}% to reach target)`);
           return false;
         }
       }
@@ -4884,7 +4957,7 @@ serve(async (req) => {
         const c24 = coin?.change24h ?? 0;
         const momentumStatus = coin ? getEntryMomentumStatus(coin, scalpCfg) : { ok: false };
         if (price < avgEntry || !momentumStatus.ok) {
-          console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+          console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 1h ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
           continue;
         }
         const value = Number(pos.quantity) * price;
@@ -5111,7 +5184,8 @@ serve(async (req) => {
         const liveMomentumCoin = {
           ...coinData,
           change5m: freshMomentum?.change5m ?? coinData.change5m,
-          change1h: freshMomentum?.change15m ?? coinData.change1h ?? 0,
+          // true hourly change (fresh candles only refresh the 5m window)
+          change1h: coinData.change1h ?? 0,
           rsi14: freshMomentum?.rsi14 ?? coinData.rsi14,
           percentB: freshMomentum?.percentB ?? coinData.percentB,
         };
@@ -5188,7 +5262,7 @@ serve(async (req) => {
 
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
         if (!momentumStatus.ok) {
-          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 1h ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
           continue;
         }
         coinData.change5m = momentumStatus.c5;
