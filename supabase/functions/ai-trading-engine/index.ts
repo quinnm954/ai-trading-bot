@@ -3295,19 +3295,25 @@ async function adaptParametersFromRecentTrades(
       .limit(30);
     if (!trades || trades.length < 5) return; // need a small sample
 
-    // ── ANTI-THRASH GUARD ─────────────────────────────────────────────────────
-    // One tune per newly closed trade was still noise-chasing: the tuner re-tuned
-    // 10–13 parameters after every single loss and pinned every entry filter at its
-    // strictest rail without lifting the win rate. It now needs a real BATCH of new
-    // evidence (MIN_NEW_CLOSURES newly closed trades) plus a cooldown between tunes.
+    // ── TWO-SPEED TUNER ───────────────────────────────────────────────────────
+    // Exit GEOMETRY (stop / target / trailing) is re-solved on EVERY cycle — once a
+    // minute, server-side — so live risk always tracks the account's latest results
+    // and open positions inherit the new levels immediately.
+    //
+    // Entry FILTERS (percent-move prefilters, playbook thresholds, size, slots) stay
+    // behind an anti-thrash gate: tuning them after every single closure pinned every
+    // filter at its strictest rail without lifting the win rate. They need a real BATCH
+    // of new evidence (MIN_NEW_CLOSURES) plus a cooldown between adjustments.
     const MIN_NEW_CLOSURES = 4;
     const TUNE_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
     const newestClosedAt = trades[0]?.closed_at ?? null;
+    let filtersUnlocked = true;
     const { data: lastTune } = await supabase
       .from('risk_events')
       .select('details, created_at')
       .eq('user_id', userId)
       .eq('event_type', 'adaptive_tune')
+      .eq('details->>filters_tuned', 'true')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -3319,10 +3325,10 @@ async function adaptParametersFromRecentTrades(
         const newClosures = (trades as any[]).filter(
           t => new Date(t.closed_at).getTime() > lastAt,
         ).length;
-        if (newClosures < MIN_NEW_CLOSURES) return; // not enough new evidence yet
+        if (newClosures < MIN_NEW_CLOSURES) filtersUnlocked = false;
       }
       const sinceTune = Date.now() - new Date(lastTune.created_at).getTime();
-      if (sinceTune < TUNE_COOLDOWN_MS) return; // cooling off between tunes
+      if (sinceTune < TUNE_COOLDOWN_MS) filtersUnlocked = false;
     }
 
 
