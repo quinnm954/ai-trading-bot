@@ -3622,7 +3622,7 @@ async function adaptParametersFromRecentTrades(
         user_id: userId,
         event_type: 'adaptive_tune',
         severity: 'info',
-        message: `Tuned ${Object.keys(next).length} param(s) — win ${winRate.toFixed(0)}%, expectancy ${expectancy.toFixed(2)}%, streak ${streak}`,
+      message: `Tuned ${Object.keys(next).length} param(s)${filtersUnlocked ? '' : ' (exit levels only)'} — win ${winRate.toFixed(0)}%, expectancy ${expectancy.toFixed(2)}%, streak ${streak}`,
         details: {
           sample_size: pcts.length,
           win_rate: round2(winRate),
@@ -3634,6 +3634,9 @@ async function adaptParametersFromRecentTrades(
           is_paper: isPaperMode,
           last_closed_at: newestClosedAt,
           objective: tuneObjective,
+          // Only filter-level tunes reset the anti-thrash batch/cooldown window;
+          // geometry-only tunes run every minute and must not advance it.
+          filters_tuned: filtersUnlocked,
         },
       });
       console.log(`🧠 ADAPTIVE TUNE [${userId.slice(0, 8)}]: win ${winRate.toFixed(0)}% exp ${expectancy.toFixed(2)}% streak ${streak} →`, next);
