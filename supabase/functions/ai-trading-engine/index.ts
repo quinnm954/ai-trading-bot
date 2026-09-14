@@ -2039,24 +2039,35 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       }
     }
 
-    // Score the setup: 0–100. Favor oversold-bouncing-in-squeeze near lower band, sweet-spot volatility.
+    // Score the setup: 0–100.
+    // AUDIT FIX 4: this used to REWARD "RSI oversold", "%B at lower band" and "bounce from
+    // lower BB" — the exact falling-knife setups the entry playbook exists to block. The
+    // legacy bonus could lift a weak candidate into range and then be vetoed downstream,
+    // which made the score meaningless. Weakness is no longer rewarded here.
     let score = 50;
     const labels: string[] = [];
     if (rsi !== undefined) {
-      if (rsi < 30) { score += 15; labels.push(`RSI ${rsi.toFixed(0)} oversold`); }
-      else if (rsi < 45) { score += 8; labels.push(`RSI ${rsi.toFixed(0)} cool`); }
+      if (rsi < 30) { score -= 6; labels.push(`RSI ${rsi.toFixed(0)} washed out`); }
+      else if (rsi < 45) { labels.push(`RSI ${rsi.toFixed(0)} cool`); }
+      else if (rsi >= 50 && rsi <= 62) { score += 10; labels.push(`RSI ${rsi.toFixed(0)} constructive`); }
       else if (rsi > 70) { score -= 20; labels.push(`RSI ${rsi.toFixed(0)} overbought`); }
-      else if (rsi > 60) { score -= 8; labels.push(`RSI ${rsi.toFixed(0)} hot`); }
+      else if (rsi > 62) { score -= 8; labels.push(`RSI ${rsi.toFixed(0)} hot`); }
     }
     if (percentB !== undefined) {
-      if (percentB < 0.1) { score += 15; labels.push(`%B ${percentB.toFixed(2)} at lower BB`); }
-      else if (percentB < 0.3) { score += 8; labels.push(`%B ${percentB.toFixed(2)} lower half`); }
+      if (percentB < 0.15) { score -= 10; labels.push(`%B ${percentB.toFixed(2)} pinned to lower band`); }
+      else if (percentB >= 0.45 && percentB <= 0.75) { score += 10; labels.push(`%B ${percentB.toFixed(2)} mid-upper band`); }
       else if (percentB > 0.95) { score -= 20; labels.push(`%B ${percentB.toFixed(2)} above upper BB`); }
       else if (percentB > 0.8) { score -= 8; labels.push(`%B ${percentB.toFixed(2)} upper band`); }
     }
-    if (bb && bb.width < 0.03) { score += 8; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
-    if (change5m > 0 && percentB !== undefined && percentB < 0.4) { score += 10; labels.push('bounce from lower BB'); }
+    if (bb && bb.width < 0.03) { score += 6; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
+    // Strength confirmation, not dip-catching: rising price with the band mid reclaimed.
+    if (change5m > 0 && percentB !== undefined && percentB >= 0.5) { score += 10; labels.push('rising above band mid'); }
     if (change5m > 3) { score -= 15; labels.push('5m spike'); }
+    if (ema9 !== undefined && ema21 !== undefined) {
+      if (ema9 >= ema21) { score += 8; labels.push('EMA9 ≥ EMA21'); }
+      else { score -= 8; labels.push('EMA9 < EMA21'); }
+    }
+    if (macd && macd.hist > macd.prevHist) { score += 6; labels.push('MACD hist rising'); }
 
     // Volatility-aware adjustments
     if (atrPct !== undefined && volClass) {
@@ -2067,8 +2078,9 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       else if (volClass === 'extreme') { score -= 20; labels.push(`vol extreme ATR ${atrPct.toFixed(2)}%`); }
     }
 
-    // Support-level awareness — entries near a recent swing-low are higher-probability bounces.
-    const supportPrice = findSupportLevel(lows, last, 3);
+    // Support-level awareness — structure location, now able to report a real break.
+    const sup = findSupportLevel(lows, last, 3);
+    const supportPrice = sup.support;
     let distanceToSupportPct: number | undefined;
     let supportContext: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support' | undefined;
     if (supportPrice !== undefined && last > 0) {
@@ -2076,7 +2088,7 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
       // Use ATR% as the "what's close?" yardstick when available, else fall back to fixed bands.
       const nearBand = Math.max(0.4, (atrPct ?? 0.5) * 0.6);   // "at support"
       const midBand  = Math.max(1.5, (atrPct ?? 0.5) * 2.0);   // "near support"
-      if (distanceToSupportPct < 0) {
+      if (sup.broken || distanceToSupportPct < 0) {
         supportContext = 'below_support';
         score -= 18; labels.push(`below support ${supportPrice.toFixed(6)}`);
       } else if (distanceToSupportPct <= nearBand) {
