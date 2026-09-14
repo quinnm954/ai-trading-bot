@@ -2054,6 +2054,12 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
 }
 
 /** Populate real short-window movement before regime classification and reuse it later. */
+// 🌍 UNIVERSE WIDTH — how many Coinbase markets get full candle/band technicals each
+// cycle. Every tradable USDC market is a candidate; this is the per-cycle work budget,
+// applied to the most liquid names first so nothing untradeable eats the quota.
+const CANDLE_SCAN_LIMIT = 120;
+const CANDLE_SCAN_CONCURRENCY = 8;
+
 async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_LIMIT): Promise<{ attempted: number; failures: number }> {
   const targets = coins
     .filter((coin) => coin.productId && coin.techScore === undefined)
