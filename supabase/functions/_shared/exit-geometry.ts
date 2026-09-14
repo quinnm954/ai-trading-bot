@@ -27,6 +27,65 @@ export const TP_FLOOR_GROSS_PCT = 1.4; // absolute gross take-profit floor
 export const MAX_RISK_PCT = 2.0;
 export const TUNED_STOP_MIN_PCT = 0.6; // tightest the tuner may go
 
+// ── PROFIT LOCK (standard, non-wide entries) ─────────────────────────────────
+// 16 of 16 closed trades exited at the stop and NOT ONE reached the 4.48% target,
+// even though several ran +1 to +2% first. Trailing armed at 1:1 (0.8 + stop + 0.8 ≈
+// 3.1% gross) which sat just under the target, so it was effectively dead code.
+// The lock now arms as soon as the gain clears the round trip with real profit on top,
+// and gives back only a small slice of the peak, so an excursion that stalls books a
+// genuine net winner instead of round-tripping into the stop.
+export const PROFIT_LOCK_ARM_PCT = 1.6;      // gross gain that arms the lock (net +0.8%)
+export const PROFIT_LOCK_GIVEBACK_PCT = 0.5; // gross giveback from peak that exits
+
+// ── ADAPTIVE (per-coin) GEOMETRY ─────────────────────────────────────────────
+// A fixed 4.48% target is unreachable for a coin whose hourly range is 0.3%, while a
+// fixed 1.5% stop is inside the noise of a coin whose hourly range is 1.2%. Both are
+// now derived from the asset's own HOURLY ATR so the stop sits outside that coin's chop
+// and the target is something that coin can actually travel inside the hold window.
+export const ADAPTIVE_STOP_ATR_MULT = 1.4;   // stop = 1.4 × hourly ATR%, clamped to the tuned band
+export const ADAPTIVE_MIN_HOLD_MINUTES = 360;   // 6h — give the target time to be reached
+export const ADAPTIVE_MAX_HOLD_MINUTES = 1440;  // 24h
+/** Fraction of the hold window's average range the target may demand. */
+export const ADAPTIVE_REACH_FACTOR = 0.85;
+
+export interface AdaptiveGeometry extends ExitGeometry {
+  /** Hold window sized so the target is reachable by the coin's own range. */
+  holdMinutes: number;
+  /** False when this coin cannot travel to its target inside the hold window. */
+  reachable: boolean;
+  /** Hours of average hourly range the target demands. */
+  hoursToTarget: number;
+}
+
+/**
+ * Per-coin geometry: stop sized from the coin's hourly ATR inside the tuned band,
+ * target re-solved from that stop so NET reward:risk still equals MIN_REWARD_RISK,
+ * and a hold window long enough for the target to be reachable.
+ */
+export function solveAdaptiveGeometry(
+  hourlyAtrPct?: number | null,
+  tunedStopPct?: number | null,
+): AdaptiveGeometry {
+  const atr = Number(hourlyAtrPct) > 0 ? Number(hourlyAtrPct) : 0;
+  const tuned = Math.abs(Number(tunedStopPct)) > 0 ? Math.abs(Number(tunedStopPct)) : MAX_RISK_PCT;
+  const raw = atr > 0 ? atr * ADAPTIVE_STOP_ATR_MULT : tuned;
+  const stopLossPct = Math.min(MAX_RISK_PCT, Math.max(TUNED_STOP_MIN_PCT, raw));
+  const base = solveExitGeometry(0, stopLossPct);
+
+  const hoursToTarget = atr > 0 ? base.takeProfitPct / atr : Infinity;
+  const neededMinutes = Number.isFinite(hoursToTarget)
+    ? Math.ceil((hoursToTarget / ADAPTIVE_REACH_FACTOR) * 60)
+    : ADAPTIVE_MAX_HOLD_MINUTES;
+  const holdMinutes = Math.min(
+    ADAPTIVE_MAX_HOLD_MINUTES,
+    Math.max(ADAPTIVE_MIN_HOLD_MINUTES, neededMinutes),
+  );
+  const reachable =
+    atr > 0 && base.takeProfitPct <= atr * (holdMinutes / 60) * ADAPTIVE_REACH_FACTOR;
+
+  return { ...base, holdMinutes, reachable, hoursToTarget };
+}
+
 export interface ExitGeometry {
   /** Gross take-profit distance from entry, in percent (fees not yet paid). */
   takeProfitPct: number;

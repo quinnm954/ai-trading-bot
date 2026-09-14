@@ -12,6 +12,13 @@ export const TP_FLOOR_GROSS_PCT = 1.4; // absolute gross take-profit floor
 export const MAX_RISK_PCT = 2.0; // outer bound of the auto-tuned stop band
 export const TUNED_STOP_MIN_PCT = 0.6; // tightest the tuner may go
 
+// Profit lock + per-coin adaptive geometry (mirror of the shared module).
+export const PROFIT_LOCK_ARM_PCT = 1.6;
+export const PROFIT_LOCK_GIVEBACK_PCT = 0.5;
+export const ADAPTIVE_STOP_ATR_MULT = 1.4;
+export const ADAPTIVE_MIN_HOLD_MINUTES = 360;
+export const ADAPTIVE_MAX_HOLD_MINUTES = 1440;
+
 export interface ExitGeometry {
   takeProfitPct: number;
   stopLossPct: number;
