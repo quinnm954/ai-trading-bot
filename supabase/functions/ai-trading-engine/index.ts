@@ -5102,9 +5102,14 @@ serve(async (req) => {
             htfSlopePct: freshMomentum.htfSlopePct ?? (coinData as any).htfSlopePct,
             regime: String(regime ?? 'na'),
             strategy: String((decision as any).strategy ?? "scalp"),
+            // Judge reachability against the target this trade will ACTUALLY be given —
+            // the per-coin adaptive one — not the account's nominal setting.
             targetPct: scalpCfg.wide_stop_mode
               ? solveWideGeometry(freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct).takeProfitPct
-              : scalpCfg.take_profit_pct,
+              : solveAdaptiveGeometry(
+                  freshMomentum.swingAtrPct ?? (coinData as any).swingAtrPct,
+                  Number(scalpCfg.hard_stop_loss_pct),
+                ).takeProfitPct,
             tuning: playbookTuningFrom(scalpCfg),
           });
 
