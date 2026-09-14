@@ -3295,19 +3295,25 @@ async function adaptParametersFromRecentTrades(
       .limit(30);
     if (!trades || trades.length < 5) return; // need a small sample
 
-    // ── ANTI-THRASH GUARD ─────────────────────────────────────────────────────
-    // One tune per newly closed trade was still noise-chasing: the tuner re-tuned
-    // 10–13 parameters after every single loss and pinned every entry filter at its
-    // strictest rail without lifting the win rate. It now needs a real BATCH of new
-    // evidence (MIN_NEW_CLOSURES newly closed trades) plus a cooldown between tunes.
+    // ── TWO-SPEED TUNER ───────────────────────────────────────────────────────
+    // Exit GEOMETRY (stop / target / trailing) is re-solved on EVERY cycle — once a
+    // minute, server-side — so live risk always tracks the account's latest results
+    // and open positions inherit the new levels immediately.
+    //
+    // Entry FILTERS (percent-move prefilters, playbook thresholds, size, slots) stay
+    // behind an anti-thrash gate: tuning them after every single closure pinned every
+    // filter at its strictest rail without lifting the win rate. They need a real BATCH
+    // of new evidence (MIN_NEW_CLOSURES) plus a cooldown between adjustments.
     const MIN_NEW_CLOSURES = 4;
     const TUNE_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
     const newestClosedAt = trades[0]?.closed_at ?? null;
+    let filtersUnlocked = true;
     const { data: lastTune } = await supabase
       .from('risk_events')
       .select('details, created_at')
       .eq('user_id', userId)
       .eq('event_type', 'adaptive_tune')
+      .eq('details->>filters_tuned', 'true')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -3319,10 +3325,10 @@ async function adaptParametersFromRecentTrades(
         const newClosures = (trades as any[]).filter(
           t => new Date(t.closed_at).getTime() > lastAt,
         ).length;
-        if (newClosures < MIN_NEW_CLOSURES) return; // not enough new evidence yet
+        if (newClosures < MIN_NEW_CLOSURES) filtersUnlocked = false;
       }
       const sinceTune = Date.now() - new Date(lastTune.created_at).getTime();
-      if (sinceTune < TUNE_COOLDOWN_MS) return; // cooling off between tunes
+      if (sinceTune < TUNE_COOLDOWN_MS) filtersUnlocked = false;
     }
 
 
@@ -3414,16 +3420,17 @@ async function adaptParametersFromRecentTrades(
     e5 = Math.min(e5, E_MAX_SHORT);
     e15 = Math.min(e15, E_MAX_SHORT);
     e1h = Math.min(e1h, E_MAX_1H);
-    if (Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
-    if (Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
-    if (Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
+    // Filter moves wait for the anti-thrash gate; a downward hard-clamp always lands.
+    if ((filtersUnlocked || e5 < Number(ss.entry_min_5m_pct)) && Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
+    if ((filtersUnlocked || e15 < Number(ss.entry_min_15m_pct)) && Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
+    if ((filtersUnlocked || e1h < Number(ss.entry_min_1h_pct)) && Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
 
     // 4b) 📚 PLAYBOOK THRESHOLDS — per-account candle/band/volume strictness.
     //     Learned from THIS account's own closed trades: if the losers were scoring
     //     lower on the rule library than the winners, raise the discipline floor to
     //     the losers' level; if the account is earning, relax a touch so the skills
     //     keep seeing enough candidates to work with. Bounds are hard rails.
-    {
+    if (filtersUnlocked) {
       const pb = (k: keyof typeof PLAYBOOK_TUNING_BOUNDS, v: number) => {
         const [lo, hi] = PLAYBOOK_TUNING_BOUNDS[k];
         return clamp(v, lo, hi);
@@ -3526,29 +3533,32 @@ async function adaptParametersFromRecentTrades(
       if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? D.maxChase5m)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
     }
 
-    // 5) Position sizing — scale with expectancy
-    let size = Number(ss.target_position_size_usd);
-    if (expectancy > 0.3 && winRate >= 55) size = clamp(size * 1.1, 20, 300);
-    else if (expectancy < -0.2 || winRate <= 40) size = clamp(size * 0.85, 20, 300);
-    if (Math.abs(size - Number(ss.target_position_size_usd)) >= 1) next.target_position_size_usd = Math.round(size);
+    // 5) Position sizing — scale with expectancy (batch-gated, like the filters)
+    if (filtersUnlocked) {
+      let size = Number(ss.target_position_size_usd);
+      if (expectancy > 0.3 && winRate >= 55) size = clamp(size * 1.1, 20, 300);
+      else if (expectancy < -0.2 || winRate <= 40) size = clamp(size * 0.85, 20, 300);
+      if (Math.abs(size - Number(ss.target_position_size_usd)) >= 1) next.target_position_size_usd = Math.round(size);
 
-    // 6) Concurrent positions — expand on positive expectancy, contract on negative
-    let maxPos = Number(ss.max_concurrent_positions);
-    // Floor 6 / ceiling 12 (= SCALP_MAX_CONCURRENT): never starve the account of slots.
-    if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 6, SCALP_MAX_CONCURRENT);
-    else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 6, SCALP_MAX_CONCURRENT);
-    if (maxPos !== Number(ss.max_concurrent_positions)) next.max_concurrent_positions = Math.round(maxPos);
+      // 6) Concurrent positions — expand on positive expectancy, contract on negative
+      let maxPos = Number(ss.max_concurrent_positions);
+      // Floor 6 / ceiling 12 (= SCALP_MAX_CONCURRENT): never starve the account of slots.
+      if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 6, SCALP_MAX_CONCURRENT);
+      else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 6, SCALP_MAX_CONCURRENT);
+      if (maxPos !== Number(ss.max_concurrent_positions)) next.max_concurrent_positions = Math.round(maxPos);
+    }
 
     if (Object.keys(next).length > 0) {
       next.updated_at = Date.now() as any;
       await supabase.from('scalp_settings').update({ ...next, updated_at: new Date().toISOString() }).eq('user_id', userId);
     }
 
-    // 6b) 🔄 RETUNE OPEN POSITIONS — the tuned stop/target is not entry-only. Positions
-    //     already open in this mode adopt the new geometry so every live trade is exited on
-    //     the same levels the tuner just learned. Skipped for mirror copies (trader-exit only)
-    //     and for wide-mode swings (their stop is ATR-derived, not tuner-derived).
-    if (next.take_profit_pct !== undefined || next.hard_stop_loss_pct !== undefined) {
+    // 6b) 🔄 RETUNE OPEN POSITIONS — runs EVERY cycle, not only when the stored setting
+    //     moved: any open position whose levels drift from the current solved geometry is
+    //     brought back onto it, so live risk is never stale. Skipped for mirror copies
+    //     (trader-exit only) and wide-mode swings (ATR-derived stop, not tuner-derived).
+    {
+      const geoNow = solveExitGeometry(tp, sl);
       const { data: openPositions } = await supabase
         .from('positions')
         .select('id, symbol, avg_entry_price, max_hold_minutes, stop_loss_pct, take_profit_pct')
@@ -3557,11 +3567,14 @@ async function adaptParametersFromRecentTrades(
         .eq('mirror_only', false);
 
       const retuneTargets = (openPositions ?? []).filter((p: any) =>
-        Number(p.max_hold_minutes ?? 0) < WIDE_MAX_HOLD_MINUTES
+        Number(p.max_hold_minutes ?? 0) < WIDE_MAX_HOLD_MINUTES &&
+        (Math.abs(Number(p.stop_loss_pct ?? 0) - geoNow.stopLossPct) >= 0.01 ||
+          Math.abs(Number(p.take_profit_pct ?? 0) - geoNow.takeProfitPct) >= 0.01)
       );
 
+
       if (retuneTargets.length > 0) {
-        const geo = solveExitGeometry(tp, sl);
+        const geo = geoNow;
         for (const p of retuneTargets) {
           const patch: Record<string, number> = {
             stop_loss_pct: Number(geo.stopLossPct.toFixed(4)),
@@ -3609,7 +3622,7 @@ async function adaptParametersFromRecentTrades(
         user_id: userId,
         event_type: 'adaptive_tune',
         severity: 'info',
-        message: `Tuned ${Object.keys(next).length} param(s) — win ${winRate.toFixed(0)}%, expectancy ${expectancy.toFixed(2)}%, streak ${streak}`,
+      message: `Tuned ${Object.keys(next).length} param(s)${filtersUnlocked ? '' : ' (exit levels only)'} — win ${winRate.toFixed(0)}%, expectancy ${expectancy.toFixed(2)}%, streak ${streak}`,
         details: {
           sample_size: pcts.length,
           win_rate: round2(winRate),
@@ -3621,6 +3634,9 @@ async function adaptParametersFromRecentTrades(
           is_paper: isPaperMode,
           last_closed_at: newestClosedAt,
           objective: tuneObjective,
+          // Only filter-level tunes reset the anti-thrash batch/cooldown window;
+          // geometry-only tunes run every minute and must not advance it.
+          filters_tuned: filtersUnlocked,
         },
       });
       console.log(`🧠 ADAPTIVE TUNE [${userId.slice(0, 8)}]: win ${winRate.toFixed(0)}% exp ${expectancy.toFixed(2)}% streak ${streak} →`, next);
@@ -4112,6 +4128,12 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
     console.log(`🎯 Daily profit progress: net $${todaysNetPnL.toFixed(2)} / target $${DAILY_PROFIT_TARGET} (${((todaysNetPnL / DAILY_PROFIT_TARGET) * 100).toFixed(1)}%)`);
+
+    // 🧠 ADAPTIVE TUNING — run BEFORE any stand-down gate can return. Exit geometry
+    // (stop / target / trailing) is re-solved every cycle and pushed onto open
+    // positions even when the market gates block new entries this minute.
+    await adaptParametersFromRecentTrades(supabase, user.id, isPaperMode);
+
 
     // ==========================================================================
     // CRYPTO MARKET DATA FETCHING (crypto is the only supported asset class)
@@ -5778,9 +5800,9 @@ serve(async (req) => {
       }
     }
 
-    // 🧠 ADAPTIVE PARAMETER TUNING — adjust scalp/risk params from recent closed trades
-    // Runs every cycle so any newly-closed position immediately reshapes future entries.
-    await adaptParametersFromRecentTrades(supabase, user.id, isPaperMode);
+    // 🧠 Tuning already ran earlier this cycle (before the stand-down gates), so a
+    // second pass here would double-adjust the same evidence.
+
 
 
     return new Response(JSON.stringify({
