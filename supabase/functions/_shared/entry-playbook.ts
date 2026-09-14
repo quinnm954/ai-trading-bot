@@ -109,15 +109,18 @@ export const PLAYBOOK_TUNING_DEFAULTS: Required<PlaybookTuning> = {
 };
 
 /**
- * Hard safety rails. The tuner may never move a threshold outside these — the
- * rule library stays professional no matter what the recent results look like.
+ * Hard safety rails. The tuner may never move a threshold outside these.
+ * The band is deliberately wide on BOTH sides of the strict defaults: the tuner
+ * optimises for the fastest profit accumulation with the least loss, so it must be
+ * able to loosen a starving filter (too few trades to compound) and to clamp down
+ * hard when the account is bleeding — without ever leaving professional territory.
  */
 export const PLAYBOOK_TUNING_BOUNDS: Record<keyof Required<PlaybookTuning>, [number, number]> = {
-  minScore: [62, 85],
-  minVolumeRatio: [0.7, 1.5],
-  maxPercentB: [0.6, 0.85],
-  rsiMax: [60, 72],
-  maxChase5m: [1.5, 4],
+  minScore: [52, 90],
+  minVolumeRatio: [0.55, 1.6],
+  maxPercentB: [0.55, 0.92],
+  rsiMax: [55, 76],
+  maxChase5m: [1.0, 5.0],
 };
 
 function resolveTuning(t?: PlaybookTuning): Required<PlaybookTuning> {
