@@ -3533,29 +3533,32 @@ async function adaptParametersFromRecentTrades(
       if (Math.abs(maxChase - Number(ss.playbook_max_chase_5m_pct ?? D.maxChase5m)) >= 0.1) next.playbook_max_chase_5m_pct = round2(maxChase);
     }
 
-    // 5) Position sizing — scale with expectancy
-    let size = Number(ss.target_position_size_usd);
-    if (expectancy > 0.3 && winRate >= 55) size = clamp(size * 1.1, 20, 300);
-    else if (expectancy < -0.2 || winRate <= 40) size = clamp(size * 0.85, 20, 300);
-    if (Math.abs(size - Number(ss.target_position_size_usd)) >= 1) next.target_position_size_usd = Math.round(size);
+    // 5) Position sizing — scale with expectancy (batch-gated, like the filters)
+    if (filtersUnlocked) {
+      let size = Number(ss.target_position_size_usd);
+      if (expectancy > 0.3 && winRate >= 55) size = clamp(size * 1.1, 20, 300);
+      else if (expectancy < -0.2 || winRate <= 40) size = clamp(size * 0.85, 20, 300);
+      if (Math.abs(size - Number(ss.target_position_size_usd)) >= 1) next.target_position_size_usd = Math.round(size);
 
-    // 6) Concurrent positions — expand on positive expectancy, contract on negative
-    let maxPos = Number(ss.max_concurrent_positions);
-    // Floor 6 / ceiling 12 (= SCALP_MAX_CONCURRENT): never starve the account of slots.
-    if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 6, SCALP_MAX_CONCURRENT);
-    else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 6, SCALP_MAX_CONCURRENT);
-    if (maxPos !== Number(ss.max_concurrent_positions)) next.max_concurrent_positions = Math.round(maxPos);
+      // 6) Concurrent positions — expand on positive expectancy, contract on negative
+      let maxPos = Number(ss.max_concurrent_positions);
+      // Floor 6 / ceiling 12 (= SCALP_MAX_CONCURRENT): never starve the account of slots.
+      if (expectancy > 0.3 && winRate >= 60) maxPos = clamp(maxPos + 1, 6, SCALP_MAX_CONCURRENT);
+      else if (expectancy < -0.2 || streak <= -3) maxPos = clamp(maxPos - 1, 6, SCALP_MAX_CONCURRENT);
+      if (maxPos !== Number(ss.max_concurrent_positions)) next.max_concurrent_positions = Math.round(maxPos);
+    }
 
     if (Object.keys(next).length > 0) {
       next.updated_at = Date.now() as any;
       await supabase.from('scalp_settings').update({ ...next, updated_at: new Date().toISOString() }).eq('user_id', userId);
     }
 
-    // 6b) 🔄 RETUNE OPEN POSITIONS — the tuned stop/target is not entry-only. Positions
-    //     already open in this mode adopt the new geometry so every live trade is exited on
-    //     the same levels the tuner just learned. Skipped for mirror copies (trader-exit only)
-    //     and for wide-mode swings (their stop is ATR-derived, not tuner-derived).
-    if (next.take_profit_pct !== undefined || next.hard_stop_loss_pct !== undefined) {
+    // 6b) 🔄 RETUNE OPEN POSITIONS — runs EVERY cycle, not only when the stored setting
+    //     moved: any open position whose levels drift from the current solved geometry is
+    //     brought back onto it, so live risk is never stale. Skipped for mirror copies
+    //     (trader-exit only) and wide-mode swings (ATR-derived stop, not tuner-derived).
+    {
+      const geoNow = solveExitGeometry(tp, sl);
       const { data: openPositions } = await supabase
         .from('positions')
         .select('id, symbol, avg_entry_price, max_hold_minutes, stop_loss_pct, take_profit_pct')
@@ -3564,8 +3567,11 @@ async function adaptParametersFromRecentTrades(
         .eq('mirror_only', false);
 
       const retuneTargets = (openPositions ?? []).filter((p: any) =>
-        Number(p.max_hold_minutes ?? 0) < WIDE_MAX_HOLD_MINUTES
+        Number(p.max_hold_minutes ?? 0) < WIDE_MAX_HOLD_MINUTES &&
+        (Math.abs(Number(p.stop_loss_pct ?? 0) - geoNow.stopLossPct) >= 0.01 ||
+          Math.abs(Number(p.take_profit_pct ?? 0) - geoNow.takeProfitPct) >= 0.01)
       );
+
 
       if (retuneTargets.length > 0) {
         const geo = solveExitGeometry(tp, sl);
