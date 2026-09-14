@@ -286,7 +286,9 @@ function computeUpEdge(coin: MarketData, cfg: ScalpCfg): UpEdge {
   z += add('support', supportW);
 
   if (rsi !== undefined) {
-    if (rsi < 32 && c5 > 0) z += add('rsi_reclaim', 0.35);
+    // No oversold-reclaim bonus: rewarding RSI<32 bounces contradicted the no-falling-knife
+    // policy and was one of the paths that let weak coins clear the edge threshold.
+    if (rsi < 32) z += add('rsi_washed', -0.30);
     else if (rsi >= 45 && rsi <= 62) z += add('rsi_trend', 0.25);
     else if (rsi > 70) z += add('rsi_hot', -0.55);
   }
