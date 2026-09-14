@@ -3295,12 +3295,13 @@ async function adaptParametersFromRecentTrades(
       .limit(30);
     if (!trades || trades.length < 5) return; // need a small sample
 
-    // ── IDEMPOTENCE GUARD ─────────────────────────────────────────────────────
-    // The engine runs every cycle (~1 min). Without this guard the tuner re-applied
-    // the SAME verdict on the SAME unchanged trade sample over and over, compounding
-    // +10% size / +1 slot / +5% daily-loss per cycle until every parameter pinned to
-    // its extreme (that is how size hit the $300 cap and entry gates fell to 0.10%).
-    // One tune per newly closed trade only.
+    // ── ANTI-THRASH GUARD ─────────────────────────────────────────────────────
+    // One tune per newly closed trade was still noise-chasing: the tuner re-tuned
+    // 10–13 parameters after every single loss and pinned every entry filter at its
+    // strictest rail without lifting the win rate. It now needs a real BATCH of new
+    // evidence (MIN_NEW_CLOSURES newly closed trades) plus a cooldown between tunes.
+    const MIN_NEW_CLOSURES = 4;
+    const TUNE_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
     const newestClosedAt = trades[0]?.closed_at ?? null;
     const { data: lastTune } = await supabase
       .from('risk_events')
@@ -3310,15 +3311,20 @@ async function adaptParametersFromRecentTrades(
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (
-      lastTune?.details &&
-      lastTune.details.is_paper === isPaperMode &&
-      lastTune.details.last_closed_at &&
-      newestClosedAt &&
-      new Date(lastTune.details.last_closed_at).getTime() >= new Date(newestClosedAt).getTime()
-    ) {
-      return; // no new closed trade since the last tune — nothing new to learn from
+    if (lastTune?.details && lastTune.details.is_paper === isPaperMode) {
+      const lastAt = lastTune.details.last_closed_at
+        ? new Date(lastTune.details.last_closed_at).getTime()
+        : 0;
+      if (lastAt > 0) {
+        const newClosures = (trades as any[]).filter(
+          t => new Date(t.closed_at).getTime() > lastAt,
+        ).length;
+        if (newClosures < MIN_NEW_CLOSURES) return; // not enough new evidence yet
+      }
+      const sinceTune = Date.now() - new Date(lastTune.created_at).getTime();
+      if (sinceTune < TUNE_COOLDOWN_MS) return; // cooling off between tunes
     }
+
 
     const pcts: number[] = [];
     for (const t of trades) {
@@ -3465,16 +3471,15 @@ async function adaptParametersFromRecentTrades(
       const starved = !bleeding && !losing && tradesPerDay < 2.5;
 
       if (bleeding) {
-        // Losses are compounding — cut the whole band the losers came from, hard.
-        if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
-          minScore = pb('minScore', Math.max(minScore + 4, Math.round(avgLossScore) + 2));
-        } else {
-          minScore = pb('minScore', minScore + 4);
+        // Bleeding: do NOT crank the filters to their extremes. That lever was pulled to
+        // its rails (score 86–90, volume 1.30, chase 1.0%, RSI 58–60) and the win rate did
+        // not move — it only starved the funnel. The only score adjustment allowed here is
+        // moving the discipline floor to where the losers actually scored, and only when
+        // there is genuine separation between winners and losers on this account. Bleeding
+        // is handled by the circuit breaker (pause entries), not by filter thrashing.
+        if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 5) {
+          minScore = pb('minScore', Math.min(minScore + 2, Math.round(avgLossScore) + 2));
         }
-        minVol = pb('minVolumeRatio', minVol + 0.08);
-        maxPctB = pb('maxPercentB', maxPctB - 0.03);
-        rsiMax = pb('rsiMax', rsiMax - 2);
-        maxChase = pb('maxChase5m', maxChase - 0.4);
       } else if (losing) {
         if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
           minScore = pb('minScore', Math.max(minScore + 2, Math.round(avgLossScore) + 1));
@@ -4136,6 +4141,79 @@ serve(async (req) => {
     const regimePolicy = getRegimePolicy(regimeReport);
     console.log(`📊 Regime: ${regime} | Profile: ${regimeReport.profile} | avg|5m|=${regimeReport.avg5mAbs.toFixed(2)}% avg|1h|=${regimeReport.avg1hAbs.toFixed(2)}% avg24h=${regimeReport.avg24h.toFixed(2)}% σ24h=${regimeReport.dispersion24h.toFixed(2)}% risers=${(regimeReport.risersShare * 100).toFixed(0)}%`);
     console.log(`🧭 Policy: ${regimePolicy.rationale}`);
+
+    // 🩸 BLEEDING CIRCUIT BREAKER — when the last 10 closed trades come in under a 25%
+    // win rate, new entries pause instead of letting the system grind the balance down
+    // while the tuner "learns". The pause lifts automatically once the most recent loss
+    // is more than BLEED_PAUSE_HOURS old, so a quiet spell resets it.
+    try {
+      const BLEED_SAMPLE = 10;
+      const BLEED_WIN_RATE_PCT = 25;
+      const BLEED_PAUSE_HOURS = 4;
+      const { data: recentClosed } = await supabase
+        .from('trades')
+        .select('pnl, closed_at')
+        .eq('user_id', user.id)
+        .eq('is_paper', isPaperMode)
+        .eq('status', 'closed')
+        .not('closed_at', 'is', null)
+        .order('closed_at', { ascending: false })
+        .limit(BLEED_SAMPLE);
+
+      if (recentClosed && recentClosed.length >= BLEED_SAMPLE) {
+        const wins = (recentClosed as any[]).filter(t => Number(t.pnl) > 0).length;
+        const winRatePct = (wins / recentClosed.length) * 100;
+        const newestMs = new Date((recentClosed as any[])[0].closed_at).getTime();
+        const hoursSince = (Date.now() - newestMs) / 3_600_000;
+
+        if (winRatePct < BLEED_WIN_RATE_PCT && hoursSince < BLEED_PAUSE_HOURS) {
+          const netPnl = (recentClosed as any[]).reduce((s, t) => s + Number(t.pnl || 0), 0);
+          // Notify at most once every 30 minutes so this doesn't spam notifications.
+          const { data: lastBleed } = await supabase
+            .from('risk_events')
+            .select('created_at')
+            .eq('user_id', user.id)
+            .eq('event_type', 'stand_down_bleeding')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const quiet = lastBleed?.created_at
+            ? Date.now() - new Date(lastBleed.created_at).getTime() < 30 * 60 * 1000
+            : false;
+          if (!quiet) {
+            await logStandDown(supabase, user.id, 'stand_down_bleeding',
+              `Entries paused: only ${wins} of the last ${recentClosed.length} closed trades won ` +
+              `(${winRatePct.toFixed(0)}%, net $${netPnl.toFixed(2)}). New entries resume after ` +
+              `${BLEED_PAUSE_HOURS}h without another loss.`,
+              {
+                win_rate_pct: round2(winRatePct),
+                sample: recentClosed.length,
+                net_pnl: round2(netPnl),
+                pause_hours: BLEED_PAUSE_HOURS,
+                is_paper: isPaperMode,
+              });
+          }
+
+          await supabase.from('ai_settings').update({
+            current_regime: regime,
+            bot_status: 'idle',
+            updated_at: new Date().toISOString(),
+          }).eq('user_id', user.id);
+
+          console.log(`🩸 CIRCUIT BREAKER: ${winRatePct.toFixed(0)}% win rate on last ${recentClosed.length} — entries paused`);
+
+          return new Response(JSON.stringify({
+            status: 'standing_down',
+            reason: 'bleeding_circuit_breaker',
+            winRatePct: round2(winRatePct),
+            sample: recentClosed.length,
+            pauseHours: BLEED_PAUSE_HOURS,
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+    } catch (e) {
+      console.error('circuit breaker check failed', e);
+    }
 
     // 🛑 DEAD MARKET STAND-DOWN — Titan learns when to do nothing.
     // Movement is too small to overcome fees; opening positions would bleed capital.
