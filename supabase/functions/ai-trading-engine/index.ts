@@ -2146,7 +2146,8 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_L
       return;
     }
     coin.change5m = t.change5m;
-    coin.change1h = t.change15m;
+    // change1h is set from the hourly candles below — it used to be overwritten with the
+    // 15-minute move, which quietly turned the "1h tape" gate into a 15-minute gate.
     coin.rsi14 = t.rsi14;
     coin.bbLower = t.bbLower;
     coin.bbMid = t.bbMid;
