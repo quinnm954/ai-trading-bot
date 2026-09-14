@@ -3420,16 +3420,17 @@ async function adaptParametersFromRecentTrades(
     e5 = Math.min(e5, E_MAX_SHORT);
     e15 = Math.min(e15, E_MAX_SHORT);
     e1h = Math.min(e1h, E_MAX_1H);
-    if (Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
-    if (Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
-    if (Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
+    // Filter moves wait for the anti-thrash gate; a downward hard-clamp always lands.
+    if ((filtersUnlocked || e5 < Number(ss.entry_min_5m_pct)) && Math.abs(e5 - Number(ss.entry_min_5m_pct)) >= 0.03) next.entry_min_5m_pct = round2(e5);
+    if ((filtersUnlocked || e15 < Number(ss.entry_min_15m_pct)) && Math.abs(e15 - Number(ss.entry_min_15m_pct)) >= 0.03) next.entry_min_15m_pct = round2(e15);
+    if ((filtersUnlocked || e1h < Number(ss.entry_min_1h_pct)) && Math.abs(e1h - Number(ss.entry_min_1h_pct)) >= 0.03) next.entry_min_1h_pct = round2(e1h);
 
     // 4b) 📚 PLAYBOOK THRESHOLDS — per-account candle/band/volume strictness.
     //     Learned from THIS account's own closed trades: if the losers were scoring
     //     lower on the rule library than the winners, raise the discipline floor to
     //     the losers' level; if the account is earning, relax a touch so the skills
     //     keep seeing enough candidates to work with. Bounds are hard rails.
-    {
+    if (filtersUnlocked) {
       const pb = (k: keyof typeof PLAYBOOK_TUNING_BOUNDS, v: number) => {
         const [lo, hi] = PLAYBOOK_TUNING_BOUNDS[k];
         return clamp(v, lo, hi);
