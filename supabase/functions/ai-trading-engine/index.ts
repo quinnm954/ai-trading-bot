@@ -4129,6 +4129,12 @@ serve(async (req) => {
     }
     console.log(`🎯 Daily profit progress: net $${todaysNetPnL.toFixed(2)} / target $${DAILY_PROFIT_TARGET} (${((todaysNetPnL / DAILY_PROFIT_TARGET) * 100).toFixed(1)}%)`);
 
+    // 🧠 ADAPTIVE TUNING — run BEFORE any stand-down gate can return. Exit geometry
+    // (stop / target / trailing) is re-solved every cycle and pushed onto open
+    // positions even when the market gates block new entries this minute.
+    await adaptParametersFromRecentTrades(supabase, user.id, isPaperMode);
+
+
     // ==========================================================================
     // CRYPTO MARKET DATA FETCHING (crypto is the only supported asset class)
     // ==========================================================================
