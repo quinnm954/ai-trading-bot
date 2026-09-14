@@ -1894,18 +1894,24 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
  * ONE_HOUR candle context in a single fetch:
  *  - swingAtrPct: ATR(14) as % of price — swing-scale volatility for stop sizing
  *  - htfAboveEma / htfSlopePct: higher-timeframe trend, so nothing buys into an hourly downtrend
+ *  - change1h: the REAL hour-over-hour move (audit fix — the engine used to store the 15m
+ *    move in `change1h`, which read up to 0.8pp away from the true hourly change)
+ * The in-progress hourly candle is dropped: an unfinished bar under-reports both range and
+ * volume, so indicators built on it drift as the hour fills in.
  */
-async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number } | undefined> {
+async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number; change1h?: number } | undefined> {
   try {
     const now = Math.floor(Date.now() / 1000);
-    const start = now - 3600 * 48; // 48 hourly candles → ATR(14) with headroom
+    const start = now - 3600 * 52; // headroom so 48 closed hourly candles survive gaps
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=ONE_HOUR`;
     const resp = await fetchWithRetry(url);
     if (!resp) return undefined;
     const data = await resp.json();
-    const candles = Array.isArray(data?.candles) ? data.candles : [];
-    if (candles.length < 15) return undefined;
-    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const raw = Array.isArray(data?.candles) ? data.candles : [];
+    const sorted = [...raw]
+      .sort((a: any, b: any) => Number(a.start) - Number(b.start))
+      .filter((c: any) => Number(c.start) + 3600 <= now); // closed bars only
+    if (sorted.length < 15) return undefined;
     const closes = sorted.map((c: any) => Number(c.close));
     const highs = sorted.map((c: any) => Number(c.high));
     const lows = sorted.map((c: any) => Number(c.low));
@@ -1922,6 +1928,13 @@ async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: numbe
     const last = closes[closes.length - 1];
     if (!(last > 0)) return undefined;
 
+    // True 1h change — only when the two newest bars really are consecutive hours.
+    let change1h: number | undefined;
+    const tLast = Number(sorted[sorted.length - 1].start);
+    const tPrev = Number(sorted[sorted.length - 2].start);
+    const prevClose = closes[closes.length - 2];
+    if (tLast - tPrev === 3600 && prevClose > 0) change1h = ((last - prevClose) / prevClose) * 100;
+
     // Higher-timeframe trend: price vs 1h EMA(20) and the EMA's own slope over 6 hours.
     const ema20 = computeEMA(closes, 20);
     let htfAboveEma: boolean | undefined;
@@ -1936,33 +1949,59 @@ async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: numbe
       swingAtrPct: atr > 0 ? (atr / last) * 100 : undefined,
       htfAboveEma,
       htfSlopePct,
+      change1h,
     };
   } catch (_e) {
     return undefined;
   }
 }
 
+/** How many closed 5m bars an indicator set needs before it means anything. */
+const MIN_CLOSED_5M_BARS = 36;
+/** Largest tolerated hole in the recent 5m series (seconds). Beyond this the tape is too thin. */
+const MAX_5M_GAP_SECONDS = 900;
+
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
-    // 60 × 5m = 5h of data — enough for BB(20) + RSI(14) on 5m
-    const start = now - 60 * 60 * 5;
+    // 8h window: Coinbase omits bars with no trades, so a 5h window left thin coins with
+    // as few as 8 bars while indicators still "computed" on a compressed timeline.
+    const start = now - 60 * 60 * 8;
     const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${now}&granularity=FIVE_MINUTE`;
     const resp = await fetchWithRetry(url);
     if (!resp) return null;
     const data = await resp.json();
-    const candles = Array.isArray(data?.candles) ? data.candles : [];
-    if (candles.length < 2) return null;
-    const sorted = [...candles].sort((a: any, b: any) => Number(a.start) - Number(b.start));
+    const raw = Array.isArray(data?.candles) ? data.candles : [];
+    // AUDIT FIX 1: drop the in-progress candle. Measured effect on live coins: change5m read
+    // +0.03% instead of +0.62%, and volume participation 1.06× instead of 2.48× — enough to
+    // flip the volume veto on and off at random.
+    const sorted = [...raw]
+      .sort((a: any, b: any) => Number(a.start) - Number(b.start))
+      .filter((c: any) => Number(c.start) + 300 <= now);
+    if (sorted.length < MIN_CLOSED_5M_BARS) return null;
+
+    const starts = sorted.map((c: any) => Number(c.start));
+    // AUDIT FIX 2: refuse gappy tape. Missing bars mean "no trades happened", so a series with
+    // holes silently stretches RSI/BB/MACD/ATR across hours instead of minutes.
+    const recentStarts = starts.slice(-24);
+    let maxGap = 0;
+    for (let i = 1; i < recentStarts.length; i++) maxGap = Math.max(maxGap, recentStarts[i] - recentStarts[i - 1]);
+    if (maxGap > MAX_5M_GAP_SECONDS) return null;
+
     const closes = sorted.map((c: any) => Number(c.close));
     const highs = sorted.map((c: any) => Number(c.high));
     const lows = sorted.map((c: any) => Number(c.low));
     const volumes = sorted.map((c: any) => Number(c.volume) || 0);
     const last = closes[closes.length - 1];
-    const prev5 = closes[closes.length - 2];
-    const prev15 = closes.length >= 4 ? closes[closes.length - 4] : closes[0];
-    const change5m = prev5 > 0 ? ((last - prev5) / prev5) * 100 : 0;
-    const change15m = prev15 > 0 ? ((last - prev15) / prev15) * 100 : 0;
+
+    // AUDIT FIX 3: timestamp-aware short-window changes — only quoted when the bars used
+    // really are 5 and 15 minutes back, never as an implicit 0%.
+    const tLast = starts[starts.length - 1];
+    const idxAt = (secondsBack: number) => starts.lastIndexOf(tLast - secondsBack);
+    const i5 = idxAt(300);
+    const i15 = idxAt(900);
+    const change5m = i5 >= 0 && closes[i5] > 0 ? ((last - closes[i5]) / closes[i5]) * 100 : 0;
+    const change15m = i15 >= 0 && closes[i15] > 0 ? ((last - closes[i15]) / closes[i15]) * 100 : change5m;
 
     const rsi = computeRSI(closes, 14);
     const bb = computeBollinger(closes, 20, 2);
