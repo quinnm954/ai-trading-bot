@@ -14,6 +14,7 @@ import {
   MIN_REWARD_RISK as SHARED_MIN_REWARD_RISK,
   TP_FLOOR_GROSS_PCT as SHARED_TP_FLOOR_GROSS_PCT,
   MAX_RISK_PCT as SHARED_MAX_RISK_PCT,
+  TUNED_STOP_MIN_PCT,
   ROUND_TRIP_FEE_PCT as SHARED_ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
 import {
@@ -3278,8 +3279,8 @@ async function adaptParametersFromRecentTrades(
 
     // 1) Take profit — capture more when winners run, but never below the fee-clearing floor
     let tp = Number(ss.take_profit_pct);
-    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, TP_FLOOR_GROSS_PCT, 4.0);
-    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, TP_FLOOR_GROSS_PCT, 4.0);
+    if (avgWin > tp * 1.5 && wins.length >= 3) tp = clamp(tp * 1.15, TP_FLOOR_GROSS_PCT, 6.0);
+    else if (avgWin > 0 && avgWin < tp * 0.7 && wins.length >= 3) tp = clamp(tp * 0.85, TP_FLOOR_GROSS_PCT, 6.0);
 
     // 2) Trailing drop — tighten in hot streaks, loosen in cold
     let td = Number(ss.trailing_drop_pct);
