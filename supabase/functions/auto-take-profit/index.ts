@@ -1194,10 +1194,7 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
     const givebackCap = Math.max(0, newPeakPnl - tightProfitFloorPct);
     const allowedGiveback = isWideSwing
       ? Math.min(WIDE_TRAIL_DROP_PCT, givebackCap)
-      : Math.min(
-          Math.max(cfgTrailingDropPct, newPeakPnl * TRAILING_GIVEBACK_FRACTION),
-          givebackCap
-        );
+      : Math.min(PROFIT_LOCK_GIVEBACK_PCT, givebackCap);
     const hitArmedTrailingStop =
       (!isWideSwing || WIDE_TRAILING_ENABLED) &&
       posTrailingEnabled &&
