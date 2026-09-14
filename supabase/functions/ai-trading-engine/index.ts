@@ -3213,7 +3213,7 @@ async function adaptParametersFromRecentTrades(
   try {
     const { data: trades } = await supabase
       .from('trades')
-      .select('pnl, entry_price, exit_price, closed_at, is_paper, playbook_score')
+      .select('pnl, entry_price, exit_price, closed_at, is_paper, playbook_score, duration_seconds')
       .eq('user_id', userId)
       .eq('is_paper', isPaperMode)
       .eq('status', 'closed')
@@ -3278,6 +3278,8 @@ async function adaptParametersFromRecentTrades(
     if (!ss) return;
 
     const next: Record<string, number> = {};
+    // Filled by the playbook tuning block: profit-velocity / throughput objective snapshot.
+    let tuneObjective: Record<string, unknown> | null = null;
 
     // 1) Take profit — capture more when winners run, but never below the fee-clearing floor
     let tp = Number(ss.take_profit_pct);
@@ -3361,11 +3363,46 @@ async function adaptParametersFromRecentTrades(
       const avgWinScore = winScores.length >= 3 ? mean(winScores) : null;
       const avgLossScore = lossScores.length >= 3 ? mean(lossScores) : null;
 
-      const losing = expectancy < 0 || winRate <= 45;
-      const earning = expectancy > 0.3 && winRate >= 55;
+      // ── OBJECTIVE: fastest profit accumulation, least loss ────────────────────
+      // Judge the filter on profit VELOCITY (expectancy earned per hour of capital
+      // tied up) and on THROUGHPUT (closed trades per day), not on win-rate alone.
+      // A filter so strict that it produces 0.5 trades/day cannot compound, even at
+      // 100% win rate — so the tuner is allowed to loosen it. A filter that is
+      // feeding losses gets clamped down hard and fast.
+      const holdHours = (trades as any[])
+        .map(t => Number(t.duration_seconds))
+        .filter(d => Number.isFinite(d) && d > 0)
+        .map(d => d / 3600);
+      const avgHoldHours = holdHours.length ? mean(holdHours) : 0;
+      const closedTimes = (trades as any[])
+        .map(t => new Date(t.closed_at).getTime())
+        .filter(t => Number.isFinite(t));
+      const spanDays = closedTimes.length >= 2
+        ? Math.max(0.25, (Math.max(...closedTimes) - Math.min(...closedTimes)) / 86_400_000)
+        : 1;
+      const tradesPerDay = pcts.length / spanDays;
+      // % gained per hour of exposure — the thing we actually want to maximise.
+      const profitVelocity = avgHoldHours > 0 ? expectancy / avgHoldHours : expectancy;
+      const dailyEdge = expectancy * tradesPerDay; // approx % of capital earned per day
 
-      if (losing) {
-        // Cut off the score band the losers were coming from.
+      const bleeding = expectancy < -0.2 || winRate <= 40;
+      const losing = !bleeding && (expectancy < 0 || winRate <= 45);
+      const earning = expectancy > 0.15 && winRate >= 52;
+      // Positive/flat edge but not enough trades to accumulate → open the funnel.
+      const starved = !bleeding && !losing && tradesPerDay < 2.5;
+
+      if (bleeding) {
+        // Losses are compounding — cut the whole band the losers came from, hard.
+        if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
+          minScore = pb('minScore', Math.max(minScore + 4, Math.round(avgLossScore) + 2));
+        } else {
+          minScore = pb('minScore', minScore + 4);
+        }
+        minVol = pb('minVolumeRatio', minVol + 0.08);
+        maxPctB = pb('maxPercentB', maxPctB - 0.03);
+        rsiMax = pb('rsiMax', rsiMax - 2);
+        maxChase = pb('maxChase5m', maxChase - 0.4);
+      } else if (losing) {
         if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
           minScore = pb('minScore', Math.max(minScore + 2, Math.round(avgLossScore) + 1));
         } else {
@@ -3376,12 +3413,32 @@ async function adaptParametersFromRecentTrades(
         rsiMax = pb('rsiMax', rsiMax - 1);              // buy less heat
         maxChase = pb('maxChase5m', maxChase - 0.25);   // chase less
       } else if (earning) {
-        minScore = pb('minScore', minScore - 1);
-        minVol = pb('minVolumeRatio', minVol - 0.03);
-        maxPctB = pb('maxPercentB', maxPctB + 0.01);
-        rsiMax = pb('rsiMax', rsiMax + 0.5);
-        maxChase = pb('maxChase5m', maxChase + 0.1);
+        // Winning: widen the funnel to compound faster, and widen it MORE when the
+        // edge is strong but the trade count is low (velocity is being left on the table).
+        const aggressive = tradesPerDay < 4 || (profitVelocity > 0.15 && dailyEdge < 1.5);
+        const step = aggressive ? 2 : 1;
+        minScore = pb('minScore', minScore - step);
+        minVol = pb('minVolumeRatio', minVol - 0.03 * step);
+        maxPctB = pb('maxPercentB', maxPctB + 0.01 * step);
+        rsiMax = pb('rsiMax', rsiMax + 0.5 * step);
+        maxChase = pb('maxChase5m', maxChase + 0.1 * step);
+      } else if (starved) {
+        // Break-even-ish and barely trading: relax toward the permissive rail so the
+        // skills get enough candidates to prove themselves. Any resulting losses flip
+        // the account into the losing/bleeding branch next tune and re-tighten it.
+        minScore = pb('minScore', minScore - 2);
+        minVol = pb('minVolumeRatio', minVol - 0.05);
+        maxPctB = pb('maxPercentB', maxPctB + 0.02);
+        rsiMax = pb('rsiMax', rsiMax + 1);
+        maxChase = pb('maxChase5m', maxChase + 0.2);
       }
+      tuneObjective = {
+        avg_hold_hours: round2(avgHoldHours),
+        trades_per_day: round2(tradesPerDay),
+        profit_velocity_pct_per_hour: round2(profitVelocity),
+        daily_edge_pct: round2(dailyEdge),
+        verdict: bleeding ? 'bleeding' : losing ? 'losing' : earning ? 'earning' : starved ? 'starved' : 'hold',
+      };
 
       const D = PLAYBOOK_TUNING_DEFAULTS;
       if (Math.abs(minScore - Number(ss.playbook_min_score ?? D.minScore)) >= 1) next.playbook_min_score = Math.round(minScore);
@@ -3485,6 +3542,7 @@ async function adaptParametersFromRecentTrades(
           changes: next,
           is_paper: isPaperMode,
           last_closed_at: newestClosedAt,
+          objective: tuneObjective,
         },
       });
       console.log(`🧠 ADAPTIVE TUNE [${userId.slice(0, 8)}]: win ${winRate.toFixed(0)}% exp ${expectancy.toFixed(2)}% streak ${streak} →`, next);
