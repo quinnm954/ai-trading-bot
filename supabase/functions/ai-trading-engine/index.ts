@@ -2550,7 +2550,7 @@ TREND ANALYSIS:
 ${trendContext}
 
 LIVE MARKET DATA:
-${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 15m: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
+${marketData.filter(m => m.price != null).map(m => `${m.symbol}: $${(m.price || 0).toFixed(2)} | 5m: ${(m.change5m || 0) > 0 ? '+' : ''}${(m.change5m || 0).toFixed(2)}% | 1h: ${(m.change1h || 0) > 0 ? '+' : ''}${(m.change1h || 0).toFixed(2)}% | 24h: ${(m.change24h || 0) > 0 ? '+' : ''}${(m.change24h || 0).toFixed(2)}% | Range: $${(m.low24h || 0).toFixed(2)}-$${(m.high24h || 0).toFixed(2)} | Vol: $${((m.volume || 0)/1e9).toFixed(1)}B`).join('\n')}
 
 ${fusionMap && fusionMap.size > 0 ? `TITAN FUSION SIGNALS (multi-source AI conviction, 0-100, fused from Coinbase candles, news sentiment, liquidation clusters, technicals):
 ${marketData.filter(m => fusionMap.has(m.symbol.toUpperCase())).map(m => {
@@ -4702,7 +4702,7 @@ serve(async (req) => {
         if (!coin) return false;
         const momentumStatus = getEntryMomentumStatus(coin, scalpCfg);
         if (!momentumStatus.ok) {
-          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} (${momentumStatus.mode}) — 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}% to reach target)`);
+          console.log(`🛡️ Entry safety filter: Blocking ${d.symbol} (${momentumStatus.mode}) — 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 1h ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}% to reach target)`);
           return false;
         }
       }
@@ -4957,7 +4957,7 @@ serve(async (req) => {
         const c24 = coin?.change24h ?? 0;
         const momentumStatus = coin ? getEntryMomentumStatus(coin, scalpCfg) : { ok: false };
         if (price < avgEntry || !momentumStatus.ok) {
-          console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 15m ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
+          console.log(`🪙 SKIP dust top-up ${symU}: not averaging down / dropping position (price $${price.toFixed(4)} vs entry $${avgEntry.toFixed(4)}, 5m ${c5?.toFixed(2) ?? 'n/a'}%, 1h ${c15.toFixed(2)}%, 24h ${c24.toFixed(2)}%)`);
           continue;
         }
         const value = Number(pos.quantity) * price;
@@ -5184,7 +5184,8 @@ serve(async (req) => {
         const liveMomentumCoin = {
           ...coinData,
           change5m: freshMomentum?.change5m ?? coinData.change5m,
-          change1h: freshMomentum?.change15m ?? coinData.change1h ?? 0,
+          // true hourly change (fresh candles only refresh the 5m window)
+          change1h: coinData.change1h ?? 0,
           rsi14: freshMomentum?.rsi14 ?? coinData.rsi14,
           percentB: freshMomentum?.percentB ?? coinData.percentB,
         };
@@ -5261,7 +5262,7 @@ serve(async (req) => {
 
         const momentumStatus = getEntryMomentumStatus(liveMomentumCoin, scalpCfg);
         if (!momentumStatus.ok) {
-          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 15m ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
+          console.log(`🛑 FINAL BUY BLOCK ${symbolUpper} (${momentumStatus.mode}): 5m ${momentumStatus.c5?.toFixed(2) ?? 'n/a'}%, 1h ${momentumStatus.c1h.toFixed(2)}%, 24h ${momentumStatus.c24.toFixed(2)}%, 24h range ${momentumStatus.rangePct?.toFixed(2)}% (need ≥${momentumStatus.needRangePct?.toFixed(2)}%)`);
           continue;
         }
         coinData.change5m = momentumStatus.c5;
