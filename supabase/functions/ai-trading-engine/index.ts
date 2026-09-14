@@ -3574,7 +3574,7 @@ async function adaptParametersFromRecentTrades(
 
 
       if (retuneTargets.length > 0) {
-        const geo = solveExitGeometry(tp, sl);
+        const geo = geoNow;
         for (const p of retuneTargets) {
           const patch: Record<string, number> = {
             stop_loss_pct: Number(geo.stopLossPct.toFixed(4)),
