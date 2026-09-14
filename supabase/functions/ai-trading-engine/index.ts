@@ -3213,7 +3213,7 @@ async function adaptParametersFromRecentTrades(
   try {
     const { data: trades } = await supabase
       .from('trades')
-      .select('pnl, entry_price, exit_price, closed_at, is_paper, playbook_score')
+      .select('pnl, entry_price, exit_price, closed_at, is_paper, playbook_score, duration_seconds')
       .eq('user_id', userId)
       .eq('is_paper', isPaperMode)
       .eq('status', 'closed')
@@ -3278,6 +3278,8 @@ async function adaptParametersFromRecentTrades(
     if (!ss) return;
 
     const next: Record<string, number> = {};
+    // Filled by the playbook tuning block: profit-velocity / throughput objective snapshot.
+    let tuneObjective: Record<string, unknown> | null = null;
 
     // 1) Take profit — capture more when winners run, but never below the fee-clearing floor
     let tp = Number(ss.take_profit_pct);
@@ -3540,6 +3542,7 @@ async function adaptParametersFromRecentTrades(
           changes: next,
           is_paper: isPaperMode,
           last_closed_at: newestClosedAt,
+          objective: tuneObjective,
         },
       });
       console.log(`🧠 ADAPTIVE TUNE [${userId.slice(0, 8)}]: win ${winRate.toFixed(0)}% exp ${expectancy.toFixed(2)}% streak ${streak} →`, next);
