@@ -3471,16 +3471,15 @@ async function adaptParametersFromRecentTrades(
       const starved = !bleeding && !losing && tradesPerDay < 2.5;
 
       if (bleeding) {
-        // Losses are compounding — cut the whole band the losers came from, hard.
-        if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
-          minScore = pb('minScore', Math.max(minScore + 4, Math.round(avgLossScore) + 2));
-        } else {
-          minScore = pb('minScore', minScore + 4);
+        // Bleeding: do NOT crank the filters to their extremes. That lever was pulled to
+        // its rails (score 86–90, volume 1.30, chase 1.0%, RSI 58–60) and the win rate did
+        // not move — it only starved the funnel. The only score adjustment allowed here is
+        // moving the discipline floor to where the losers actually scored, and only when
+        // there is genuine separation between winners and losers on this account. Bleeding
+        // is handled by the circuit breaker (pause entries), not by filter thrashing.
+        if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 5) {
+          minScore = pb('minScore', Math.min(minScore + 2, Math.round(avgLossScore) + 2));
         }
-        minVol = pb('minVolumeRatio', minVol + 0.08);
-        maxPctB = pb('maxPercentB', maxPctB - 0.03);
-        rsiMax = pb('rsiMax', rsiMax - 2);
-        maxChase = pb('maxChase5m', maxChase - 0.4);
       } else if (losing) {
         if (avgWinScore !== null && avgLossScore !== null && avgWinScore - avgLossScore >= 3) {
           minScore = pb('minScore', Math.max(minScore + 2, Math.round(avgLossScore) + 1));
