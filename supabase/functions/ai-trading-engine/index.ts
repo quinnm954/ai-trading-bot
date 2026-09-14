@@ -5,6 +5,8 @@ import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
   solveWideGeometry,
+  solveAdaptiveGeometry,
+  PROFIT_LOCK_ARM_PCT,
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
