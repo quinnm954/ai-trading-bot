@@ -141,6 +141,13 @@
       "when": 1789300231246,
       "tag": "0019_playbook_tuning_per_account",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789369384731,
+      "tag": "0020_restore_one_open_position_per_symbol_index",
+      "breakpoints": true
     }
   ]
 }
