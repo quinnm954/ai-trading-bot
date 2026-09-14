@@ -3295,12 +3295,13 @@ async function adaptParametersFromRecentTrades(
       .limit(30);
     if (!trades || trades.length < 5) return; // need a small sample
 
-    // ── IDEMPOTENCE GUARD ─────────────────────────────────────────────────────
-    // The engine runs every cycle (~1 min). Without this guard the tuner re-applied
-    // the SAME verdict on the SAME unchanged trade sample over and over, compounding
-    // +10% size / +1 slot / +5% daily-loss per cycle until every parameter pinned to
-    // its extreme (that is how size hit the $300 cap and entry gates fell to 0.10%).
-    // One tune per newly closed trade only.
+    // ── ANTI-THRASH GUARD ─────────────────────────────────────────────────────
+    // One tune per newly closed trade was still noise-chasing: the tuner re-tuned
+    // 10–13 parameters after every single loss and pinned every entry filter at its
+    // strictest rail without lifting the win rate. It now needs a real BATCH of new
+    // evidence (MIN_NEW_CLOSURES newly closed trades) plus a cooldown between tunes.
+    const MIN_NEW_CLOSURES = 4;
+    const TUNE_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
     const newestClosedAt = trades[0]?.closed_at ?? null;
     const { data: lastTune } = await supabase
       .from('risk_events')
@@ -3310,15 +3311,20 @@ async function adaptParametersFromRecentTrades(
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (
-      lastTune?.details &&
-      lastTune.details.is_paper === isPaperMode &&
-      lastTune.details.last_closed_at &&
-      newestClosedAt &&
-      new Date(lastTune.details.last_closed_at).getTime() >= new Date(newestClosedAt).getTime()
-    ) {
-      return; // no new closed trade since the last tune — nothing new to learn from
+    if (lastTune?.details && lastTune.details.is_paper === isPaperMode) {
+      const lastAt = lastTune.details.last_closed_at
+        ? new Date(lastTune.details.last_closed_at).getTime()
+        : 0;
+      if (lastAt > 0) {
+        const newClosures = (trades as any[]).filter(
+          t => new Date(t.closed_at).getTime() > lastAt,
+        ).length;
+        if (newClosures < MIN_NEW_CLOSURES) return; // not enough new evidence yet
+      }
+      const sinceTune = Date.now() - new Date(lastTune.created_at).getTime();
+      if (sinceTune < TUNE_COOLDOWN_MS) return; // cooling off between tunes
     }
+
 
     const pcts: number[] = [];
     for (const t of trades) {
