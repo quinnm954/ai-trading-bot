@@ -1649,9 +1649,10 @@ function analyzeTrend(coin: MarketData): TrendAnalysis {
 // Stablecoins to exclude from trading
 const STABLECOINS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'USD', 'PYUSD', 'USD1', 'FDUSD', 'FRAX'];
 
-// Price filter — minimum $1, no upper cap (effectively unlimited)
+// Price filter — every Coinbase USDC market is a candidate. The floor is only a
+// dust guard so sub-tick assets can't produce meaningless fills; no upper cap.
 const MAX_PRICE_USD = 1_000_000;
-const MIN_PRICE_USD = 1.0;
+const MIN_PRICE_USD = 0.0001;
 
 // Meme-coin allowlist used when ai_settings.meme_coins_only is true.
 // Price band is relaxed because most memes trade well below $1.
@@ -2053,13 +2054,13 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
 }
 
 /** Populate real short-window movement before regime classification and reuse it later. */
-async function enrichCandleTechnicals(coins: MarketData[], limit = 30): Promise<{ attempted: number; failures: number }> {
+async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_LIMIT): Promise<{ attempted: number; failures: number }> {
   const targets = coins
     .filter((coin) => coin.productId && coin.techScore === undefined)
     .sort((a, b) => (b.volume24h ?? b.volume ?? 0) - (a.volume24h ?? a.volume ?? 0))
     .slice(0, limit);
   let failures = 0;
-  await mapLimit(targets, 4, async (coin) => {
+  await mapLimit(targets, CANDLE_SCAN_CONCURRENCY, async (coin) => {
     const productId = coin.productId;
     if (!productId) return;
     const t = await fetchCandleTechnicals(productId);
@@ -2211,8 +2212,8 @@ async function filterByTrend(
   // coin on a neutral techScore of 50 — which silently failed the ≥55 gate and stood the
   // whole engine down. So: bounded concurrency + retry, and coins without technicals are
   // reported as a data failure rather than a "weak setup".
-  const candleTargets = eligibleCoins.slice(0, 30);
-  const enrichment = await enrichCandleTechnicals(candleTargets, 30);
+  const candleTargets = eligibleCoins.slice(0, CANDLE_SCAN_LIMIT);
+  const enrichment = await enrichCandleTechnicals(candleTargets, CANDLE_SCAN_LIMIT);
   const techFailures = enrichment.failures;
   if (techFailures > 0) {
     console.log(`📡 Candle feed: ${candleTargets.length - techFailures}/${candleTargets.length} coins have technicals (${techFailures} feed failures — those are skipped, not scored)`);
