@@ -1710,9 +1710,13 @@ interface CandleTechnicals {
   htfSlopePct?: number;
 }
 
-// Detect the nearest swing-low support below `price` using ±`window` pivot lows.
-function findSupportLevel(lows: number[], price: number, window = 3): number | undefined {
-  if (lows.length < window * 2 + 1) return undefined;
+// Detect the nearest swing-low support relative to `price` using ±`window` pivot lows.
+// AUDIT FIX: the session low used to be appended as a fallback pivot, which made
+// `below_support` mathematically unreachable (the lowest low is always ≤ price), so that
+// veto never once fired. Support is now pivot-only; if every pivot sits above price, the
+// price really has broken below structure and we say so.
+function findSupportLevel(lows: number[], price: number, window = 3): { support?: number; broken: boolean } {
+  if (lows.length < window * 2 + 1) return { broken: false };
   const pivots: number[] = [];
   for (let i = window; i < lows.length - window; i++) {
     let isPivot = true;
@@ -1721,11 +1725,12 @@ function findSupportLevel(lows: number[], price: number, window = 3): number | u
     }
     if (isPivot) pivots.push(lows[i]);
   }
-  // Also consider the session low as a fallback support.
-  pivots.push(Math.min(...lows));
-  // Nearest pivot that sits at or below the current price.
+  if (!pivots.length) return { broken: false };
   const below = pivots.filter(p => p <= price).sort((a, b) => b - a);
-  return below[0];
+  if (below.length) return { support: below[0], broken: false };
+  // No pivot at or below price → price has traded through its recent swing structure.
+  const above = [...pivots].sort((a, b) => a - b);
+  return { support: above[0], broken: true };
 }
 
 function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' | 'extreme'; score: number } {
@@ -1737,16 +1742,28 @@ function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' |
   return { cls: 'extreme', score: 25 };                          // chaotic — wide stops, poor R:R
 }
 
+/**
+ * RSI(14) with Wilder smoothing — the standard every charting platform uses.
+ * AUDIT FIX: this previously averaged only the last 14 bars' gains/losses with a flat
+ * mean, which read up to 17 points away from a real RSI (measured: VTHO 24.5 vs 41.3).
+ * That made coins look "oversold" that weren't and mis-fired the overbought veto.
+ */
 function computeRSI(closes: number[], period = 14): number | undefined {
   if (closes.length < period + 1) return undefined;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff; else losses -= diff;
+  const gains: number[] = [];
+  const losses: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    gains.push(d > 0 ? d : 0);
+    losses.push(d < 0 ? -d : 0);
   }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
+  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+  }
+  if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
 }
