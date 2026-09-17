@@ -109,7 +109,16 @@ const EXCHANGES = {
       accounts: "https://api.bitget.com/api/spot/v1/account/assets",
     },
   },
+  // 📈 EQUITIES BROKER
+  alpaca: {
+    name: "Alpaca",
+    authType: "keys",
+    endpoints: {
+      accounts: "https://api.alpaca.markets/v2/account",
+    },
+  },
 };
+
 
 type ExchangeType = keyof typeof EXCHANGES;
 
