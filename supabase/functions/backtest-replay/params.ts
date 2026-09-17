@@ -59,6 +59,7 @@ export function resolveParams(
     wideStopMode: Boolean(scalpSettings?.wide_stop_mode ?? false),
     stopPct: numOr(scalpSettings?.hard_stop_loss_pct, MAX_RISK_PCT),
     tape: { ...TAPE_DEFAULTS },
+    geometry: { ...GEOMETRY_DEFAULTS },
     playbookTuning: {
       minScore: numOr(scalpSettings?.playbook_min_score, PLAYBOOK_TUNING_DEFAULTS.minScore),
       minVolumeRatio: numOr(scalpSettings?.playbook_min_volume_ratio, PLAYBOOK_TUNING_DEFAULTS.minVolumeRatio),
@@ -86,6 +87,12 @@ export function resolveParams(
       min24hPct: finiteOr((o.tape as Record<string, unknown>)?.min24hPct, base.tape.min24hPct),
       min1hPct: finiteOr((o.tape as Record<string, unknown>)?.min1hPct, base.tape.min1hPct),
       minBreadth: finiteOr((o.tape as Record<string, unknown>)?.minBreadth, base.tape.minBreadth),
+    },
+    geometry: {
+      maxRiskPct: numOr((o.geometry as Record<string, unknown>)?.maxRiskPct, base.geometry.maxRiskPct),
+      minRewardRisk: numOr((o.geometry as Record<string, unknown>)?.minRewardRisk, base.geometry.minRewardRisk),
+      minStopPct: numOr((o.geometry as Record<string, unknown>)?.minStopPct, base.geometry.minStopPct),
+      tpFloorPct: numOr((o.geometry as Record<string, unknown>)?.tpFloorPct, base.geometry.tpFloorPct),
     },
     playbookTuning: {
       minScore: numOr((o.playbookTuning as Record<string, unknown>)?.minScore, base.playbookTuning.minScore),
