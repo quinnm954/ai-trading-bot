@@ -60,7 +60,14 @@ export function requiredStockTakeProfit(
 export function solveStockGeometry(
   hourlyAtrPct?: number | null,
   tunedStopPct?: number | null,
-  bounds?: { minStopPct?: number | null; maxStopPct?: number | null; atrMult?: number | null },
+  bounds?: {
+    minStopPct?: number | null;
+    maxStopPct?: number | null;
+    atrMult?: number | null;
+    /** Optional hold-window override (backtest knob; live passes the constants). */
+    minHoldMinutes?: number | null;
+    maxHoldMinutes?: number | null;
+  },
   instrument?: {
     atrMultScale?: number;
     minStopPct?: number;
@@ -90,12 +97,14 @@ export function solveStockGeometry(
   const netLossPct = stopLossPct + COST;
   const netWinPct = takeProfitPct - COST;
 
-  const maxHold = Math.max(STOCK_MIN_HOLD_MINUTES, Math.round(STOCK_MAX_HOLD_MINUTES * holdScale));
+  const minHoldBound = Number(bounds?.minHoldMinutes) > 0 ? Number(bounds!.minHoldMinutes) : STOCK_MIN_HOLD_MINUTES;
+  const maxHoldBound = Number(bounds?.maxHoldMinutes) > 0 ? Number(bounds!.maxHoldMinutes) : STOCK_MAX_HOLD_MINUTES;
+  const maxHold = Math.max(minHoldBound, Math.round(maxHoldBound * holdScale));
   const hoursToTarget = atr > 0 ? takeProfitPct / atr : Infinity;
   const neededMinutes = Number.isFinite(hoursToTarget)
     ? Math.ceil((hoursToTarget / STOCK_REACH_FACTOR) * 60)
     : maxHold;
-  const holdMinutes = clamp(neededMinutes, STOCK_MIN_HOLD_MINUTES, maxHold);
+  const holdMinutes = clamp(neededMinutes, minHoldBound, maxHold);
   const reachable = atr > 0 && takeProfitPct <= atr * (holdMinutes / 60) * STOCK_REACH_FACTOR;
 
 
