@@ -21,6 +21,8 @@ import { ResetPaperBalance } from '@/components/settings/ResetPaperBalance';
 import { CryptoWalletSettings } from '@/components/settings/CryptoWalletSettings';
 import { LiveInvestmentBasis } from '@/components/settings/LiveInvestmentBasis';
 import { DataManagement } from '@/components/settings/DataManagement';
+import { MarketModeToggle } from '@/components/settings/MarketModeToggle';
+
 import {
   loadNotificationPrefs,
   saveNotificationPrefs,
