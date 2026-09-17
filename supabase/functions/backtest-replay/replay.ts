@@ -10,13 +10,12 @@
 import { computeCandleTechnicals, computeHtfContext } from "../_shared/candle-technicals.ts";
 import { evaluateEntryPlaybook } from "../_shared/entry-playbook.ts";
 import {
-  solveAdaptiveGeometry,
   solveWideGeometry,
-  solveProfitLock,
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
 } from "../_shared/exit-geometry.ts";
+import { solveVariantAdaptive, variantProfitLock, GEOMETRY_DEFAULTS } from "./geometry.ts";
 import { evaluateTape } from "../_shared/tape-gate.ts";
 import type { Bar } from "./candles.ts";
 import type { BacktestParams } from "./params.ts";
