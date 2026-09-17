@@ -28,12 +28,23 @@ import {
 export interface GeometryKnobs {
   /** Hard cap on the gross stop distance (live default 1.2%). */
   maxRiskPct: number;
-  /** Net reward:risk the target must deliver after fees (live default 1.6). */
+  /** Net reward:risk the target must deliver after costs (live default 1.6). */
   minRewardRisk: number;
   /** Tightest stop allowed (live default 0.6%). */
   minStopPct: number;
   /** Absolute gross take-profit floor (live default 1.4%). */
   tpFloorPct: number;
+  /**
+   * Round-trip cost the target must clear. Crypto pays the 0.8% Coinbase round
+   * trip; equities on Alpaca are commission-free, so a stock run passes its much
+   * smaller spread allowance instead of inheriting the crypto fee.
+   */
+  costPct: number;
+  /** ATR multiple used to size the stop (crypto and equities differ). */
+  stopAtrMult: number;
+  /** Hold window bounds in minutes. */
+  minHoldMinutes: number;
+  maxHoldMinutes: number;
 }
 
 export const GEOMETRY_DEFAULTS: GeometryKnobs = {
@@ -41,6 +52,10 @@ export const GEOMETRY_DEFAULTS: GeometryKnobs = {
   minRewardRisk: MIN_REWARD_RISK,
   minStopPct: TUNED_STOP_MIN_PCT,
   tpFloorPct: TP_FLOOR_GROSS_PCT,
+  costPct: ROUND_TRIP_FEE_PCT,
+  stopAtrMult: ADAPTIVE_STOP_ATR_MULT,
+  minHoldMinutes: ADAPTIVE_MIN_HOLD_MINUTES,
+  maxHoldMinutes: ADAPTIVE_MAX_HOLD_MINUTES,
 };
 
 export interface VariantGeometry {
@@ -53,11 +68,12 @@ export interface VariantGeometry {
   reachable: boolean;
 }
 
-/** Gross take-profit needed for a stop to clear `minRewardRisk` net of fees. */
+/** Gross take-profit needed for a stop to clear `minRewardRisk` net of costs. */
 function requiredTp(stopPct: number, k: GeometryKnobs): number {
-  const netLoss = Math.abs(stopPct) + ROUND_TRIP_FEE_PCT;
-  return Math.max(k.tpFloorPct, ROUND_TRIP_FEE_PCT + k.minRewardRisk * netLoss);
+  const netLoss = Math.abs(stopPct) + k.costPct;
+  return Math.max(k.tpFloorPct, k.costPct + k.minRewardRisk * netLoss);
 }
+
 
 /** Per-coin adaptive geometry with the stop cap and payoff floor injected. */
 export function solveVariantAdaptive(
