@@ -7,7 +7,7 @@
 // Equity history comes from Alpaca; those rows are namespaced in the same cache.
 
 import { getBars, getSnapshots, listTradableAssets, type AlpacaCreds } from "../_shared/alpaca.ts";
-import { STOCK_CORE_UNIVERSE } from "../_shared/stock-feed.ts";
+import { STOCK_FULL_UNIVERSE } from "../_shared/stock-feed.ts";
 
 export type Granularity = 'ONE_MINUTE' | 'FIVE_MINUTE' | 'ONE_HOUR' | 'ONE_DAY';
 
@@ -143,8 +143,10 @@ export async function fetchStockUniverse(
   // Rank by dollar volume from the latest snapshot so "most liquid first" matches
   // the live stock feed's own universe ordering.
   const ranked: { symbol: string; volume: number }[] = [];
-  const CORE = new Set(STOCK_CORE_UNIVERSE);
-  const candidates = [...new Set([...STOCK_CORE_UNIVERSE, ...eligible])]
+  // Curated multi-instrument list (shares, ETFs, leveraged funds, ADRs, REITs,
+  // small caps) is pinned first so replays cover every instrument class.
+  const CORE = new Set(STOCK_FULL_UNIVERSE);
+  const candidates = [...new Set([...STOCK_FULL_UNIVERSE, ...eligible])]
     .filter((s) => eligible.includes(s))
     .slice(0, 400);
 
