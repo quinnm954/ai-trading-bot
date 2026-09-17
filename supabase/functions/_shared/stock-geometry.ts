@@ -54,32 +54,50 @@ export function requiredStockTakeProfit(
 /**
  * Per-symbol stock geometry from the symbol's hourly ATR%.
  * `tunedStopPct` lets the per-account tuner move the stop inside the band.
+ * `instrument` shapes the band per instrument class (a 3× fund needs a wider
+ * clamp and a shorter hold than a mega-cap; an index ETF needs a tighter one).
  */
 export function solveStockGeometry(
   hourlyAtrPct?: number | null,
   tunedStopPct?: number | null,
   bounds?: { minStopPct?: number | null; maxStopPct?: number | null; atrMult?: number | null },
+  instrument?: {
+    atrMultScale?: number;
+    minStopPct?: number;
+    maxStopPct?: number;
+    tpFloorPct?: number;
+    holdScale?: number;
+  } | null,
 ): StockGeometry {
-  const minStop = clamp(Number(bounds?.minStopPct) || STOCK_STOP_MIN_PCT, 0.2, 1.0);
-  const maxStop = clamp(Number(bounds?.maxStopPct) || STOCK_STOP_MAX_PCT, minStop, 3.0);
-  const atrMult = clamp(Number(bounds?.atrMult) || STOCK_STOP_ATR_MULT, 0.6, 3.0);
+  // Account bounds win when set; otherwise the instrument class supplies them.
+  const classMin = Number(instrument?.minStopPct) > 0 ? Number(instrument!.minStopPct) : STOCK_STOP_MIN_PCT;
+  const classMax = Number(instrument?.maxStopPct) > 0 ? Number(instrument!.maxStopPct) : STOCK_STOP_MAX_PCT;
+  const classScale = Number(instrument?.atrMultScale) > 0 ? Number(instrument!.atrMultScale) : 1;
+  const classTpFloor = Number(instrument?.tpFloorPct) > 0 ? Number(instrument!.tpFloorPct) : STOCK_TP_FLOOR_PCT;
+  const holdScale = Number(instrument?.holdScale) > 0 ? Number(instrument!.holdScale) : 1;
+
+  const minStop = clamp(Number(bounds?.minStopPct) || classMin, 0.2, 2.0);
+  const maxStop = clamp(Number(bounds?.maxStopPct) || classMax, minStop, 4.0);
+  const atrMult = clamp((Number(bounds?.atrMult) || STOCK_STOP_ATR_MULT) * classScale, 0.4, 3.0);
 
   const atr = Number(hourlyAtrPct) > 0 ? Number(hourlyAtrPct) : 0;
   const tuned = Math.abs(Number(tunedStopPct)) > 0 ? Math.abs(Number(tunedStopPct)) : maxStop;
   const raw = atr > 0 ? atr * atrMult : tuned;
   const stopLossPct = clamp(raw, minStop, maxStop);
 
-  const takeProfitPct = Math.max(STOCK_TP_FLOOR_PCT, requiredStockTakeProfit(stopLossPct));
+  const takeProfitPct = Math.max(classTpFloor, requiredStockTakeProfit(stopLossPct));
 
   const netLossPct = stopLossPct + COST;
   const netWinPct = takeProfitPct - COST;
 
+  const maxHold = Math.max(STOCK_MIN_HOLD_MINUTES, Math.round(STOCK_MAX_HOLD_MINUTES * holdScale));
   const hoursToTarget = atr > 0 ? takeProfitPct / atr : Infinity;
   const neededMinutes = Number.isFinite(hoursToTarget)
     ? Math.ceil((hoursToTarget / STOCK_REACH_FACTOR) * 60)
-    : STOCK_MAX_HOLD_MINUTES;
-  const holdMinutes = clamp(neededMinutes, STOCK_MIN_HOLD_MINUTES, STOCK_MAX_HOLD_MINUTES);
+    : maxHold;
+  const holdMinutes = clamp(neededMinutes, STOCK_MIN_HOLD_MINUTES, maxHold);
   const reachable = atr > 0 && takeProfitPct <= atr * (holdMinutes / 60) * STOCK_REACH_FACTOR;
+
 
   return {
     takeProfitPct,

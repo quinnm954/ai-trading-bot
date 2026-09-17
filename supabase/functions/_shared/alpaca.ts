@@ -320,7 +320,12 @@ export interface StockSnapshot {
   volume: number;
   high24h: number;
   low24h: number;
+  /** Latest quoted bid/ask and the resulting spread as % of mid (NaN if unquoted). */
+  bid?: number;
+  ask?: number;
+  spreadPct?: number;
 }
+
 
 /** Latest trade price for many symbols in one request. */
 export async function getLatestTrades(
@@ -362,6 +367,10 @@ export async function getSnapshots(
       const prevClose = Number(snap?.prevDailyBar?.c ?? 0);
       const dayOpen = Number(snap?.dailyBar?.o ?? 0);
       if (price <= 0) continue;
+      const bid = Number(snap?.latestQuote?.bp ?? 0);
+      const ask = Number(snap?.latestQuote?.ap ?? 0);
+      const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+      const spreadPct = mid > 0 && ask >= bid ? ((ask - bid) / mid) * 100 : Number.NaN;
       out.push({
         symbol: sym.toUpperCase(),
         price,
@@ -372,7 +381,11 @@ export async function getSnapshots(
         volume: Number(snap?.dailyBar?.v ?? 0) * price,
         high24h: Number(snap?.dailyBar?.h ?? price),
         low24h: Number(snap?.dailyBar?.l ?? price),
+        bid: bid > 0 ? bid : undefined,
+        ask: ask > 0 ? ask : undefined,
+        spreadPct,
       });
+
     }
   }
   return out;

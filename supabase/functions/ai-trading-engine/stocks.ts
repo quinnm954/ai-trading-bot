@@ -21,6 +21,12 @@ import { getBars, getBarsMany, getSnapshots, placeOrder, waitForFill, getAccount
 import { getSessionState } from '../_shared/market-hours.ts';
 import { fetchStockMarket } from '../_shared/stock-feed.ts';
 import {
+  classifyInstrument,
+  profileFor,
+  type InstrumentProfile,
+} from '../_shared/instrument-classes.ts';
+
+import {
   evaluateStockTape,
   realizedVolatilityPct,
   STOCK_TAPE_INDEX_SYMBOLS,
@@ -221,12 +227,21 @@ export async function runStockCycle(
   }
 
   // ── 5. MARKET FEED + EQUITY TAPE GATE ──────────────────────────────────────
-  const feed = await fetchStockMarket(dataCreds, { limit: 60 });
+  // Multi-instrument scan: common shares, broad/sector ETFs, leveraged (long)
+  // funds, ADRs, REITs and small/low-priced names. Each listing is screened
+  // against the liquidity and spread floor of its own class inside the feed.
+  const feed = await fetchStockMarket(dataCreds, { limit: 90 });
   if (feed.quotes.length === 0) {
     const message = 'No live equity quotes this cycle — standing down rather than trading blind.';
     await logRiskEvent(supabase, userId, 'stand_down', 'warning', message);
     return { status: 'no_market_data', assetClass: 'stocks', message, session };
   }
+  console.log(
+    `📈 Universe: ${feed.quotes.length} tradable listings ` +
+    `(${Object.entries(feed.kindCounts).map(([k, n]) => `${k}:${n}`).join(', ')}), ` +
+    `${feed.screenedOut} screened out on liquidity/spread`,
+  );
+
 
   // Equity regime read: index trend across caps, advance/decline breadth, and
   // realized-volatility context. Built from daily index bars, not a single change %.
