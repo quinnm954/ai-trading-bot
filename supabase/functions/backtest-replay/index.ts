@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
     if (action === 'start') return await startJob(admin, user.id, body);
     if (action === 'tick') return await tickJob(admin, user.id, String(body?.jobId ?? ''));
     if (action === 'status') return await statusJob(admin, user.id, String(body?.jobId ?? ''));
+    if (action === 'repair') return await repairJob(admin, user.id, String(body?.jobId ?? ''));
     return json({ success: false, error: `unknown action: ${action}` }, 400);
   } catch (err) {
     console.error('backtest-replay failed:', err);
@@ -87,7 +88,14 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
   ]);
 
   const params = resolveParams(aiSettings, scalpSettings, (body?.overrides ?? {}) as Record<string, unknown>);
-  const universe = await fetchUniverse(params.universeSize);
+  // An explicit universe lets every variant replay the SAME cached markets as the
+  // baseline, so a comparison never drifts because Coinbase reordered by volume.
+  const explicit = Array.isArray(body?.universe) ? (body.universe as unknown[]).map(String) : null;
+  const universe = explicit && explicit.length >= 5
+    ? explicit
+      .map((productId) => ({ symbol: productId.split('-')[0], productId, volume: 0 }))
+      .filter((p, i, arr) => arr.findIndex((q) => q.symbol === p.symbol) === i)
+    : await fetchUniverse(params.universeSize);
   if (universe.length < 5) return json({ success: false, error: 'could not resolve a tradable universe' }, 502);
 
   const endSec = Math.floor(Date.now() / 1000);
@@ -118,6 +126,36 @@ async function statusJob(admin: any, userId: string, jobId: string) {
   if (error) throw new Error(error.message);
   if (!job) return json({ success: false, error: 'job not found' }, 404);
   return json({ success: true, job });
+}
+
+// ── REPAIR ───────────────────────────────────────────────────────────────────
+// Rewind a finished job to the start of the replay phase, keeping the cached candles
+// and the already-computed tape timeline. Ticking it again rewrites every per-symbol
+// row, which is how an incomplete result set is repopulated cheaply.
+
+// deno-lint-ignore no-explicit-any
+async function repairJob(admin: any, userId: string, jobId: string) {
+  const { data: job, error } = await admin.from('backtest_jobs')
+    .select('*').eq('id', jobId).eq('user_id', userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!job) return json({ success: false, error: 'job not found' }, 404);
+
+  const summary = (job.summary ?? {}) as Record<string, unknown>;
+  delete summary.per_symbol;
+  delete summary.trades;
+  delete summary.portfolio;
+
+  const { data: updated } = await admin.from('backtest_jobs').update({
+    phase: 'replaying',
+    replay_cursor: 0,
+    symbols_replayed: 0,
+    error: null,
+    finished_at: null,
+    summary,
+    progress_note: 'Repair requested — replaying every market again from cached candles',
+  }).eq('id', job.id).select().single();
+
+  return json({ success: true, job: updated });
 }
 
 // ── TICK ─────────────────────────────────────────────────────────────────────
@@ -247,7 +285,7 @@ async function tickReplay(admin: any, job: any) {
     const metrics = computeMetrics(result.trades, params.initialBalance);
 
     await deleteExisting(admin, job.run_group_id, symbol);
-    await admin.from('backtest_runs').insert(buildRunRow({
+    const { error: symbolInsertError } = await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
       symbol,
@@ -270,6 +308,9 @@ async function tickReplay(admin: any, job: any) {
         note: 'per-symbol rows are unconstrained by the portfolio slot cap; the PORTFOLIO row applies it',
       },
     }));
+    // A silently dropped insert is how the first baseline lost half its per-symbol
+    // rows. Persistence failure now fails the job instead of finishing incomplete.
+    if (symbolInsertError) throw new Error(`persist ${symbol} failed: ${symbolInsertError.message}`);
 
     perSymbol[symbol] = {
       trades: metrics.trades,
@@ -300,7 +341,7 @@ async function tickReplay(admin: any, job: any) {
     }
 
     await deleteExisting(admin, job.run_group_id, 'PORTFOLIO');
-    await admin.from('backtest_runs').insert(buildRunRow({
+    const { error: portfolioInsertError } = await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
       symbol: 'PORTFOLIO',
@@ -331,6 +372,7 @@ async function tickReplay(admin: any, job: any) {
         per_symbol: perSymbol,
       },
     }));
+    if (portfolioInsertError) throw new Error(`persist PORTFOLIO failed: ${portfolioInsertError.message}`);
 
     // Trade-level detail is not persisted on the job (it can be thousands of rows);
     // the per-symbol and portfolio run rows carry everything needed to compare runs.

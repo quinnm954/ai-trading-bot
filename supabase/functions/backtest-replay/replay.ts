@@ -10,13 +10,12 @@
 import { computeCandleTechnicals, computeHtfContext } from "../_shared/candle-technicals.ts";
 import { evaluateEntryPlaybook } from "../_shared/entry-playbook.ts";
 import {
-  solveAdaptiveGeometry,
   solveWideGeometry,
-  solveProfitLock,
   WIDE_MAX_HOLD_MINUTES,
   WIDE_TRAIL_ARM_PCT,
   WIDE_TRAIL_DROP_PCT,
 } from "../_shared/exit-geometry.ts";
+import { solveVariantAdaptive, variantProfitLock, GEOMETRY_DEFAULTS } from "./geometry.ts";
 import { evaluateTape } from "../_shared/tape-gate.ts";
 import type { Bar } from "./candles.ts";
 import type { BacktestParams } from "./params.ts";
@@ -174,9 +173,10 @@ export function replaySymbol(
 
     // ── GEOMETRY: exactly what this trade would be given ──────────────────────
     const swingAtrPct = htf?.swingAtrPct;
+    const knobs = params.geometry ?? GEOMETRY_DEFAULTS;
     const geo = params.wideStopMode
       ? solveWideGeometry(swingAtrPct)
-      : solveAdaptiveGeometry(swingAtrPct, params.stopPct);
+      : solveVariantAdaptive(swingAtrPct, params.stopPct, knobs);
     const holdMinutes = params.wideStopMode
       ? WIDE_MAX_HOLD_MINUTES
       : (geo as { holdMinutes?: number }).holdMinutes ?? 1440;
@@ -265,7 +265,7 @@ function simulateExit(
 
   const lock = params.wideStopMode
     ? { armPct: WIDE_TRAIL_ARM_PCT, givebackPct: WIDE_TRAIL_DROP_PCT }
-    : solveProfitLock(stopPct);
+    : variantProfitLock(stopPct);
 
   let peakPct = 0;
   let floorPct: number | null = null;
