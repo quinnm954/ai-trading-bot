@@ -168,6 +168,8 @@ export default function Backtesting() {
       <SeoHead
         title="Strategy Backtesting | Titan AI Trader"
         description="Replay the live Titan AI trading rules over 60-90 days of real Coinbase history and store the evidence before changing any parameter."
+        path="/backtesting"
+        noindex
       />
 
       <div>
