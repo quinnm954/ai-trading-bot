@@ -204,6 +204,9 @@ export default function Dashboard() {
                 Last updated: {lastUpdated.toLocaleTimeString()}
               </p>
             )}
+            <div className="mt-2">
+              <MarketModeSwitcher />
+            </div>
           </div>
         <div className="flex gap-2">
           {!isLiveMode && (
