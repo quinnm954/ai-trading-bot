@@ -50,7 +50,7 @@ export default function Landing() {
         <div className="container mx-auto px-4 text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8">
             <Zap className="w-4 h-4" />
-            AI-Powered Crypto Trading
+            AI-Powered Crypto &amp; Stock Trading
           </div>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-foreground mb-6 leading-tight">
             Autonomous Trading
@@ -58,8 +58,8 @@ export default function Landing() {
             <span className="text-primary">Powered by AI</span>
           </h1>
           <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto mb-12 leading-relaxed">
-            Stop watching charts. Five AI agents track the crypto market around the clock, trade only when the odds
-            line up, and stand aside when they don't.
+            Stop watching charts. Five AI agents track crypto around the clock and US stocks through the trading day,
+            trade only when the odds line up, and stand aside when they don't.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -193,10 +193,11 @@ export default function Landing() {
             {/* Supported Platforms */}
             <div className="mt-12 text-center">
               <p className="text-sm text-muted-foreground mb-4">
-                Trades crypto through your own Coinbase account — over 200 USDC pairs
+                Choose your market per account: crypto through your own Coinbase account (200+ USDC pairs) or US
+                stocks through your own Alpaca account — commission-free, traded only during market hours.
               </p>
               <div className="flex flex-wrap justify-center gap-3">
-                {['Coinbase', 'USDC pairs', 'Read-only until you enable live'].map((name) => (
+                {['Coinbase · crypto', 'Alpaca · US stocks', 'Read-only until you enable live'].map((name) => (
                   <span
                     key={name}
                     className="px-4 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground"
@@ -235,8 +236,8 @@ export default function Landing() {
               <p className="text-xs font-semibold text-primary mb-2">STEP 3</p>
               <p className="text-foreground font-medium mb-2">Go live when ready</p>
               <p className="text-sm text-muted-foreground">
-                Connect your Coinbase keys and confirm live mode by hand. Real trades follow exactly the same rules as
-                practice.
+                Connect your Coinbase keys for crypto or Alpaca keys for stocks, then confirm live mode by hand. Real
+                trades follow exactly the same rules as practice.
               </p>
             </div>
           </div>
