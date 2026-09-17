@@ -124,10 +124,13 @@ export async function runStockCycle(
     : await loadAlpacaCreds(supabase, userId);
 
   if (!dataCreds) {
-    const message = 'Stock mode is on but no Alpaca account is connected — cannot read equity market data.';
+    const message = isPaperMode
+      ? 'Paper stock trades are simulated in-app, but live stock prices need Alpaca keys saved (free paper keys are fine).'
+      : 'Stock mode is on but no Alpaca account is connected — cannot read equity market data.';
     await logRiskEvent(supabase, userId, 'stand_down', 'warning', message);
     return { status: 'no_credentials', assetClass: 'stocks', message };
   }
+
   if (!isPaperMode && !orderCreds) {
     const message = 'Live stock trading needs your own Alpaca API keys connected.';
     await logRiskEvent(supabase, userId, 'stand_down', 'warning', message);
