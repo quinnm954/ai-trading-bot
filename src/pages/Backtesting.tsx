@@ -16,6 +16,7 @@ interface Job {
   id: string;
   label: string | null;
   phase: string;
+  asset_class: string | null;
   universe: string[] | null;
   period_days: number;
   range_start: string;
@@ -53,6 +54,7 @@ const pct = (v: number, dp = 2) => `${(v ?? 0) > 0 ? '+' : ''}${(v ?? 0).toFixed
 
 export default function Backtesting() {
   const { user } = useAuth();
+  const [assetClass, setAssetClass] = useState<'crypto' | 'stocks'>('crypto');
   const [days, setDays] = useState('90');
   const [universeSize, setUniverseSize] = useState('30');
   const [job, setJob] = useState<Job | null>(null);
@@ -82,6 +84,13 @@ export default function Backtesting() {
   }, [user]);
 
   useEffect(() => { loadResults(); }, [loadResults]);
+
+  // Stock replay steps MINUTE bars through the session clock, so the same wall-clock
+  // budget covers a shorter window and fewer names than a crypto run.
+  useEffect(() => {
+    if (assetClass === 'stocks') { setDays('30'); setUniverseSize('10'); }
+    else { setDays('90'); setUniverseSize('30'); }
+  }, [assetClass]);
 
   // Resume any job left running (the work happens on the server; this only polls).
   useEffect(() => {
@@ -132,8 +141,8 @@ export default function Backtesting() {
       const { data, error } = await supabase.functions.invoke('backtest-replay', {
         body: {
           action: 'start',
-          label: `${days}d replay · top ${universeSize} markets`,
-          overrides: { days: Number(days), universeSize: Number(universeSize) },
+          label: `${assetClass === 'stocks' ? 'Stocks' : 'Crypto'} ${days}d replay · top ${universeSize} markets`,
+          overrides: { days: Number(days), universeSize: Number(universeSize), assetClass },
         },
       });
       if (error || !data?.success) throw new Error(error?.message || data?.error || 'Could not start');
@@ -167,7 +176,7 @@ export default function Backtesting() {
     <div className="space-y-6">
       <SeoHead
         title="Strategy Backtesting | Titan AI Trader"
-        description="Replay the live Titan AI trading rules over 60-90 days of real Coinbase history and store the evidence before changing any parameter."
+        description="Replay the live Titan AI trading rules over real Coinbase and Alpaca history and store the evidence before changing any parameter."
         path="/backtesting"
         noindex
       />
@@ -178,7 +187,8 @@ export default function Backtesting() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Replays the exact live rules — entry playbook, market stand-down gate and fee-aware exits — over real
-          historical candles. Evaluation only: nothing here places trades or changes your settings.
+          historical candles — 5-minute Coinbase bars for crypto, 1-minute Alpaca bars for stocks so session VWAP,
+          the opening range and relative volume replay faithfully. Evaluation only: nothing here places trades or changes your settings.
         </p>
       </div>
 
@@ -188,15 +198,35 @@ export default function Backtesting() {
           <CardDescription>Uses your current live parameters as-is, so the result is a read on the setup you are actually running.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-4">
+            <div className="space-y-2">
+              <Label>Market</Label>
+              <Select value={assetClass} onValueChange={(v) => setAssetClass(v as 'crypto' | 'stocks')} disabled={!!active}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="crypto">Crypto (Coinbase)</SelectItem>
+                  <SelectItem value="stocks">Stocks (Alpaca)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label>History</Label>
               <Select value={days} onValueChange={setDays} disabled={!!active}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="60">60 days</SelectItem>
-                  <SelectItem value="90">90 days</SelectItem>
-                  <SelectItem value="120">120 days</SelectItem>
+                  {assetClass === 'stocks' ? (
+                    <>
+                      <SelectItem value="20">20 days</SelectItem>
+                      <SelectItem value="30">30 days</SelectItem>
+                      <SelectItem value="45">45 days</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="60">60 days</SelectItem>
+                      <SelectItem value="90">90 days</SelectItem>
+                      <SelectItem value="120">120 days</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -207,8 +237,8 @@ export default function Backtesting() {
                 <SelectContent>
                   <SelectItem value="10">Top 10 by volume</SelectItem>
                   <SelectItem value="20">Top 20 by volume</SelectItem>
-                  <SelectItem value="30">Top 30 by volume</SelectItem>
-                  <SelectItem value="50">Top 50 by volume</SelectItem>
+                  {assetClass === 'crypto' && <SelectItem value="30">Top 30 by volume</SelectItem>}
+                  {assetClass === 'crypto' && <SelectItem value="50">Top 50 by volume</SelectItem>}
                 </SelectContent>
               </Select>
             </div>
@@ -224,14 +254,18 @@ export default function Backtesting() {
             <div className="space-y-2 rounded-lg border p-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium capitalize">{job.phase}</span>
-                <Badge variant="outline">{job.period_days}d · {job.universe?.length ?? 0} markets</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{job.asset_class === 'stocks' ? 'Stocks' : 'Crypto'}</Badge>
+                  <Badge variant="outline">{job.period_days}d · {job.universe?.length ?? 0} markets</Badge>
+                </div>
               </div>
               <Progress value={active ? progress : 100} />
               <p className="text-xs text-muted-foreground">{job.error ?? job.progress_note}</p>
               {job.summary?.tape && (
                 <p className="text-xs text-muted-foreground">
-                  Market gate was open {job.summary.tape.hours_open}/{job.summary.tape.hours_evaluated} hours
-                  ({((job.summary.tape.open_share ?? 0) * 100).toFixed(0)}% of the period).
+                  {job.asset_class === 'stocks'
+                    ? `Market gate was open on ${job.summary.tape.days_open}/${job.summary.tape.days_evaluated} sessions (${((job.summary.tape.open_share ?? 0) * 100).toFixed(0)}% of the period).`
+                    : `Market gate was open ${job.summary.tape.hours_open}/${job.summary.tape.hours_evaluated} hours (${((job.summary.tape.open_share ?? 0) * 100).toFixed(0)}% of the period).`}
                 </p>
               )}
             </div>

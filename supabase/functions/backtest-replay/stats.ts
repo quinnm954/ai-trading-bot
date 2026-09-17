@@ -109,7 +109,9 @@ export function buildRunRow(args: {
     symbol: args.symbol,
     asset_class: params.assetClass ?? 'crypto',
     strategy: 'live_engine_replay',
-    timeframe: '5m',
+    // Equities replay at MINUTE resolution: session VWAP, the opening range and
+    // same-minute relative volume cannot be reproduced from 5-minute bars.
+    timeframe: (params.assetClass ?? 'crypto') === 'stocks' ? '1m' : '5m',
 
     period_days: params.days,
     initial_balance: round(params.initialBalance, 2),
@@ -142,7 +144,19 @@ export function buildRunRow(args: {
       assumptions: {
         fee_pct_round_trip: params.feePct,
         intrabar_resolution: 'pessimistic — lowest-priced exit in a bar wins; a bar spanning stop and target books the stop',
-        bar_clock: '5-minute closed bars; every indicator recomputed from bars closed at or before the decision moment',
+        bar_clock: (params.assetClass ?? 'crypto') === 'stocks'
+          ? '1-minute closed regular-session bars, evaluated every 5 minutes; VWAP, opening range and relative volume rebuilt from bars closed at or before the decision moment'
+          : '5-minute closed bars; every indicator recomputed from bars closed at or before the decision moment',
+        ...((params.assetClass ?? 'crypto') === 'stocks'
+          ? {
+            fees: 'Alpaca equities are commission-free; the cost allowance models spread/slippage only',
+            session_clock: 'regular hours only (09:30–16:00 ET); no pre/post-market entries',
+            overnight_gaps: 'a bar opening beyond a level fills at that open, not at the level',
+            hold_window: 'measured in traded minutes, so an overnight pause does not consume the hold',
+            tape_gate: 'resolved per session from the PRIOR session close (index trend, breadth, advance/decline, realized vol, VIX proxy)',
+            earnings: 'historical earnings dates are not replayed, so replay is strictly less selective than live, which blocks entries near a scheduled report',
+          }
+          : {}),
         lookahead: 'none — no bar after the decision moment is visible to the entry logic',
         direction: 'long only, matching the live engine',
         open_at_end: 'positions still open when history runs out are excluded from all metrics',

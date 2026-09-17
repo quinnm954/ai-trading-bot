@@ -146,17 +146,54 @@ export interface StockFeatureInput {
   sectorDayChangePct?: number | null;
 }
 
+export interface StockSession {
+  day: string;
+  bars: SessionBar[];
+}
+
 export function computeStockFeatures(input: StockFeatureInput): StockFeatures | null {
-  const sessions = groupSessions(input.intraday);
+  return computeStockFeaturesFromSessions({
+    symbol: input.symbol,
+    sessions: groupSessions(input.intraday),
+    daily: input.daily,
+    indexDayChangePct: input.indexDayChangePct,
+    indexIntradayPct: input.indexIntradayPct,
+    sectorDayChangePct: input.sectorDayChangePct,
+  });
+}
+
+export interface StockFeatureSessionInput {
+  symbol: string;
+  /** Sessions oldest-first; the LAST one is the session being traded, truncated to the decision moment. */
+  sessions: StockSession[];
+  daily: Bar[];
+  indexDayChangePct: number;
+  indexIntradayPct: number;
+  sectorDayChangePct?: number | null;
+  /** Bar interval in minutes (5 live, 1 in minute-level replay). */
+  barMinutes?: number;
+}
+
+/**
+ * Same feature set from already-grouped sessions. Historical replay groups a
+ * symbol's whole minute history once and then re-slices it, which keeps the
+ * per-decision cost independent of how much history is loaded.
+ */
+export function computeStockFeaturesFromSessions(input: StockFeatureSessionInput): StockFeatures | null {
+  const sessions = input.sessions;
   if (sessions.length === 0) return null;
+  const barMinutes = input.barMinutes && input.barMinutes > 0 ? input.barMinutes : 5;
 
   const today = sessions[sessions.length - 1];
   const bars = today.bars;
-  if (bars.length < 4) return null; // fewer than 20 minutes of tape
+  // At least 20 minutes of tape before anything is read off the session.
+  if (bars.length * barMinutes < 20) return null;
 
   const last = bars[bars.length - 1];
   const lastPrice = last.c;
-  const minutesFromOpen = last.minutesFromOpen + 5;
+  const minutesFromOpen = last.minutesFromOpen + barMinutes;
+  /** How many bars make up a 30-minute look-back at this bar size. */
+  const barsPer30m = Math.max(1, Math.round(30 / barMinutes));
 
   // ── VWAP (typical price × volume, session-anchored) ────────────────────────
   let pv = 0;
@@ -181,7 +218,7 @@ export function computeStockFeatures(input: StockFeatureInput): StockFeatures | 
     const v = rvolSum > 0 ? rpv / rvolSum : b.c;
     above.push(b.c >= v);
   }
-  const recent = above.slice(-6);
+  const recent = above.slice(-barsPer30m);
   const wasBelow = recent.slice(0, Math.max(1, recent.length - 2)).some((a) => !a);
   const nowAbove = above[above.length - 1];
   const heldAbove = recent.every((a) => a);
@@ -193,7 +230,7 @@ export function computeStockFeatures(input: StockFeatureInput): StockFeatures | 
 
   // ── Opening range: first 30 minutes ───────────────────────────────────────
   const orBars = bars.filter((b) => b.minutesFromOpen < 30);
-  const orComplete = minutesFromOpen >= 30 && orBars.length >= 4;
+  const orComplete = minutesFromOpen >= 30 && orBars.length * barMinutes >= 20;
   const orHigh = orBars.length > 0 ? Math.max(...orBars.map((b) => b.h)) : last.h;
   const orLow = orBars.length > 0 ? Math.min(...orBars.map((b) => b.l)) : last.l;
   const orRangePct = orLow > 0 ? ((orHigh - orLow) / orLow) * 100 : 0;
@@ -237,7 +274,7 @@ export function computeStockFeatures(input: StockFeatureInput): StockFeatures | 
   const dayChangePct = pct(prevClose, lastPrice);
 
   // ── Relative strength ─────────────────────────────────────────────────────
-  const sixBarsBack = bars.length >= 7 ? bars[bars.length - 7].c : bars[0].c;
+  const sixBarsBack = bars.length > barsPer30m ? bars[bars.length - 1 - barsPer30m].c : bars[0].c;
   const intradayPct = pct(sixBarsBack, lastPrice);
   const rsDayPct = dayChangePct - input.indexDayChangePct;
   const rsIntradayPct = intradayPct - input.indexIntradayPct;

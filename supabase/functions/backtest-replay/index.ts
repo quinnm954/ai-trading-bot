@@ -24,7 +24,9 @@ import {
   fetchStockUniverse,
   fetchUniverse,
   loadBars,
+  GRANULARITY_SECONDS,
   type Bar,
+  type Granularity,
 } from "./candles.ts";
 import { loadDataCreds } from "../_shared/alpaca-creds.ts";
 import type { AlpacaCreds } from "../_shared/alpaca.ts";
@@ -38,6 +40,15 @@ import {
   type SymbolReplay,
 } from "./replay.ts";
 import { buildRunRow, closedOnly, computeMetrics } from "./stats.ts";
+import {
+  buildIntradayIndex,
+  buildStockTapeTimeline,
+  replayStockSymbol,
+  stockContextSymbols,
+  type IntradayIndex,
+  type StockTapeTimeline,
+} from "./stock-replay.ts";
+import { SECTOR_ETF_BY_SYMBOL } from "../_shared/stock-features.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -49,6 +60,40 @@ const corsHeaders = {
 const SYNC_PER_TICK = 1;
 /** Markets replayed per tick. */
 const REPLAY_PER_TICK = 3;
+/**
+ * A stock replay walks MINUTE bars over a full session clock, which is ~30× the
+ * work of a 5-minute crypto walk, so stock ticks take one market at a time.
+ */
+const STOCK_REPLAY_PER_TICK = 1;
+
+/**
+ * Bars a run needs cached.
+ *  • crypto: 5-minute decisions + hourly context (as before)
+ *  • stocks: MINUTE bars — session VWAP, the opening range and same-minute
+ *    relative volume cannot be reproduced from 5-minute bars — plus hourly bars
+ *    for the ATR the exit geometry is solved from, and daily bars for the
+ *    20/50-day structure, ATR%, prior close and the tape/breadth timeline.
+ */
+function granularitiesFor(assetClass: 'crypto' | 'stocks'): readonly Granularity[] {
+  return assetClass === 'stocks'
+    ? ['ONE_MINUTE', 'ONE_HOUR', 'ONE_DAY'] as const
+    : ['FIVE_MINUTE', 'ONE_HOUR'] as const;
+}
+
+/** Every symbol a run must cache: the replay universe plus index/sector context. */
+function syncList(assetClass: 'crypto' | 'stocks', universe: string[]): string[] {
+  return assetClass === 'stocks' ? [...universe, ...stockContextSymbols(universe)] : universe;
+}
+
+/** Context symbols only need daily bars, except SPY and sectors used for intraday RS. */
+function granularitiesForContext(symbol: string, universe: string[]): readonly Granularity[] {
+  const sectorsInUse = new Set(
+    universe.map((s) => SECTOR_ETF_BY_SYMBOL[s.toUpperCase()]).filter(Boolean),
+  );
+  return symbol === 'SPY' || sectorsInUse.has(symbol)
+    ? ['ONE_MINUTE', 'ONE_DAY'] as const
+    : ['ONE_DAY'] as const;
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -204,6 +249,31 @@ async function tickJob(admin: any, userId: string, jobId: string) {
 
 const secs = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
+/**
+ * Minute + daily bars for an index or sector ETF, indexed for point-in-time reads
+ * and memoised for the duration of one tick.
+ */
+// deno-lint-ignore no-explicit-any
+async function intradayContext(
+  admin: any,
+  assetClass: 'crypto' | 'stocks',
+  symbol: string,
+  startSec: number,
+  endSec: number,
+  cache: Map<string, IntradayIndex>,
+): Promise<IntradayIndex> {
+  const cached = cache.get(symbol);
+  if (cached) return cached;
+  const key = cacheKey(assetClass, symbol);
+  const [minute, daily] = await Promise.all([
+    loadBars(admin, key, 'ONE_MINUTE', startSec, endSec),
+    loadBars(admin, key, 'ONE_DAY', startSec, endSec),
+  ]);
+  const built = buildIntradayIndex(minute, daily);
+  cache.set(symbol, built);
+  return built;
+}
+
 // deno-lint-ignore no-explicit-any
 async function tickSync(admin: any, job: any) {
   const universe: string[] = job.universe ?? [];
@@ -218,16 +288,24 @@ async function tickSync(admin: any, job: any) {
   const stockCreds = assetClass === 'stocks' ? await loadDataCreds(admin, job.user_id) : null;
   if (assetClass === 'stocks' && !stockCreds) throw new Error('Alpaca market-data credentials unavailable');
 
-  for (let n = 0; n < SYNC_PER_TICK && cursor < universe.length; n++, cursor++) {
-    const productId = universe[cursor];
+  // Stock runs also cache index/volatility/sector context, which the equity tape
+  // gate and relative-strength checks are computed from.
+  const list = syncList(assetClass, universe);
+  const tradedUniverse = new Set(universe);
+
+  for (let n = 0; n < SYNC_PER_TICK && cursor < list.length; n++, cursor++) {
+    const productId = list[cursor];
     const key = cacheKey(assetClass, productId);
-    for (const granularity of ['FIVE_MINUTE', 'ONE_HOUR'] as const) {
+    const grans = assetClass === 'stocks' && !tradedUniverse.has(productId)
+      ? granularitiesForContext(productId, universe)
+      : granularitiesFor(assetClass);
+    for (const granularity of grans) {
       // Skip a market/granularity that is already cached for this window.
       const have = await cachedCount(admin, key, granularity, startSec, endSec);
+      // Equities only print during the regular session: ~6.5h a weekday, so a
+      // window holds far fewer bars than a 24/7 crypto window of the same length.
       const sessionShare = assetClass === 'stocks' ? (6.5 / 24) * (5 / 7) * 0.8 : 0.8;
-      const expected = granularity === 'FIVE_MINUTE'
-        ? Math.floor((endSec - startSec) / 300) * sessionShare
-        : Math.floor((endSec - startSec) / 3600) * sessionShare;
+      const expected = Math.floor((endSec - startSec) / GRANULARITY_SECONDS[granularity]) * sessionShare;
       if (have >= expected) { loaded += have; continue; }
       const bars = assetClass === 'stocks'
         ? await fetchStockHistory(stockCreds!, productId, granularity, startSec, endSec)
@@ -236,14 +314,13 @@ async function tickSync(admin: any, job: any) {
     }
   }
 
-
-  const done = cursor >= universe.length;
+  const done = cursor >= list.length;
   const update: Record<string, unknown> = {
     sync_cursor: cursor,
     candles_loaded: loaded,
     progress_note: done
       ? `Candle sync complete — ${loaded.toLocaleString()} bars cached. Building the tape timeline.`
-      : `Synced ${cursor}/${universe.length} markets (${loaded.toLocaleString()} bars)`,
+      : `Synced ${cursor}/${list.length} markets (${loaded.toLocaleString()} bars)`,
   };
   if (done) update.phase = 'replaying';
 
@@ -260,7 +337,38 @@ async function tickReplay(admin: any, job: any) {
   const summary = (job.summary ?? {}) as Record<string, unknown>;
   const assetClass: 'crypto' | 'stocks' = job.asset_class === 'stocks' ? 'stocks' : 'crypto';
 
-  // ── Step A: build the tape timeline once, from every market's hourly closes ──
+  // ── Step A: build the tape timeline once ────────────────────────────────────
+  // Stocks resolve a per-SESSION gate from daily closes (index trend, breadth,
+  // advance/decline, realized vol, VIX proxy) taken at the PRIOR session's close,
+  // so a day's gate can never be informed by the day it is gating.
+  if (!summary.tape && assetClass === 'stocks') {
+    const dailyUniverse = new Map<string, Bar[]>();
+    for (const productId of universe) {
+      const bars = await loadBars(admin, cacheKey(assetClass, productId), 'ONE_DAY', startSec, endSec);
+      if (bars.length) dailyUniverse.set(productId.toUpperCase(), bars);
+    }
+    const dailyContext = new Map<string, Bar[]>();
+    for (const symbol of stockContextSymbols(universe)) {
+      const bars = await loadBars(admin, cacheKey(assetClass, symbol), 'ONE_DAY', startSec, endSec);
+      if (bars.length) dailyContext.set(symbol.toUpperCase(), bars);
+    }
+
+    const tape = buildStockTapeTimeline(dailyUniverse, dailyContext, params);
+    summary.tape = {
+      open_days: [...tape.openDays],
+      regime_by_day: tape.regimeByDay,
+      days_evaluated: tape.daysEvaluated,
+      days_open: tape.daysOpen,
+      open_share: tape.daysEvaluated ? tape.daysOpen / tape.daysEvaluated : 0,
+      universe_size: dailyUniverse.size,
+    };
+    const { data: updated } = await admin.from('backtest_jobs').update({
+      summary,
+      progress_note: `Equity tape open on ${tape.daysOpen}/${tape.daysEvaluated} sessions — replaying markets`,
+    }).eq('id', job.id).select().single();
+    return json({ success: true, job: updated });
+  }
+
   if (!summary.tape) {
     const hourlyBySymbol = new Map<string, Bar[]>();
     for (const productId of universe) {
@@ -283,7 +391,18 @@ async function tickReplay(admin: any, job: any) {
     return json({ success: true, job: updated });
   }
 
-  const tapeOpen = new Set<number>((summary.tape as { open_hours: number[] }).open_hours ?? []);
+  const tapeSummary = summary.tape as Record<string, unknown>;
+  const tapeOpen = new Set<number>((tapeSummary.open_hours as number[]) ?? []);
+  const stockTape: StockTapeTimeline | null = assetClass === 'stocks'
+    ? {
+      openDays: new Set<string>((tapeSummary.open_days as string[]) ?? []),
+      daysEvaluated: Number(tapeSummary.days_evaluated ?? 0),
+      daysOpen: Number(tapeSummary.days_open ?? 0),
+      regimeByDay: (tapeSummary.regime_by_day as Record<string, string>) ?? {},
+    }
+    : null;
+  // Index/sector bars are shared across the markets replayed in this tick.
+  const contextCache = new Map<string, IntradayIndex>();
   const positionValue = params.initialBalance
     * (params.maxCapitalUsagePct / 100)
     * (params.maxPositionSizePct / 100);
@@ -296,7 +415,8 @@ async function tickReplay(admin: any, job: any) {
   // Two callers can poll the same job at once (the page and a script). The cursor
   // is advanced conditionally, so only one caller owns a slice and results are
   // never counted twice.
-  const claimTo = Math.min(startCursor + REPLAY_PER_TICK, universe.length);
+  const perTick = assetClass === 'stocks' ? STOCK_REPLAY_PER_TICK : REPLAY_PER_TICK;
+  const claimTo = Math.min(startCursor + perTick, universe.length);
   const { data: claimed } = await admin.from('backtest_jobs')
     .update({ replay_cursor: claimTo })
     .eq('id', job.id)
@@ -312,9 +432,32 @@ async function tickReplay(admin: any, job: any) {
     const productId = universe[cursor];
     const symbol = assetClass === 'stocks' ? productId.toUpperCase() : productId.split('-')[0];
     const key = cacheKey(assetClass, productId);
-    const bars5m = await loadBars(admin, key, 'FIVE_MINUTE', startSec, endSec);
-    const bars1h = await loadBars(admin, key, 'ONE_HOUR', startSec, endSec);
-    const result: SymbolReplay = replaySymbol(symbol, bars5m, bars1h, tapeOpen, params, positionValue);
+    let result: SymbolReplay;
+    if (assetClass === 'stocks') {
+      const sectorEtf = SECTOR_ETF_BY_SYMBOL[symbol] ?? null;
+      const [bars1m, bars1h, bars1d] = await Promise.all([
+        loadBars(admin, key, 'ONE_MINUTE', startSec, endSec),
+        loadBars(admin, key, 'ONE_HOUR', startSec, endSec),
+        loadBars(admin, key, 'ONE_DAY', startSec, endSec),
+      ]);
+      result = replayStockSymbol({
+        symbol,
+        minuteBars: bars1m,
+        hourlyBars: bars1h,
+        dailyBars: bars1d,
+        spy: await intradayContext(admin, assetClass, 'SPY', startSec, endSec, contextCache),
+        sector: sectorEtf
+          ? await intradayContext(admin, assetClass, sectorEtf, startSec, endSec, contextCache)
+          : null,
+        tape: stockTape!,
+        params,
+        positionValue,
+      });
+    } else {
+      const bars5m = await loadBars(admin, key, 'FIVE_MINUTE', startSec, endSec);
+      const bars1h = await loadBars(admin, key, 'ONE_HOUR', startSec, endSec);
+      result = replaySymbol(symbol, bars5m, bars1h, tapeOpen, params, positionValue);
+    }
 
 
     const closed = closedOnly(result.trades);

@@ -22,11 +22,13 @@ import { CapitalBasisCard } from '@/components/dashboard/CapitalBasisCard';
 import { CapitalPlannerCard } from '@/components/dashboard/CapitalPlannerCard';
 import { SubscriptionCostCard } from '@/components/dashboard/SubscriptionCostCard';
 import { SubscriptionStatusCard } from '@/components/dashboard/SubscriptionStatusCard';
+import { StockAccountCard } from '@/components/dashboard/StockAccountCard';
 
 
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
 import { MemeCoinsOnlyToggle } from '@/components/trading/MemeCoinsOnlyToggle';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useMarketMode } from '@/hooks/useMarketMode';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -47,6 +49,7 @@ import { resetPaperAccount } from '@/lib/resetPaperAccount';
 export default function Dashboard() {
   const { stats, positions, liveAccounts, isLoading, refetch, lastUpdated } = useDashboardData();
   const isLiveMode = stats.tradingMode === 'live';
+  const { mode: marketMode } = useMarketMode();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -377,6 +380,7 @@ export default function Dashboard() {
 
         <div className="space-y-4 lg:space-y-6">
           <AIStatusCard />
+          {marketMode === 'stocks' && <StockAccountCard />}
           <CapitalBasisCard isLiveMode={isLiveMode} />
           <SubscriptionStatusCard />
           <SubscriptionCostCard />
