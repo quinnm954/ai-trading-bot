@@ -27,6 +27,8 @@ import {
 } from "../_shared/stock-features.ts";
 import { evaluateStockPlaybook } from "../_shared/stock-playbook.ts";
 import { solveStockGeometry } from "../_shared/stock-geometry.ts";
+import { classifyInstrument, profileFor } from "../_shared/instrument-classes.ts";
+
 import { evaluateStockTape, realizedVolatilityPct, type IndexRead } from "../_shared/stock-tape.ts";
 import type { Bar } from "./candles.ts";
 import type { BacktestParams } from "./params.ts";
