@@ -233,7 +233,9 @@ export default function ApiKeys() {
             <Key className="w-7 h-7 text-primary" />
             Connect Broker / Exchange
           </h1>
-          <p className="text-muted-foreground">Connect your crypto exchange with auto-detection</p>
+          <p className="text-muted-foreground">
+            Connect a crypto exchange or Alpaca for US stocks — keys are detected automatically
+          </p>
         </div>
       </div>
 

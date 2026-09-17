@@ -40,7 +40,7 @@ const steps: OnboardingStep[] = [
     chapter: 'Welcome',
     title: 'What TitanAI actually is',
     description:
-      'TitanAI is an autonomous crypto trading system. A team of AI agents watches the market, scores opportunities, checks them against your risk limits, and executes — you set the rules and supervise.',
+      'TitanAI is an autonomous trading system for crypto (Coinbase) and US stocks (Alpaca) — you choose which one each account trades. A team of AI agents watches the market, scores opportunities, checks them against your risk limits, and executes; you set the rules and supervise.',
     points: [
       'You start in Paper mode with $100,000 in virtual funds. Nothing is real until you connect an exchange and switch to Live.',
       'TitanAI never holds your money. Live trading runs through your own exchange API keys; subscription payments go wallet-to-wallet.',
