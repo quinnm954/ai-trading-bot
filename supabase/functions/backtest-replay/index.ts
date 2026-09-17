@@ -209,22 +209,33 @@ async function tickSync(admin: any, job: any) {
   const universe: string[] = job.universe ?? [];
   const startSec = secs(job.range_start);
   const endSec = secs(job.range_end);
+  const assetClass: 'crypto' | 'stocks' = job.asset_class === 'stocks' ? 'stocks' : 'crypto';
   let cursor: number = job.sync_cursor ?? 0;
   let loaded: number = Number(job.candles_loaded ?? 0);
 
+  // Equity bars come from Alpaca and only exist during sessions, so a full window
+  // is ~6.5 hours a weekday rather than 24/7 — the coverage test differs too.
+  const stockCreds = assetClass === 'stocks' ? await loadDataCreds(admin, job.user_id) : null;
+  if (assetClass === 'stocks' && !stockCreds) throw new Error('Alpaca market-data credentials unavailable');
+
   for (let n = 0; n < SYNC_PER_TICK && cursor < universe.length; n++, cursor++) {
     const productId = universe[cursor];
+    const key = cacheKey(assetClass, productId);
     for (const granularity of ['FIVE_MINUTE', 'ONE_HOUR'] as const) {
       // Skip a market/granularity that is already cached for this window.
-      const have = await cachedCount(admin, productId, granularity, startSec, endSec);
+      const have = await cachedCount(admin, key, granularity, startSec, endSec);
+      const sessionShare = assetClass === 'stocks' ? (6.5 / 24) * (5 / 7) * 0.8 : 0.8;
       const expected = granularity === 'FIVE_MINUTE'
-        ? Math.floor((endSec - startSec) / 300) * 0.8
-        : Math.floor((endSec - startSec) / 3600) * 0.8;
+        ? Math.floor((endSec - startSec) / 300) * sessionShare
+        : Math.floor((endSec - startSec) / 3600) * sessionShare;
       if (have >= expected) { loaded += have; continue; }
-      const bars = await fetchHistory(productId, granularity, startSec, endSec);
-      if (bars.length) loaded += await cacheBars(admin, productId, granularity, bars);
+      const bars = assetClass === 'stocks'
+        ? await fetchStockHistory(stockCreds!, productId, granularity, startSec, endSec)
+        : await fetchHistory(productId, granularity, startSec, endSec);
+      if (bars.length) loaded += await cacheBars(admin, productId, granularity, bars, assetClass);
     }
   }
+
 
   const done = cursor >= universe.length;
   const update: Record<string, unknown> = {
