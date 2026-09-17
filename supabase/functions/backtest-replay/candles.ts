@@ -3,6 +3,11 @@
 // Coinbase returns at most 350 candles per request, so 90 days of 5-minute bars is
 // ~75 paginated calls per market. That is far too slow to redo on every run, so bars
 // are cached in `backtest_candles` once and every later replay reads from the cache.
+//
+// Equity history comes from Alpaca; those rows are namespaced in the same cache.
+
+import { getBars, getSnapshots, listTradableAssets, type AlpacaCreds } from "../_shared/alpaca.ts";
+import { STOCK_CORE_UNIVERSE } from "../_shared/stock-feed.ts";
 
 export type Granularity = 'FIVE_MINUTE' | 'ONE_HOUR';
 
@@ -112,14 +117,94 @@ export async function fetchHistory(
   return [...seen.values()].sort((a, b) => a.start - b.start);
 }
 
+// ── EQUITIES ─────────────────────────────────────────────────────────────────
+// Stock history comes from Alpaca instead of Coinbase. Bars only exist while the
+// market was open, which is exactly what a session-aware replay needs: the gaps
+// in the series ARE the overnight and weekend closures.
+
+/** Cache key for a market. Stocks are namespaced so AAPL can never collide with a pair. */
+export function cacheKey(assetClass: 'crypto' | 'stocks', productId: string): string {
+  return assetClass === 'stocks' ? `STOCK:${productId.toUpperCase()}` : productId;
+}
+
+/** Liquid, tradable, fractionable US equities — the stock replay universe. */
+export async function fetchStockUniverse(
+  creds: AlpacaCreds,
+  size: number,
+): Promise<{ symbol: string; productId: string; volume: number }[]> {
+  const assets = await listTradableAssets(creds);
+  const eligible = assets
+    .filter((a) => a.tradable && a.exchange !== 'OTC')
+    .map((a) => a.symbol.toUpperCase());
+
+
+  // Rank by dollar volume from the latest snapshot so "most liquid first" matches
+  // the live stock feed's own universe ordering.
+  const ranked: { symbol: string; volume: number }[] = [];
+  const CORE = new Set(STOCK_CORE_UNIVERSE);
+  const candidates = [...new Set([...STOCK_CORE_UNIVERSE, ...eligible])]
+    .filter((s) => eligible.includes(s))
+    .slice(0, 400);
+
+  for (let i = 0; i < candidates.length; i += 100) {
+    const snaps = await getSnapshots(creds, candidates.slice(i, i + 100));
+    for (const s of snaps) {
+      if (!(s.price > 0)) continue;
+      ranked.push({ symbol: s.symbol, volume: (s.volume ?? 0) * s.price + (CORE.has(s.symbol) ? 1e12 : 0) });
+    }
+  }
+
+  return ranked
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, size)
+    .map((r) => ({ symbol: r.symbol, productId: r.symbol, volume: r.volume }));
+}
+
+/** Page through Alpaca bars for one symbol/granularity. */
+export async function fetchStockHistory(
+  creds: AlpacaCreds,
+  symbol: string,
+  granularity: Granularity,
+  startSec: number,
+  endSec: number,
+): Promise<Bar[]> {
+  const timeframe = granularity === 'FIVE_MINUTE' ? '5Min' : '1Hour';
+  const bars = await getBars(
+    creds,
+    symbol,
+    timeframe,
+    new Date(startSec * 1000).toISOString(),
+    new Date(endSec * 1000).toISOString(),
+  );
+  return bars
+    .map((b) => ({
+      start: Math.floor(Date.parse(b.t) / 1000),
+      open: Number(b.o),
+      high: Number(b.h),
+      low: Number(b.l),
+      close: Number(b.c),
+      volume: Number(b.v) || 0,
+    }))
+    .filter((b) => Number.isFinite(b.start) && b.close > 0)
+    .sort((a, b) => a.start - b.start);
+}
+
+
 /** Persist bars to the shared cache in chunks. */
 // deno-lint-ignore no-explicit-any
-export async function cacheBars(supabase: any, productId: string, granularity: Granularity, bars: Bar[]): Promise<number> {
+export async function cacheBars(
+  supabase: any,
+  productId: string,
+  granularity: Granularity,
+  bars: Bar[],
+  assetClass: 'crypto' | 'stocks' = 'crypto',
+): Promise<number> {
   let written = 0;
   const CHUNK = 1000;
+  const key = cacheKey(assetClass, productId);
   for (let i = 0; i < bars.length; i += CHUNK) {
     const rows = bars.slice(i, i + CHUNK).map((b) => ({
-      product_id: productId,
+      product_id: key,
       granularity,
       bucket_start: b.start,
       open: b.open,
@@ -127,6 +212,7 @@ export async function cacheBars(supabase: any, productId: string, granularity: G
       low: b.low,
       close: b.close,
       volume: b.volume,
+      asset_class: assetClass,
     }));
     const { error } = await supabase
       .from('backtest_candles')
@@ -136,6 +222,7 @@ export async function cacheBars(supabase: any, productId: string, granularity: G
   }
   return written;
 }
+
 
 /** Read the cached series back, ascending. */
 // deno-lint-ignore no-explicit-any

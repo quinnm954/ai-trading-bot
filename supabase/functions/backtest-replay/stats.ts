@@ -107,8 +107,10 @@ export function buildRunRow(args: {
   return {
     user_id: args.userId,
     symbol: args.symbol,
+    asset_class: params.assetClass ?? 'crypto',
     strategy: 'live_engine_replay',
     timeframe: '5m',
+
     period_days: params.days,
     initial_balance: round(params.initialBalance, 2),
     ending_balance: round(m.endingBalance, 2),

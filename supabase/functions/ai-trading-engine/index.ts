@@ -34,6 +34,10 @@ import {
   type CandleTechnicals,
 } from "../_shared/candle-technicals.ts";
 import { evaluateTape, TAPE_UNIVERSE_SIZE } from "../_shared/tape-gate.ts";
+// 📈 Stocks run a separate cycle so the crypto path below is untouched.
+import { accountAssetClass } from "../_shared/asset-class.ts";
+import { runStockCycle } from "./stocks.ts";
+
 
 // 🎓 LEARNED SETUP MEMORY — setup fingerprints that have proven negative expectancy
 // over a real sample are benched by record_setup_outcome() and never traded again
@@ -3582,7 +3586,19 @@ serve(async (req) => {
       });
     }
 
+    // 📈 ASSET-CLASS BRANCH — stocks run their own cycle (market hours, equity
+    // geometry, commission-free fees, intraday-margin guardrails). Crypto falls
+    // through to everything below, completely unchanged.
+    if (accountAssetClass(settings) === 'stocks') {
+      const stockResult = await runStockCycle(supabase, user.id, settings);
+      console.log(`📈 Stock cycle: ${stockResult.status} — ${stockResult.message}`);
+      return new Response(JSON.stringify(stockResult), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const isPaperMode = settings.trading_mode === 'paper';
+
 
     // Get current balance
     let balance = 0;

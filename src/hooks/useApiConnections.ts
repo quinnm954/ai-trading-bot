@@ -25,7 +25,7 @@ import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
 // Crypto exchanges only
-export type ExchangeProvider = 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
+export type ExchangeProvider = 'alpaca' | 'coinbase' | 'binance' | 'kraken' | 'kucoin' | 'bybit' | 'okx' | 'gateio' | 'bitget';
 
 export interface ApiConnection {
   id: string;

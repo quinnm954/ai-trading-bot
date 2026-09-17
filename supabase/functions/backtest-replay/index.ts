@@ -17,12 +17,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   cacheBars,
+  cacheKey,
   cachedCount,
   fetchHistory,
+  fetchStockHistory,
+  fetchStockUniverse,
   fetchUniverse,
   loadBars,
   type Bar,
 } from "./candles.ts";
+import { loadDataCreds } from "../_shared/alpaca-creds.ts";
+import type { AlpacaCreds } from "../_shared/alpaca.ts";
+
 import { resolveParams, type BacktestParams } from "./params.ts";
 import {
   applySlotCap,
@@ -88,14 +94,27 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
   ]);
 
   const params = resolveParams(aiSettings, scalpSettings, (body?.overrides ?? {}) as Record<string, unknown>);
+  const isStock = params.assetClass === 'stocks';
+
+  // A stock run needs Alpaca market-data credentials to fetch historical bars.
+  let stockCreds: AlpacaCreds | null = null;
+  if (isStock) {
+    stockCreds = await loadDataCreds(admin, userId);
+    if (!stockCreds) {
+      return json({ success: false, error: 'stock backtests need Alpaca market-data credentials' }, 400);
+    }
+  }
+
   // An explicit universe lets every variant replay the SAME cached markets as the
-  // baseline, so a comparison never drifts because Coinbase reordered by volume.
+  // baseline, so a comparison never drifts because the venue reordered by volume.
   const explicit = Array.isArray(body?.universe) ? (body.universe as unknown[]).map(String) : null;
   const universe = explicit && explicit.length >= 5
     ? explicit
-      .map((productId) => ({ symbol: productId.split('-')[0], productId, volume: 0 }))
+      .map((productId) => ({ symbol: isStock ? productId.toUpperCase() : productId.split('-')[0], productId, volume: 0 }))
       .filter((p, i, arr) => arr.findIndex((q) => q.symbol === p.symbol) === i)
-    : await fetchUniverse(params.universeSize);
+    : isStock
+      ? await fetchStockUniverse(stockCreds!, params.universeSize)
+      : await fetchUniverse(params.universeSize);
   if (universe.length < 5) return json({ success: false, error: 'could not resolve a tradable universe' }, 502);
 
   const endSec = Math.floor(Date.now() / 1000);
@@ -103,8 +122,9 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
 
   const { data: job, error } = await admin.from('backtest_jobs').insert({
     user_id: userId,
-    label: String(body?.label ?? `Replay ${params.days}d · ${universe.length} markets`),
+    label: String(body?.label ?? `${isStock ? 'Stocks' : 'Crypto'} replay ${params.days}d · ${universe.length} markets`),
     phase: 'syncing',
+    asset_class: params.assetClass,
     universe: universe.map((u) => u.productId),
     period_days: params.days,
     range_start: new Date(startSec * 1000).toISOString(),
@@ -112,6 +132,7 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
     params: params as unknown as Record<string, unknown>,
     progress_note: `Queued ${universe.length} markets for candle sync`,
   }).select().single();
+
   if (error) throw new Error(error.message);
 
   return json({ success: true, jobId: job.id, job });
@@ -188,22 +209,33 @@ async function tickSync(admin: any, job: any) {
   const universe: string[] = job.universe ?? [];
   const startSec = secs(job.range_start);
   const endSec = secs(job.range_end);
+  const assetClass: 'crypto' | 'stocks' = job.asset_class === 'stocks' ? 'stocks' : 'crypto';
   let cursor: number = job.sync_cursor ?? 0;
   let loaded: number = Number(job.candles_loaded ?? 0);
 
+  // Equity bars come from Alpaca and only exist during sessions, so a full window
+  // is ~6.5 hours a weekday rather than 24/7 — the coverage test differs too.
+  const stockCreds = assetClass === 'stocks' ? await loadDataCreds(admin, job.user_id) : null;
+  if (assetClass === 'stocks' && !stockCreds) throw new Error('Alpaca market-data credentials unavailable');
+
   for (let n = 0; n < SYNC_PER_TICK && cursor < universe.length; n++, cursor++) {
     const productId = universe[cursor];
+    const key = cacheKey(assetClass, productId);
     for (const granularity of ['FIVE_MINUTE', 'ONE_HOUR'] as const) {
       // Skip a market/granularity that is already cached for this window.
-      const have = await cachedCount(admin, productId, granularity, startSec, endSec);
+      const have = await cachedCount(admin, key, granularity, startSec, endSec);
+      const sessionShare = assetClass === 'stocks' ? (6.5 / 24) * (5 / 7) * 0.8 : 0.8;
       const expected = granularity === 'FIVE_MINUTE'
-        ? Math.floor((endSec - startSec) / 300) * 0.8
-        : Math.floor((endSec - startSec) / 3600) * 0.8;
+        ? Math.floor((endSec - startSec) / 300) * sessionShare
+        : Math.floor((endSec - startSec) / 3600) * sessionShare;
       if (have >= expected) { loaded += have; continue; }
-      const bars = await fetchHistory(productId, granularity, startSec, endSec);
-      if (bars.length) loaded += await cacheBars(admin, productId, granularity, bars);
+      const bars = assetClass === 'stocks'
+        ? await fetchStockHistory(stockCreds!, productId, granularity, startSec, endSec)
+        : await fetchHistory(productId, granularity, startSec, endSec);
+      if (bars.length) loaded += await cacheBars(admin, productId, granularity, bars, assetClass);
     }
   }
+
 
   const done = cursor >= universe.length;
   const update: Record<string, unknown> = {
@@ -226,14 +258,16 @@ async function tickReplay(admin: any, job: any) {
   const startSec = secs(job.range_start);
   const endSec = secs(job.range_end);
   const summary = (job.summary ?? {}) as Record<string, unknown>;
+  const assetClass: 'crypto' | 'stocks' = job.asset_class === 'stocks' ? 'stocks' : 'crypto';
 
   // ── Step A: build the tape timeline once, from every market's hourly closes ──
   if (!summary.tape) {
     const hourlyBySymbol = new Map<string, Bar[]>();
     for (const productId of universe) {
-      const bars = await loadBars(admin, productId, 'ONE_HOUR', startSec, endSec);
+      const bars = await loadBars(admin, cacheKey(assetClass, productId), 'ONE_HOUR', startSec, endSec);
       if (bars.length) hourlyBySymbol.set(productId, bars);
     }
+
     const tape = buildTapeTimeline(hourlyBySymbol, params);
     summary.tape = {
       open_hours: [...tape.open],
@@ -276,10 +310,12 @@ async function tickReplay(admin: any, job: any) {
   // ── Step B: replay a slice of markets ───────────────────────────────────────
   for (; cursor < claimTo; cursor++) {
     const productId = universe[cursor];
-    const symbol = productId.split('-')[0];
-    const bars5m = await loadBars(admin, productId, 'FIVE_MINUTE', startSec, endSec);
-    const bars1h = await loadBars(admin, productId, 'ONE_HOUR', startSec, endSec);
+    const symbol = assetClass === 'stocks' ? productId.toUpperCase() : productId.split('-')[0];
+    const key = cacheKey(assetClass, productId);
+    const bars5m = await loadBars(admin, key, 'FIVE_MINUTE', startSec, endSec);
+    const bars1h = await loadBars(admin, key, 'ONE_HOUR', startSec, endSec);
     const result: SymbolReplay = replaySymbol(symbol, bars5m, bars1h, tapeOpen, params, positionValue);
+
 
     const closed = closedOnly(result.trades);
     const metrics = computeMetrics(result.trades, params.initialBalance);

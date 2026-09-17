@@ -284,6 +284,12 @@ function simulateExit(
     };
   };
 
+  // Equity bars only exist while the market was open, so a wall-clock hold window
+  // would "expire" every position overnight. For stocks the window is therefore
+  // counted in traded bars, which is the same number of market minutes.
+  const holdBars = Math.max(1, Math.round(holdSeconds / 300));
+  const stockMode = params.assetClass === 'stocks';
+
   for (let j = entryIdx + 1; j < bars.length; j++) {
     const bar = bars[j];
     const lowPct = ((bar.low - entryPrice) / entryPrice) * 100;
@@ -302,9 +308,11 @@ function simulateExit(
       return close(bar.start, entryPrice * (1 + targetPct / 100), 'target');
     }
     // 4. Max hold — exit at the bar close once the window is spent.
-    if (bar.start - entryAt >= holdSeconds) {
+    const spent = stockMode ? (j - entryIdx) >= holdBars : (bar.start - entryAt) >= holdSeconds;
+    if (spent) {
       return close(bar.start, bar.close, 'max_hold');
     }
+
 
     // Arm / raise the profit lock from this bar's peak, for use on LATER bars only.
     peakPct = Math.max(peakPct, highPct);

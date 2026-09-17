@@ -32,8 +32,19 @@ interface ExchangeConfig {
  * Supported crypto exchanges. This platform is crypto-only.
  */
 const exchanges: ExchangeConfig[] = [
+  // 📈 STOCK BROKER
+  {
+    provider: 'alpaca',
+    name: 'Alpaca',
+    logo: '📈',
+    description: 'US stocks and ETFs, commission-free',
+    docsUrl: 'https://docs.alpaca.markets/docs/trading-api',
+    requiresPassphrase: false,
+    keyHint: 'PK... for paper keys, AK... for live keys',
+  },
   // CRYPTO EXCHANGES
   {
+
     provider: 'coinbase',
     name: 'Coinbase',
     logo: '🪙',

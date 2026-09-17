@@ -8,6 +8,16 @@ import {
   WIDE_STOP_MAX_PCT,
   ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
+import {
+  STOCK_MIN_REWARD_RISK,
+  STOCK_STOP_MAX_PCT,
+  requiredStockTakeProfit,
+} from "../_shared/stock-geometry.ts";
+import { roundTripCostPct } from "../_shared/asset-class.ts";
+
+/** Equities are commission-free on Alpaca — spread allowance only. */
+const STOCK_COST_PCT = roundTripCostPct('stocks');
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -262,19 +272,26 @@ async function validateTrade(
   // ==========================================================================
   // CHECK 11: Exit Geometry Expectancy - reject mathematically losing setups
   // ==========================================================================
-  // The 0.8% round trip is subtracted from the winner AND added to the loser, so a
-  // "gross 1.6:1" pair (TP 1.28% / stop 0.8%) really pays 0.30:1. The gate is now run
-  // on the NET numbers from the shared solver, the same ones the exit engine executes.
+  // Crypto: the 0.8% Coinbase round trip is subtracted from the winner AND added to
+  // the loser, so a "gross 1.6:1" pair really pays 0.30:1. Stocks on Alpaca are
+  // commission-free, so they carry a spread allowance instead and their own risk cap —
+  // charging equities the crypto fee would reject every reasonable stock target.
   if (proposal.side === 'buy' && proposal.stopLoss && proposal.takeProfit) {
+    const isStock = String((proposal as any).assetClass ?? (proposal as any).marketType ?? 'crypto') === 'stocks';
+    const costPct = isStock ? STOCK_COST_PCT : ROUND_TRIP_FEE_PCT;
+    const minRr = isStock ? STOCK_MIN_REWARD_RISK : MIN_REWARD_RISK;
+
     const riskPct = ((proposal.price - proposal.stopLoss) / proposal.price) * 100;
     const rewardPct = ((proposal.takeProfit - proposal.price) / proposal.price) * 100;
 
     if (riskPct > 0 && rewardPct > 0) {
-      const netRewardPct = rewardPct - ROUND_TRIP_FEE_PCT;
-      const netRiskPct = riskPct + ROUND_TRIP_FEE_PCT;
-      const netRr = netRewardRiskOf(rewardPct, riskPct);
+      const netRewardPct = rewardPct - costPct;
+      const netRiskPct = riskPct + costPct;
+      const netRr = netRiskPct > 0 ? netRewardPct / netRiskPct : 0;
 
-      const maxRiskForTrade = proposal.wideStop ? WIDE_STOP_MAX_PCT : MAX_RISK_PCT;
+      const maxRiskForTrade = isStock
+        ? STOCK_STOP_MAX_PCT
+        : (proposal.wideStop ? WIDE_STOP_MAX_PCT : MAX_RISK_PCT);
       if (riskPct > maxRiskForTrade + 1e-6) {
         violations.push(
           `exit_geometry: stop -${riskPct.toFixed(2)}% exceeds the ${maxRiskForTrade}% max risk per trade`
@@ -283,21 +300,25 @@ async function validateTrade(
         severity = 'warning';
       } else if (netRewardPct <= 0) {
         violations.push(
-          `exit_geometry: target +${rewardPct.toFixed(2)}% does not clear the ${ROUND_TRIP_FEE_PCT}% fee round trip`
+          `exit_geometry: target +${rewardPct.toFixed(2)}% does not clear the ${costPct}% round-trip cost`
         );
         approved = false;
         severity = 'warning';
-      } else if (netRr < MIN_REWARD_RISK - 1e-6) {
+      } else if (netRr < minRr - 1e-6) {
+        const requiredTp = isStock
+          ? requiredStockTakeProfit(riskPct)
+          : requiredGrossTakeProfit(riskPct);
         violations.push(
-          `exit_geometry: NET reward:risk ${netRr.toFixed(2)}:1 below the ${MIN_REWARD_RISK}:1 minimum ` +
-          `(net +${netRewardPct.toFixed(2)}% vs net -${netRiskPct.toFixed(2)}% after fees; ` +
-          `needs target ≥ +${requiredGrossTakeProfit(riskPct).toFixed(2)}% gross) — negative expectancy`
+          `exit_geometry: NET reward:risk ${netRr.toFixed(2)}:1 below the ${minRr}:1 minimum ` +
+          `(net +${netRewardPct.toFixed(2)}% vs net -${netRiskPct.toFixed(2)}% after costs; ` +
+          `needs target ≥ +${requiredTp.toFixed(2)}%) — negative expectancy`
         );
         approved = false;
         severity = 'warning';
       }
     }
   }
+
 
 
   // Build result

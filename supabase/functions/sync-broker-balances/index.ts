@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
+// 📈 Alpaca (equities) account + position sync.
+import { loadAlpacaCreds } from "../_shared/alpaca-creds.ts";
+import { getAccount, getPositions } from "../_shared/alpaca.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -705,7 +709,77 @@ serve(async (req) => {
             };
           }
           
-          // Alpaca sync removed.
+          // 📈 STOCKS: Alpaca account + equity positions.
+          else if (conn.provider === "alpaca") {
+            const creds = await loadAlpacaCreds(serviceClient, userId);
+            if (!creds) {
+              allResults[userId] = { provider: conn.provider, message: "No Alpaca keys saved" };
+              continue;
+            }
+
+            const account = await getAccount(creds);
+            if (!account) {
+              allResults[userId] = { provider: conn.provider, error: "Alpaca account unavailable" };
+              continue;
+            }
+
+            await serviceClient.from("live_account").upsert({
+              user_id: userId,
+              provider: "alpaca",
+              balance: account.cash,
+              buying_power: account.buyingPower,
+              equity: account.equity,
+              last_synced_at: new Date().toISOString(),
+            }, { onConflict: "user_id,provider" });
+
+            // Mirror Alpaca's own position list into the stock positions rows so
+            // the dashboard matches the brokerage exactly.
+            const alpacaPositions = await getPositions(creds);
+            const { data: existingStock } = await serviceClient
+              .from("positions")
+              .select("id, symbol")
+              .eq("user_id", userId)
+              .eq("is_paper", false)
+              .eq("market_type", "stocks");
+
+            const seen = new Set<string>();
+            for (const p of alpacaPositions) {
+              seen.add(p.symbol);
+              const existing = existingStock?.find((e: any) => e.symbol === p.symbol);
+              const row = {
+                user_id: userId,
+                symbol: p.symbol,
+                side: "buy",
+                quantity: p.qty,
+                avg_entry_price: p.avgEntryPrice,
+                current_price: p.currentPrice,
+                unrealized_pnl: p.unrealizedPl,
+                market_type: "stocks",
+                is_paper: false,
+                updated_at: new Date().toISOString(),
+              };
+              if (existing) {
+                await serviceClient.from("positions").update(row).eq("id", existing.id);
+              } else {
+                await serviceClient.from("positions").insert(row);
+              }
+            }
+
+            for (const e of existingStock ?? []) {
+              if (!seen.has(e.symbol)) {
+                await serviceClient.from("positions").delete().eq("id", e.id);
+              }
+            }
+
+            console.log(`✅ Alpaca synced: $${account.equity.toFixed(2)} equity, ${alpacaPositions.length} positions`);
+            allResults[userId] = {
+              provider: conn.provider,
+              balance: account.cash,
+              holdings: alpacaPositions.length,
+            };
+          }
+
+
           
           // Other crypto exchanges (binance, kraken, etc.)
           else {

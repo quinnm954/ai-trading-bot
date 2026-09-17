@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getAccount } from "../_shared/alpaca.ts";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
 /**
@@ -109,7 +110,16 @@ const EXCHANGES = {
       accounts: "https://api.bitget.com/api/spot/v1/account/assets",
     },
   },
+  // 📈 EQUITIES BROKER
+  alpaca: {
+    name: "Alpaca",
+    authType: "keys",
+    endpoints: {
+      accounts: "https://api.alpaca.markets/v2/account",
+    },
+  },
 };
+
 
 type ExchangeType = keyof typeof EXCHANGES;
 
@@ -130,8 +140,14 @@ interface DetectionResult {
 function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
   console.log("Detecting exchange from key format...");
   
-  
+  // 📈 Alpaca stock keys: paper keys start with PK, live keys with AK.
+  if (/^(PK|AK)[A-Z0-9]{10,}$/.test(apiKey)) {
+    console.log("Detected: Alpaca (equities)");
+    return { exchange: "alpaca", authType: "keys", confidence: 0.95 };
+  }
+
   // CRYPTO EXCHANGE DETECTION
+
   // Check for Coinbase CDP (most distinctive)
   if (apiKey.startsWith("organizations/") || 
       secretKey.includes("-----BEGIN") || 
@@ -681,6 +697,22 @@ serve(async (req) => {
       case "bitget":
         accountInfo = await testBitget(apiKey, secretKey, passphrase);
         break;
+      // 📈 Alpaca: paper keys start with PK, live with AK.
+      case "alpaca": {
+        const paper = apiKey.startsWith("PK");
+        const account = await getAccount({ keyId: apiKey, secretKey, paper });
+        if (!account) throw new Error("Alpaca rejected these keys");
+        accountInfo = {
+          equity: account.equity,
+          cash: account.cash,
+          buyingPower: account.buyingPower,
+          accountType: account.accountType,
+          paper,
+          tradingBlocked: account.tradingBlocked || account.accountBlocked,
+        };
+        break;
+      }
+
       default:
         throw new Error(`Unsupported exchange: ${detectedExchange}`);
     }
