@@ -265,7 +265,7 @@ function simulateExit(
 
   const lock = params.wideStopMode
     ? { armPct: WIDE_TRAIL_ARM_PCT, givebackPct: WIDE_TRAIL_DROP_PCT }
-    : solveProfitLock(stopPct);
+    : variantProfitLock(stopPct);
 
   let peakPct = 0;
   let floorPct: number | null = null;
