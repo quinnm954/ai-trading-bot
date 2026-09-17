@@ -25,6 +25,26 @@ import {
   PLAYBOOK_TUNING_BOUNDS,
   type PlaybookTuning,
 } from "../_shared/entry-playbook.ts";
+// 📐 Indicator + candle-feature math lives in _shared so the backtest replay scores
+// history with byte-identical logic. These were extracted verbatim from this file.
+import {
+  findSupportLevel,
+  classifyVol,
+  computeRSI,
+  computeBollinger,
+  computeEMA,
+  computeMacdHistogram,
+  computeVWAP,
+  computeVolumeRatio,
+  hasHigherLows,
+} from "../_shared/indicators.ts";
+import {
+  computeCandleTechnicals,
+  computeHtfContext,
+  MIN_CLOSED_5M_BARS,
+  MAX_5M_GAP_SECONDS,
+  type CandleTechnicals,
+} from "../_shared/candle-technicals.ts";
 
 // 🎓 LEARNED SETUP MEMORY — setup fingerprints that have proven negative expectancy
 // over a real sample are benched by record_setup_outcome() and never traded again
@@ -1680,184 +1700,10 @@ const MIN_24H_CHANGE_FOR_ENTRY = -5;
 // =============================================================================
 // 📡 COINBASE CANDLE TECHNICALS — momentum + Bollinger Bands(20,2) + RSI(14)
 // =============================================================================
-interface CandleTechnicals {
-  change5m: number;
-  change15m: number;
-  lastClose: number;
-  rsi14?: number;
-  bbLower?: number;
-  bbMid?: number;
-  bbUpper?: number;
-  bbWidth?: number;
-  percentB?: number;
-  techSetup: string;
-  techScore: number;
-  atrPct?: number;
-  /** ATR(14) on ONE_HOUR candles as % of price — the swing-scale volatility used for stop sizing. */
-  swingAtrPct?: number;
-  volClass?: 'dead' | 'low' | 'sweet' | 'high' | 'extreme';
-  volScore?: number;
-  supportPrice?: number;
-  distanceToSupportPct?: number;
-  supportContext?: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support';
-  // 📚 Playbook inputs
-  ema9?: number;
-  ema21?: number;
-  macdHist?: number;
-  macdHistPrev?: number;
-  vwap?: number;
-  volumeRatio?: number;
-  higherLows?: boolean;
-  htfAboveEma?: boolean;
-  htfSlopePct?: number;
-}
+// CandleTechnicals, the indicator library and the candle feature builder now live in
+// ../_shared/indicators.ts and ../_shared/candle-technicals.ts (imported at the top of
+// this file) so the backtest replay can score history with identical math.
 
-// Detect the nearest swing-low support relative to `price` using ±`window` pivot lows.
-// AUDIT FIX: the session low used to be appended as a fallback pivot, which made
-// `below_support` mathematically unreachable (the lowest low is always ≤ price), so that
-// veto never once fired. Support is now pivot-only; if every pivot sits above price, the
-// price really has broken below structure and we say so.
-function findSupportLevel(lows: number[], price: number, window = 3): { support?: number; broken: boolean } {
-  if (lows.length < window * 2 + 1) return { broken: false };
-  const pivots: number[] = [];
-  for (let i = window; i < lows.length - window; i++) {
-    let isPivot = true;
-    for (let j = i - window; j <= i + window; j++) {
-      if (j !== i && lows[j] < lows[i]) { isPivot = false; break; }
-    }
-    if (isPivot) pivots.push(lows[i]);
-  }
-  if (!pivots.length) return { broken: false };
-  const below = pivots.filter(p => p <= price).sort((a, b) => b - a);
-  if (below.length) return { support: below[0], broken: false };
-  // No pivot at or below price → price has traded through its recent swing structure.
-  const above = [...pivots].sort((a, b) => a - b);
-  return { support: above[0], broken: true };
-}
-
-function classifyVol(atrPct: number): { cls: 'dead' | 'low' | 'sweet' | 'high' | 'extreme'; score: number } {
-  // ATR% measured on 5m candles. Tradable "sweet spot" ≈ 0.25%–0.9%.
-  if (atrPct < 0.08) return { cls: 'dead', score: 10 };          // illiquid / flat
-  if (atrPct < 0.25) return { cls: 'low', score: 55 };           // workable but thin moves
-  if (atrPct <= 0.9) return { cls: 'sweet', score: 100 };        // ideal for scalp entries
-  if (atrPct <= 1.8) return { cls: 'high', score: 65 };          // moves are real but slippage rises
-  return { cls: 'extreme', score: 25 };                          // chaotic — wide stops, poor R:R
-}
-
-/**
- * RSI(14) with Wilder smoothing — the standard every charting platform uses.
- * AUDIT FIX: this previously averaged only the last 14 bars' gains/losses with a flat
- * mean, which read up to 17 points away from a real RSI (measured: VTHO 24.5 vs 41.3).
- * That made coins look "oversold" that weren't and mis-fired the overbought veto.
- */
-function computeRSI(closes: number[], period = 14): number | undefined {
-  if (closes.length < period + 1) return undefined;
-  const gains: number[] = [];
-  const losses: number[] = [];
-  for (let i = 1; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    gains.push(d > 0 ? d : 0);
-    losses.push(d < 0 ? -d : 0);
-  }
-  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < gains.length; i++) {
-    avgGain = (avgGain * (period - 1) + gains[i]) / period;
-    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-  }
-  if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
-}
-
-function computeBollinger(closes: number[], period = 20, mult = 2) {
-  if (closes.length < period) return null;
-  const slice = closes.slice(closes.length - period);
-  const mid = slice.reduce((a, b) => a + b, 0) / period;
-  const variance = slice.reduce((a, b) => a + (b - mid) ** 2, 0) / period;
-  const sd = Math.sqrt(variance);
-  const upper = mid + mult * sd;
-  const lower = mid - mult * sd;
-  return { mid, upper, lower, width: mid > 0 ? (upper - lower) / mid : 0 };
-}
-
-// ── 📚 PLAYBOOK INDICATORS ────────────────────────────────────────────────────
-/** Exponential moving average of the last `period` closes. */
-function computeEMA(values: number[], period: number): number | undefined {
-  if (values.length < period) return undefined;
-  const k = 2 / (period + 1);
-  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < values.length; i++) ema = values[i] * k + ema * (1 - k);
-  return ema;
-}
-
-/** Full EMA series (needed for the MACD signal line). */
-function emaSeries(values: number[], period: number): number[] {
-  if (values.length < period) return [];
-  const k = 2 / (period + 1);
-  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  const out = [ema];
-  for (let i = period; i < values.length; i++) {
-    ema = values[i] * k + ema * (1 - k);
-    out.push(ema);
-  }
-  return out;
-}
-
-/** MACD(12,26,9) histogram — current and previous bar, to detect a momentum turn. */
-function computeMacdHistogram(closes: number[]): { hist: number; prevHist: number } | undefined {
-  if (closes.length < 35) return undefined;
-  const fast = emaSeries(closes, 12);
-  const slow = emaSeries(closes, 26);
-  if (!fast.length || !slow.length) return undefined;
-  // Align tails so both series describe the same bars.
-  const len = Math.min(fast.length, slow.length);
-  const macdLine = Array.from({ length: len }, (_, i) =>
-    fast[fast.length - len + i] - slow[slow.length - len + i]);
-  const signal = emaSeries(macdLine, 9);
-  if (signal.length < 2) return undefined;
-  const histAt = (back: number) =>
-    macdLine[macdLine.length - 1 - back] - signal[signal.length - 1 - back];
-  return { hist: histAt(0), prevHist: histAt(1) };
-}
-
-/** Rolling VWAP over the last `period` candles using typical price × volume. */
-function computeVWAP(closes: number[], highs: number[], lows: number[], volumes: number[], period = 20): number | undefined {
-  const n = Math.min(period, closes.length, volumes.length);
-  if (n < 5) return undefined;
-  let pv = 0, vol = 0;
-  for (let i = closes.length - n; i < closes.length; i++) {
-    const typical = (highs[i] + lows[i] + closes[i]) / 3;
-    const v = volumes[i] || 0;
-    pv += typical * v;
-    vol += v;
-  }
-  if (!(vol > 0)) return undefined;
-  return pv / vol;
-}
-
-/** Trigger-window volume vs its own baseline — participation confirmation. */
-function computeVolumeRatio(volumes: number[], recent = 3, baseline = 20): number | undefined {
-  if (volumes.length < baseline + recent) return undefined;
-  const recentSlice = volumes.slice(-recent);
-  const baseSlice = volumes.slice(-(baseline + recent), -recent);
-  const recentAvg = recentSlice.reduce((a, b) => a + b, 0) / recentSlice.length;
-  const baseAvg = baseSlice.reduce((a, b) => a + b, 0) / baseSlice.length;
-  if (!(baseAvg > 0)) return undefined;
-  return recentAvg / baseAvg;
-}
-
-/** Rising-low structure over the last three swing windows. */
-function hasHigherLows(lows: number[], windows = 3): boolean | undefined {
-  const size = 6;
-  if (lows.length < size * windows) return undefined;
-  const mins: number[] = [];
-  for (let w = windows; w >= 1; w--) {
-    const slice = lows.slice(lows.length - size * w, lows.length - size * (w - 1));
-    mins.push(Math.min(...slice));
-  }
-  return mins.every((v, i) => i === 0 || v >= mins[i - 1]);
-}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -1892,15 +1738,7 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
   return null;
 }
 
-/**
- * ONE_HOUR candle context in a single fetch:
- *  - swingAtrPct: ATR(14) as % of price — swing-scale volatility for stop sizing
- *  - htfAboveEma / htfSlopePct: higher-timeframe trend, so nothing buys into an hourly downtrend
- *  - change1h: the REAL hour-over-hour move (audit fix — the engine used to store the 15m
- *    move in `change1h`, which read up to 0.8pp away from the true hourly change)
- * The in-progress hourly candle is dropped: an unfinished bar under-reports both range and
- * volume, so indicators built on it drift as the hour fills in.
- */
+/** Fetch ONE_HOUR candles and score them with the shared HTF feature builder. */
 async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: number; htfAboveEma?: boolean; htfSlopePct?: number; change1h?: number } | undefined> {
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -1910,59 +1748,14 @@ async function fetchHtfContext(productId: string): Promise<{ swingAtrPct?: numbe
     if (!resp) return undefined;
     const data = await resp.json();
     const raw = Array.isArray(data?.candles) ? data.candles : [];
-    const sorted = [...raw]
-      .sort((a: any, b: any) => Number(a.start) - Number(b.start))
-      .filter((c: any) => Number(c.start) + 3600 <= now); // closed bars only
-    if (sorted.length < 15) return undefined;
-    const closes = sorted.map((c: any) => Number(c.close));
-    const highs = sorted.map((c: any) => Number(c.high));
-    const lows = sorted.map((c: any) => Number(c.low));
-    const trs: number[] = [];
-    for (let i = 1; i < closes.length; i++) {
-      trs.push(Math.max(
-        highs[i] - lows[i],
-        Math.abs(highs[i] - closes[i - 1]),
-        Math.abs(lows[i] - closes[i - 1]),
-      ));
-    }
-    const slice = trs.slice(-14);
-    const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
-    const last = closes[closes.length - 1];
-    if (!(last > 0)) return undefined;
-
-    // True 1h change — only when the two newest bars really are consecutive hours.
-    let change1h: number | undefined;
-    const tLast = Number(sorted[sorted.length - 1].start);
-    const tPrev = Number(sorted[sorted.length - 2].start);
-    const prevClose = closes[closes.length - 2];
-    if (tLast - tPrev === 3600 && prevClose > 0) change1h = ((last - prevClose) / prevClose) * 100;
-
-    // Higher-timeframe trend: price vs 1h EMA(20) and the EMA's own slope over 6 hours.
-    const ema20 = computeEMA(closes, 20);
-    let htfAboveEma: boolean | undefined;
-    let htfSlopePct: number | undefined;
-    if (ema20 !== undefined && ema20 > 0) {
-      htfAboveEma = last >= ema20;
-      const past = computeEMA(closes.slice(0, Math.max(21, closes.length - 6)), 20);
-      if (past !== undefined && past > 0) htfSlopePct = ((ema20 - past) / past) * 100;
-    }
-
-    return {
-      swingAtrPct: atr > 0 ? (atr / last) * 100 : undefined,
-      htfAboveEma,
-      htfSlopePct,
-      change1h,
-    };
+    return computeHtfContext(raw, now);
   } catch (_e) {
     return undefined;
   }
 }
 
-/** How many closed 5m bars an indicator set needs before it means anything. */
-const MIN_CLOSED_5M_BARS = 36;
-/** Largest tolerated hole in the recent 5m series (seconds). Beyond this the tape is too thin. */
-const MAX_5M_GAP_SECONDS = 900;
 
+/** Fetch the 5m series and score it with the shared candle feature builder. */
 async function fetchCandleTechnicals(productId: string): Promise<CandleTechnicals | null> {
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -1974,157 +1767,12 @@ async function fetchCandleTechnicals(productId: string): Promise<CandleTechnical
     if (!resp) return null;
     const data = await resp.json();
     const raw = Array.isArray(data?.candles) ? data.candles : [];
-    // AUDIT FIX 1: drop the in-progress candle. Measured effect on live coins: change5m read
-    // +0.03% instead of +0.62%, and volume participation 1.06× instead of 2.48× — enough to
-    // flip the volume veto on and off at random.
-    const sorted = [...raw]
-      .sort((a: any, b: any) => Number(a.start) - Number(b.start))
-      .filter((c: any) => Number(c.start) + 300 <= now);
-    if (sorted.length < MIN_CLOSED_5M_BARS) return null;
-
-    const starts = sorted.map((c: any) => Number(c.start));
-    // AUDIT FIX 2: refuse gappy tape. Missing bars mean "no trades happened", so a series with
-    // holes silently stretches RSI/BB/MACD/ATR across hours instead of minutes.
-    const recentStarts = starts.slice(-24);
-    let maxGap = 0;
-    for (let i = 1; i < recentStarts.length; i++) maxGap = Math.max(maxGap, recentStarts[i] - recentStarts[i - 1]);
-    if (maxGap > MAX_5M_GAP_SECONDS) return null;
-
-    const closes = sorted.map((c: any) => Number(c.close));
-    const highs = sorted.map((c: any) => Number(c.high));
-    const lows = sorted.map((c: any) => Number(c.low));
-    const volumes = sorted.map((c: any) => Number(c.volume) || 0);
-    const last = closes[closes.length - 1];
-
-    // AUDIT FIX 3: timestamp-aware short-window changes — only quoted when the bars used
-    // really are 5 and 15 minutes back, never as an implicit 0%.
-    const tLast = starts[starts.length - 1];
-    const idxAt = (secondsBack: number) => starts.lastIndexOf(tLast - secondsBack);
-    const i5 = idxAt(300);
-    const i15 = idxAt(900);
-    const change5m = i5 >= 0 && closes[i5] > 0 ? ((last - closes[i5]) / closes[i5]) * 100 : 0;
-    const change15m = i15 >= 0 && closes[i15] > 0 ? ((last - closes[i15]) / closes[i15]) * 100 : change5m;
-
-    const rsi = computeRSI(closes, 14);
-    const bb = computeBollinger(closes, 20, 2);
-    const percentB = bb && bb.upper > bb.lower ? (last - bb.lower) / (bb.upper - bb.lower) : undefined;
-
-    // 📚 Playbook inputs — trend structure, momentum turn, participation and value.
-    const ema9 = computeEMA(closes, 9);
-    const ema21 = computeEMA(closes, 21);
-    const macd = computeMacdHistogram(closes);
-    const vwap = computeVWAP(closes, highs, lows, volumes, 20);
-    const volumeRatio = computeVolumeRatio(volumes, 3, 20);
-    const higherLows = hasHigherLows(lows, 3);
-
-    // ATR(14) on 5m → realized volatility as % of last price
-    let atrPct: number | undefined;
-    let volClass: 'dead' | 'low' | 'sweet' | 'high' | 'extreme' | undefined;
-    let volScore: number | undefined;
-    if (closes.length >= 15) {
-      const trs: number[] = [];
-      for (let i = 1; i < closes.length; i++) {
-        const tr = Math.max(
-          highs[i] - lows[i],
-          Math.abs(highs[i] - closes[i - 1]),
-          Math.abs(lows[i] - closes[i - 1]),
-        );
-        trs.push(tr);
-      }
-      const slice = trs.slice(-14);
-      const atr = slice.reduce((a, b) => a + b, 0) / slice.length;
-      if (last > 0) {
-        atrPct = (atr / last) * 100;
-        const v = classifyVol(atrPct);
-        volClass = v.cls;
-        volScore = v.score;
-      }
-    }
-
-    // Score the setup: 0–100.
-    // AUDIT FIX 4: this used to REWARD "RSI oversold", "%B at lower band" and "bounce from
-    // lower BB" — the exact falling-knife setups the entry playbook exists to block. The
-    // legacy bonus could lift a weak candidate into range and then be vetoed downstream,
-    // which made the score meaningless. Weakness is no longer rewarded here.
-    let score = 50;
-    const labels: string[] = [];
-    if (rsi !== undefined) {
-      if (rsi < 30) { score -= 6; labels.push(`RSI ${rsi.toFixed(0)} washed out`); }
-      else if (rsi < 45) { labels.push(`RSI ${rsi.toFixed(0)} cool`); }
-      else if (rsi >= 50 && rsi <= 62) { score += 10; labels.push(`RSI ${rsi.toFixed(0)} constructive`); }
-      else if (rsi > 70) { score -= 20; labels.push(`RSI ${rsi.toFixed(0)} overbought`); }
-      else if (rsi > 62) { score -= 8; labels.push(`RSI ${rsi.toFixed(0)} hot`); }
-    }
-    if (percentB !== undefined) {
-      if (percentB < 0.15) { score -= 10; labels.push(`%B ${percentB.toFixed(2)} pinned to lower band`); }
-      else if (percentB >= 0.45 && percentB <= 0.75) { score += 10; labels.push(`%B ${percentB.toFixed(2)} mid-upper band`); }
-      else if (percentB > 0.95) { score -= 20; labels.push(`%B ${percentB.toFixed(2)} above upper BB`); }
-      else if (percentB > 0.8) { score -= 8; labels.push(`%B ${percentB.toFixed(2)} upper band`); }
-    }
-    if (bb && bb.width < 0.03) { score += 6; labels.push(`BB squeeze (${(bb.width * 100).toFixed(2)}%)`); }
-    // Strength confirmation, not dip-catching: rising price with the band mid reclaimed.
-    if (change5m > 0 && percentB !== undefined && percentB >= 0.5) { score += 10; labels.push('rising above band mid'); }
-    if (change5m > 3) { score -= 15; labels.push('5m spike'); }
-    if (ema9 !== undefined && ema21 !== undefined) {
-      if (ema9 >= ema21) { score += 8; labels.push('EMA9 ≥ EMA21'); }
-      else { score -= 8; labels.push('EMA9 < EMA21'); }
-    }
-    if (macd && macd.hist > macd.prevHist) { score += 6; labels.push('MACD hist rising'); }
-
-    // Volatility-aware adjustments
-    if (atrPct !== undefined && volClass) {
-      if (volClass === 'sweet') { score += 12; labels.push(`vol sweet ATR ${atrPct.toFixed(2)}%`); }
-      else if (volClass === 'high') { score += 2; labels.push(`vol high ATR ${atrPct.toFixed(2)}%`); }
-      else if (volClass === 'low') { score -= 4; labels.push(`vol low ATR ${atrPct.toFixed(2)}%`); }
-      else if (volClass === 'dead') { score -= 25; labels.push(`vol dead ATR ${atrPct.toFixed(2)}%`); }
-      else if (volClass === 'extreme') { score -= 20; labels.push(`vol extreme ATR ${atrPct.toFixed(2)}%`); }
-    }
-
-    // Support-level awareness — structure location, now able to report a real break.
-    const sup = findSupportLevel(lows, last, 3);
-    const supportPrice = sup.support;
-    let distanceToSupportPct: number | undefined;
-    let supportContext: 'at_support' | 'near_support' | 'mid_range' | 'far_above_support' | 'below_support' | undefined;
-    if (supportPrice !== undefined && last > 0) {
-      distanceToSupportPct = ((last - supportPrice) / last) * 100;
-      // Use ATR% as the "what's close?" yardstick when available, else fall back to fixed bands.
-      const nearBand = Math.max(0.4, (atrPct ?? 0.5) * 0.6);   // "at support"
-      const midBand  = Math.max(1.5, (atrPct ?? 0.5) * 2.0);   // "near support"
-      if (sup.broken || distanceToSupportPct < 0) {
-        supportContext = 'below_support';
-        score -= 18; labels.push(`below support ${supportPrice.toFixed(6)}`);
-      } else if (distanceToSupportPct <= nearBand) {
-        supportContext = 'at_support';
-        score += 14; labels.push(`at support ${supportPrice.toFixed(6)} (${distanceToSupportPct.toFixed(2)}% away)`);
-      } else if (distanceToSupportPct <= midBand) {
-        supportContext = 'near_support';
-        score += 6; labels.push(`near support (${distanceToSupportPct.toFixed(2)}% away)`);
-      } else if (distanceToSupportPct <= midBand * 2) {
-        supportContext = 'mid_range';
-      } else {
-        supportContext = 'far_above_support';
-        score -= 10; labels.push(`far above support (${distanceToSupportPct.toFixed(2)}% — poor R:R)`);
-      }
-    }
-
-    score = Math.max(0, Math.min(100, score));
-    const techSetup = labels.length ? labels.join(' | ') : 'neutral';
-
-    return {
-      change5m, change15m, lastClose: last,
-      rsi14: rsi,
-      bbLower: bb?.lower, bbMid: bb?.mid, bbUpper: bb?.upper, bbWidth: bb?.width,
-      percentB,
-      techSetup, techScore: score,
-      atrPct, volClass, volScore,
-      supportPrice, distanceToSupportPct, supportContext,
-      ema9, ema21, macdHist: macd?.hist, macdHistPrev: macd?.prevHist,
-      vwap, volumeRatio, higherLows,
-    };
+    return computeCandleTechnicals(raw, now);
   } catch (_e) {
     return null;
   }
 }
+
 
 /** Populate real short-window movement before regime classification and reuse it later. */
 // 🌍 UNIVERSE WIDTH — how many Coinbase markets get full candle/band technicals each
