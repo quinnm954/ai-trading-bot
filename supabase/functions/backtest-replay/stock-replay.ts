@@ -348,6 +348,7 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
           maxStopPct: params.geometry.maxRiskPct,
           atrMult: params.geometry.stopAtrMult,
         },
+        instrumentProfile_,
       );
       if (!geo.reachable) { tally('target_unreachable'); continue; }
 
@@ -362,11 +363,25 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
         targetPct: geo.takeProfitPct,
         holdMinutes: geo.holdMinutes,
         tuning: params.stockPlaybook,
+        // Same instrument-class shaping the live engine applies, so an ETF, a
+        // leveraged fund and a micro-cap replay under their own rules.
+        instrument: {
+          kind: instrumentProfile_.kind,
+          label: instrumentProfile_.label,
+          minRvol: instrumentProfile_.minRvol,
+          scoreDelta: instrumentProfile_.scoreDelta,
+          minDailyAtrPct: instrumentProfile_.minDailyAtrPct,
+          maxDailyAtrPct: instrumentProfile_.maxDailyAtrPct,
+          earningsRelevant: instrumentProfile_.earningsRelevant,
+          requireIndexAlignment: instrumentProfile_.requireIndexAlignment,
+          leverage: instrumentClass_.leverage,
+        },
       });
       if (!verdict.passed) {
         tally(normaliseStockVeto(verdict.vetoes[0] ?? 'score_below_floor'));
         continue;
       }
+
 
       // ── ENTRY ─────────────────────────────────────────────────────────────
       const entryFlatIdx = flatIndexBySec.get(Math.floor(Date.parse(bar.t) / 1000));
