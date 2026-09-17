@@ -377,6 +377,7 @@ export default function Dashboard() {
 
         <div className="space-y-4 lg:space-y-6">
           <AIStatusCard />
+          {marketMode === 'stocks' && <StockAccountCard />}
           <CapitalBasisCard isLiveMode={isLiveMode} />
           <SubscriptionStatusCard />
           <SubscriptionCostCard />
