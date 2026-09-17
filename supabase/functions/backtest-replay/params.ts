@@ -21,6 +21,11 @@ import {
   STOCK_TAPE_MIN_BREADTH,
   STOCK_TAPE_MIN_INDEX_PCT,
 } from "../_shared/stock-tape.ts";
+import {
+  STOCK_PLAYBOOK_DEFAULTS,
+  stockTuningFromSettings,
+  type StockPlaybookTuning,
+} from "../_shared/stock-playbook.ts";
 
 export interface BacktestParams {
   /** Which asset class this run replays. Crypto is the default. */
@@ -41,6 +46,8 @@ export interface BacktestParams {
   /** Stop cap / payoff floor being tested (defaults = the live constants). */
   geometry: GeometryKnobs;
   playbookTuning: Required<PlaybookTuning>;
+  /** Equity playbook thresholds. Only read by a stock run. */
+  stockPlaybook: StockPlaybookTuning;
   /** Round-trip cost charged on every simulated trade (crypto fees, stock spread). */
   feePct: number;
   /** How a bar whose range spans both stop and target is resolved. */
@@ -110,6 +117,14 @@ export function resolveParams(
       rsiMax: numOr(scalpSettings?.playbook_rsi_max, PLAYBOOK_TUNING_DEFAULTS.rsiMax),
       maxChase5m: numOr(scalpSettings?.playbook_max_chase_5m_pct, PLAYBOOK_TUNING_DEFAULTS.maxChase5m),
     },
+    stockPlaybook: {
+      minScore: STOCK_PLAYBOOK_DEFAULTS.minScore,
+      minRvol: STOCK_PLAYBOOK_DEFAULTS.minRvol,
+      minRsDayPct: STOCK_PLAYBOOK_DEFAULTS.minRsDayPct,
+      maxExtensionMult: STOCK_PLAYBOOK_DEFAULTS.maxExtensionMult,
+      earningsBufferDays: STOCK_PLAYBOOK_DEFAULTS.earningsBufferDays,
+      ...(isStock ? stockTuningFromSettings(aiSettings) : {}),
+    },
     feePct: isStock ? roundTripCostPct('stocks') : ROUND_TRIP_FEE_PCT,
     intrabarTieBreak: 'stop_first',
   };
@@ -149,6 +164,14 @@ export function resolveParams(
       maxPercentB: numOr((o.playbookTuning as Record<string, unknown>)?.maxPercentB, base.playbookTuning.maxPercentB),
       rsiMax: numOr((o.playbookTuning as Record<string, unknown>)?.rsiMax, base.playbookTuning.rsiMax),
       maxChase5m: numOr((o.playbookTuning as Record<string, unknown>)?.maxChase5m, base.playbookTuning.maxChase5m),
+    },
+    stockPlaybook: {
+      ...base.stockPlaybook,
+      ...Object.fromEntries(
+        Object.entries((o.stockPlaybook ?? {}) as Record<string, unknown>)
+          .filter(([, v]) => Number.isFinite(Number(v)))
+          .map(([k, v]) => [k, Number(v)]),
+      ),
     },
   };
   return out;
