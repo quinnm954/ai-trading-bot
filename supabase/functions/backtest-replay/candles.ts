@@ -9,11 +9,13 @@
 import { getBars, getSnapshots, listTradableAssets, type AlpacaCreds } from "../_shared/alpaca.ts";
 import { STOCK_CORE_UNIVERSE } from "../_shared/stock-feed.ts";
 
-export type Granularity = 'FIVE_MINUTE' | 'ONE_HOUR';
+export type Granularity = 'ONE_MINUTE' | 'FIVE_MINUTE' | 'ONE_HOUR' | 'ONE_DAY';
 
 export const GRANULARITY_SECONDS: Record<Granularity, number> = {
+  ONE_MINUTE: 60,
   FIVE_MINUTE: 300,
   ONE_HOUR: 3600,
+  ONE_DAY: 86400,
 };
 
 /** Coinbase hard cap on candles per response. */
@@ -168,7 +170,13 @@ export async function fetchStockHistory(
   startSec: number,
   endSec: number,
 ): Promise<Bar[]> {
-  const timeframe = granularity === 'FIVE_MINUTE' ? '5Min' : '1Hour';
+  const timeframe = granularity === 'ONE_MINUTE'
+    ? '1Min'
+    : granularity === 'FIVE_MINUTE'
+      ? '5Min'
+      : granularity === 'ONE_DAY'
+        ? '1Day'
+        : '1Hour';
   const bars = await getBars(
     creds,
     symbol,
