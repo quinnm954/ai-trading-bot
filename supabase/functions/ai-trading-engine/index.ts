@@ -2189,7 +2189,7 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_L
 // Equal-weighted average 24h and 1h return of the most liquid non-stable assets,
 // plus breadth (% of names up on 24h). Long swings only run with the tape.
 const TAPE_MIN_24H_PCT = -0.5;   // allow flat/drifting tape, only stand down in real downtrends
-const TAPE_MIN_1H_PCT = -0.1;    // near-flat last hour is acceptable
+const TAPE_MIN_1H_PCT = -0.5;    // tolerate normal short-term noise; only block a genuinely falling hour
 const TAPE_MIN_BREADTH = 0.45;   // relaxed from 65% so drifting markets still qualify
 
 function computeAggregateTape(marketData: MarketData[]): {
