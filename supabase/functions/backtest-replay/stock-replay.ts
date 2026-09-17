@@ -368,6 +368,8 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
           minStopPct: params.geometry.minStopPct,
           maxStopPct: params.geometry.maxRiskPct,
           atrMult: params.geometry.stopAtrMult,
+          minHoldMinutes: params.geometry.minHoldMinutes,
+          maxHoldMinutes: params.geometry.maxHoldMinutes,
         },
         instrumentProfile_,
       );
