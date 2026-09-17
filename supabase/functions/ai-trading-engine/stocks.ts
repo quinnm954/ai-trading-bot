@@ -324,11 +324,21 @@ export async function runStockCycle(
 
   // Only names not already held, ranked by dollar volume, and only the ones that
   // are actually moving up today — the same "no falling knives" discipline crypto uses.
+  // Capped per instrument class so one class (typically leveraged funds on a strong
+  // day) cannot fill the whole shortlist.
+  const shortlistPerKind: Record<string, number> = {};
   const shortlist = feed.quotes
     .filter((q) => !heldSymbols.has(q.symbol) && !STOCK_TAPE_INDEX_SYMBOLS.includes(q.symbol))
     .filter((q) => q.change1h > 0 || q.change24h > 0)
     .sort((a, b) => b.volume - a.volume)
-    .slice(0, 25);
+    .filter((q) => {
+      const n = (shortlistPerKind[q.kind] ?? 0) + 1;
+      if (n > 8) return false;
+      shortlistPerKind[q.kind] = n;
+      return true;
+    })
+    .slice(0, 30);
+
 
   if (shortlist.length === 0) {
     const message = 'No rising equity candidates this cycle.';
