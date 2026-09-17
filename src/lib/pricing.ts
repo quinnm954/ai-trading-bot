@@ -21,7 +21,8 @@ export const PLAN_FEATURES = [
   'Unlimited broker & exchange connections',
   'Fully autonomous AI trading agents',
   'Multi-agent system (Watcher, Analyst, Risk, Trader, Healer)',
-  'Crypto, 24/7 automated execution',
+  'Crypto (Coinbase) 24/7 plus US stocks (Alpaca) during market hours',
+  'Commission-free stock trading with equity-specific entry rules',
   'All 8 trading strategies + AI regime detection',
   'Advanced risk management & kill switch',
   'Crypto signals & sentiment',
@@ -35,7 +36,7 @@ export const PLAN_FEATURES = [
 export const TRIAL_FEATURES = [
   'Unlimited paper trading',
   '$100k virtual balance',
-  'Real-time crypto market data',
+  'Real-time crypto and US stock market data',
   'AI Strategy Advisor',
   'Performance analytics & equity curve',
   'Risk management dashboard',

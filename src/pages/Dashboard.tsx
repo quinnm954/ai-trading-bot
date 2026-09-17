@@ -23,6 +23,7 @@ import { CapitalPlannerCard } from '@/components/dashboard/CapitalPlannerCard';
 import { SubscriptionCostCard } from '@/components/dashboard/SubscriptionCostCard';
 import { SubscriptionStatusCard } from '@/components/dashboard/SubscriptionStatusCard';
 import { StockAccountCard } from '@/components/dashboard/StockAccountCard';
+import { MarketModeSwitcher } from '@/components/dashboard/MarketModeSwitcher';
 
 
 import { PaperTradingOnboarding } from '@/components/onboarding/PaperTradingOnboarding';
@@ -203,6 +204,9 @@ export default function Dashboard() {
                 Last updated: {lastUpdated.toLocaleTimeString()}
               </p>
             )}
+            <div className="mt-2">
+              <MarketModeSwitcher />
+            </div>
           </div>
         <div className="flex gap-2">
           {!isLiveMode && (
