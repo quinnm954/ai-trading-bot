@@ -73,10 +73,13 @@ export function MarketModeToggle() {
             >
               <LineChart className="w-4 h-4 mr-2" />
               <span className="text-left">
-                Stocks
+                Stocks &amp; funds
                 <span className="block text-xs opacity-80">
-                  {hasAlpacaKeys ? 'Alpaca · market hours only' : 'Needs Alpaca keys'}
+                  {hasAlpacaKeys
+                    ? 'Alpaca · shares, ETFs, ADRs, REITs · market hours'
+                    : 'Needs Alpaca keys'}
                 </span>
+
               </span>
             </Button>
           </div>
