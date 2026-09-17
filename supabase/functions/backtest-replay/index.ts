@@ -299,6 +299,7 @@ async function tickReplay(admin: any, job: any) {
       for (const [k, n] of Object.entries(tally)) vetoTotals[k] = (vetoTotals[k] ?? 0) + n;
     }
 
+    await deleteExisting(admin, job.run_group_id, 'PORTFOLIO');
     await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
