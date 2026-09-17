@@ -43,7 +43,6 @@ import { buildRunRow, closedOnly, computeMetrics } from "./stats.ts";
 import {
   buildIntradayIndex,
   buildStockTapeTimeline,
-  etDay,
   replayStockSymbol,
   stockContextSymbols,
   type IntradayIndex,
