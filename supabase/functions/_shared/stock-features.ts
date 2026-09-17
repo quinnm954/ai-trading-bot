@@ -274,7 +274,7 @@ export function computeStockFeaturesFromSessions(input: StockFeatureSessionInput
   const dayChangePct = pct(prevClose, lastPrice);
 
   // ── Relative strength ─────────────────────────────────────────────────────
-  const sixBarsBack = bars.length >= 7 ? bars[bars.length - 7].c : bars[0].c;
+  const sixBarsBack = bars.length > barsPer30m ? bars[bars.length - 1 - barsPer30m].c : bars[0].c;
   const intradayPct = pct(sixBarsBack, lastPrice);
   const rsDayPct = dayChangePct - input.indexDayChangePct;
   const rsIntradayPct = intradayPct - input.indexIntradayPct;
