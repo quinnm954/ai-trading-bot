@@ -310,10 +310,12 @@ async function tickReplay(admin: any, job: any) {
   // ── Step B: replay a slice of markets ───────────────────────────────────────
   for (; cursor < claimTo; cursor++) {
     const productId = universe[cursor];
-    const symbol = productId.split('-')[0];
-    const bars5m = await loadBars(admin, productId, 'FIVE_MINUTE', startSec, endSec);
-    const bars1h = await loadBars(admin, productId, 'ONE_HOUR', startSec, endSec);
+    const symbol = assetClass === 'stocks' ? productId.toUpperCase() : productId.split('-')[0];
+    const key = cacheKey(assetClass, productId);
+    const bars5m = await loadBars(admin, key, 'FIVE_MINUTE', startSec, endSec);
+    const bars1h = await loadBars(admin, key, 'ONE_HOUR', startSec, endSec);
     const result: SymbolReplay = replaySymbol(symbol, bars5m, bars1h, tapeOpen, params, positionValue);
+
 
     const closed = closedOnly(result.trades);
     const metrics = computeMetrics(result.trades, params.initialBalance);
