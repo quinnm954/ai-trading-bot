@@ -126,6 +126,36 @@ async function statusJob(admin: any, userId: string, jobId: string) {
   return json({ success: true, job });
 }
 
+// ── REPAIR ───────────────────────────────────────────────────────────────────
+// Rewind a finished job to the start of the replay phase, keeping the cached candles
+// and the already-computed tape timeline. Ticking it again rewrites every per-symbol
+// row, which is how an incomplete result set is repopulated cheaply.
+
+// deno-lint-ignore no-explicit-any
+async function repairJob(admin: any, userId: string, jobId: string) {
+  const { data: job, error } = await admin.from('backtest_jobs')
+    .select('*').eq('id', jobId).eq('user_id', userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!job) return json({ success: false, error: 'job not found' }, 404);
+
+  const summary = (job.summary ?? {}) as Record<string, unknown>;
+  delete summary.per_symbol;
+  delete summary.trades;
+  delete summary.portfolio;
+
+  const { data: updated } = await admin.from('backtest_jobs').update({
+    phase: 'replaying',
+    replay_cursor: 0,
+    symbols_replayed: 0,
+    error: null,
+    finished_at: null,
+    summary,
+    progress_note: 'Repair requested — replaying every market again from cached candles',
+  }).eq('id', job.id).select().single();
+
+  return json({ success: true, job: updated });
+}
+
 // ── TICK ─────────────────────────────────────────────────────────────────────
 
 // deno-lint-ignore no-explicit-any
