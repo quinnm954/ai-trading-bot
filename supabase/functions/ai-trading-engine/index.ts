@@ -1822,37 +1822,21 @@ async function enrichCandleTechnicals(coins: MarketData[], limit = CANDLE_SCAN_L
 }
 
 // ── AGGREGATE TAPE (broad market breadth/trend) ──────────────────────────────
-// Equal-weighted average 24h and 1h return of the most liquid non-stable assets,
-// plus breadth (% of names up on 24h). Long swings only run with the tape.
-const TAPE_MIN_24H_PCT = -0.5;   // allow flat/drifting tape, only stand down in real downtrends
-const TAPE_MIN_1H_PCT = -0.5;    // tolerate normal short-term noise; only block a genuinely falling hour
-const TAPE_MIN_BREADTH = 0.45;   // relaxed from 65% so drifting markets still qualify
-
+// Thresholds and the verdict itself live in ../_shared/tape-gate.ts so the backtest
+// replay gates on the exact same numbers this engine runs on. This function only
+// selects the liquid universe and hands the raw moves over.
 function computeAggregateTape(marketData: MarketData[]): {
   rising: boolean; avg24h: number; avg1h: number; breadth: number; label: string;
 } {
   const universe = marketData
     .filter(c => !STABLECOINS.includes(c.symbol.toUpperCase()) && (c.price ?? 0) > 0)
     .sort((a, b) => (b.volume24h ?? b.volume ?? 0) - (a.volume24h ?? a.volume ?? 0))
-    .slice(0, 40);
+    .slice(0, TAPE_UNIVERSE_SIZE);
 
-  if (universe.length < 8) {
-    return { rising: false, avg24h: 0, avg1h: 0, breadth: 0, label: 'insufficient market data for tape read' };
-  }
-
-  const avg24h = universe.reduce((s, c) => s + (c.change24h ?? 0), 0) / universe.length;
-  const hourly = universe.map(c => c.change1h).filter((value): value is number => Number.isFinite(value));
-  const avg1h = hourly.length > 0 ? hourly.reduce((s, value) => s + value, 0) / hourly.length : Number.NaN;
-  const breadth = universe.filter(c => (c.change24h ?? 0) > 0).length / universe.length;
-
-  const hasHourlyBreadth = hourly.length >= 8;
-  const rising = avg24h >= TAPE_MIN_24H_PCT && hasHourlyBreadth && avg1h >= TAPE_MIN_1H_PCT && breadth >= TAPE_MIN_BREADTH;
-  const label =
-    `tape 24h ${avg24h >= 0 ? '+' : ''}${avg24h.toFixed(2)}% (need ≥${TAPE_MIN_24H_PCT}%), ` +
-    `1h ${hasHourlyBreadth ? `${avg1h >= 0 ? '+' : ''}${avg1h.toFixed(2)}%` : 'insufficient data'} (need ≥${TAPE_MIN_1H_PCT}%, n=${hourly.length}), ` +
-    `breadth ${(breadth * 100).toFixed(0)}% (need ≥${TAPE_MIN_BREADTH * 100}%) across ${universe.length} liquid names`;
-
-  return { rising, avg24h, avg1h, breadth, label };
+  return evaluateTape(
+    universe.map(c => c.change24h ?? 0),
+    universe.map(c => c.change1h).filter((value): value is number => Number.isFinite(value)),
+  );
 }
 
 
