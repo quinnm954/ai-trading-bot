@@ -94,14 +94,27 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
   ]);
 
   const params = resolveParams(aiSettings, scalpSettings, (body?.overrides ?? {}) as Record<string, unknown>);
+  const isStock = params.assetClass === 'stocks';
+
+  // A stock run needs Alpaca market-data credentials to fetch historical bars.
+  let stockCreds: AlpacaCreds | null = null;
+  if (isStock) {
+    stockCreds = await loadDataCreds(admin, userId);
+    if (!stockCreds) {
+      return json({ success: false, error: 'stock backtests need Alpaca market-data credentials' }, 400);
+    }
+  }
+
   // An explicit universe lets every variant replay the SAME cached markets as the
-  // baseline, so a comparison never drifts because Coinbase reordered by volume.
+  // baseline, so a comparison never drifts because the venue reordered by volume.
   const explicit = Array.isArray(body?.universe) ? (body.universe as unknown[]).map(String) : null;
   const universe = explicit && explicit.length >= 5
     ? explicit
-      .map((productId) => ({ symbol: productId.split('-')[0], productId, volume: 0 }))
+      .map((productId) => ({ symbol: isStock ? productId.toUpperCase() : productId.split('-')[0], productId, volume: 0 }))
       .filter((p, i, arr) => arr.findIndex((q) => q.symbol === p.symbol) === i)
-    : await fetchUniverse(params.universeSize);
+    : isStock
+      ? await fetchStockUniverse(stockCreds!, params.universeSize)
+      : await fetchUniverse(params.universeSize);
   if (universe.length < 5) return json({ success: false, error: 'could not resolve a tradable universe' }, 502);
 
   const endSec = Math.floor(Date.now() / 1000);
@@ -109,8 +122,9 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
 
   const { data: job, error } = await admin.from('backtest_jobs').insert({
     user_id: userId,
-    label: String(body?.label ?? `Replay ${params.days}d · ${universe.length} markets`),
+    label: String(body?.label ?? `${isStock ? 'Stocks' : 'Crypto'} replay ${params.days}d · ${universe.length} markets`),
     phase: 'syncing',
+    asset_class: params.assetClass,
     universe: universe.map((u) => u.productId),
     period_days: params.days,
     range_start: new Date(startSec * 1000).toISOString(),
@@ -118,6 +132,7 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
     params: params as unknown as Record<string, unknown>,
     progress_note: `Queued ${universe.length} markets for candle sync`,
   }).select().single();
+
   if (error) throw new Error(error.message);
 
   return json({ success: true, jobId: job.id, job });
