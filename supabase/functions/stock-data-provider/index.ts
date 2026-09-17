@@ -63,19 +63,18 @@ serve(async (req) => {
       }
 
       case 'universe': {
-        const symbols = await resolveUniverse(creds);
-        return json({ symbols });
+        const { symbols, names } = await resolveUniverse(creds);
+        return json({ symbols, names });
       }
 
       case 'quotes': {
         const feed = await fetchStockMarket(creds, {
-          minPrice: Number(body.minPrice) || undefined,
-          maxPrice: Number(body.maxPrice) || undefined,
-          minDollarVolume: Number(body.minDollarVolume) || undefined,
           limit: Number(body.limit) || undefined,
+          kinds: Array.isArray(body.kinds) && body.kinds.length > 0 ? body.kinds : undefined,
         });
         return json(feed);
       }
+
 
       case 'bars': {
         const symbol = String(body.symbol ?? '').toUpperCase();

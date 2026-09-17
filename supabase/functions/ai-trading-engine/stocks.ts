@@ -21,6 +21,12 @@ import { getBars, getBarsMany, getSnapshots, placeOrder, waitForFill, getAccount
 import { getSessionState } from '../_shared/market-hours.ts';
 import { fetchStockMarket } from '../_shared/stock-feed.ts';
 import {
+  classifyInstrument,
+  profileFor,
+  type InstrumentProfile,
+} from '../_shared/instrument-classes.ts';
+
+import {
   evaluateStockTape,
   realizedVolatilityPct,
   STOCK_TAPE_INDEX_SYMBOLS,
@@ -221,12 +227,21 @@ export async function runStockCycle(
   }
 
   // ── 5. MARKET FEED + EQUITY TAPE GATE ──────────────────────────────────────
-  const feed = await fetchStockMarket(dataCreds, { limit: 60 });
+  // Multi-instrument scan: common shares, broad/sector ETFs, leveraged (long)
+  // funds, ADRs, REITs and small/low-priced names. Each listing is screened
+  // against the liquidity and spread floor of its own class inside the feed.
+  const feed = await fetchStockMarket(dataCreds, { limit: 90 });
   if (feed.quotes.length === 0) {
     const message = 'No live equity quotes this cycle — standing down rather than trading blind.';
     await logRiskEvent(supabase, userId, 'stand_down', 'warning', message);
     return { status: 'no_market_data', assetClass: 'stocks', message, session };
   }
+  console.log(
+    `📈 Universe: ${feed.quotes.length} tradable listings ` +
+    `(${Object.entries(feed.kindCounts).map(([k, n]) => `${k}:${n}`).join(', ')}), ` +
+    `${feed.screenedOut} screened out on liquidity/spread`,
+  );
+
 
   // Equity regime read: index trend across caps, advance/decline breadth, and
   // realized-volatility context. Built from daily index bars, not a single change %.
@@ -309,11 +324,21 @@ export async function runStockCycle(
 
   // Only names not already held, ranked by dollar volume, and only the ones that
   // are actually moving up today — the same "no falling knives" discipline crypto uses.
+  // Capped per instrument class so one class (typically leveraged funds on a strong
+  // day) cannot fill the whole shortlist.
+  const shortlistPerKind: Record<string, number> = {};
   const shortlist = feed.quotes
     .filter((q) => !heldSymbols.has(q.symbol) && !STOCK_TAPE_INDEX_SYMBOLS.includes(q.symbol))
     .filter((q) => q.change1h > 0 || q.change24h > 0)
     .sort((a, b) => b.volume - a.volume)
-    .slice(0, 25);
+    .filter((q) => {
+      const n = (shortlistPerKind[q.kind] ?? 0) + 1;
+      if (n > 8) return false;
+      shortlistPerKind[q.kind] = n;
+      return true;
+    })
+    .slice(0, 30);
+
 
   if (shortlist.length === 0) {
     const message = 'No rising equity candidates this cycle.';
@@ -361,6 +386,8 @@ export async function runStockCycle(
     setupKey: string;
     summary: string;
     strategy: string;
+    /** Instrument class profile — drives size scaling on execution. */
+    profile: InstrumentProfile;
   }
 
   const candidates: Candidate[] = [];
@@ -372,6 +399,16 @@ export async function runStockCycle(
     const daily = (dailyBars[quote.symbol] ?? []) as EquityBar[];
     if (intraday.length < 40 || daily.length < 25) {
       rejected.push({ symbol: quote.symbol, reason: 'not enough bar history' });
+      continue;
+    }
+
+    // Instrument class: an ETF, a 3× fund, an ADR, a REIT and a $2 micro-cap each
+    // get their own stop band, participation bar, spread limit and size scale.
+    const classification = feed.instruments[quote.symbol] ??
+      classifyInstrument({ symbol: quote.symbol, price: quote.price, dollarVolume: quote.volume });
+    const profile = profileFor(classification);
+    if (!profile.tradable) {
+      rejected.push({ symbol: quote.symbol, reason: profile.skipReason ?? 'instrument class not tradable' });
       continue;
     }
 
@@ -398,6 +435,7 @@ export async function runStockCycle(
       htf?.swingAtrPct ?? features.dailyAtrPct,
       Number(settings.stock_max_stop_pct),
       geometryBounds,
+      profile,
     );
     if (!geo.reachable) {
       rejected.push({ symbol: quote.symbol, reason: `target +${geo.takeProfitPct.toFixed(2)}% unreachable for its range` });
@@ -411,6 +449,19 @@ export async function runStockCycle(
       targetPct: geo.takeProfitPct,
       holdMinutes: geo.holdMinutes,
       tuning,
+      instrument: {
+        kind: profile.kind,
+        label: profile.label,
+        minRvol: profile.minRvol,
+        scoreDelta: profile.scoreDelta,
+        minDailyAtrPct: profile.minDailyAtrPct,
+        maxDailyAtrPct: profile.maxDailyAtrPct,
+        maxSpreadPct: profile.maxSpreadPct,
+        earningsRelevant: profile.earningsRelevant,
+        requireIndexAlignment: profile.requireIndexAlignment,
+        leverage: classification.leverage,
+      },
+      spreadPct: quote.spreadPct ?? null,
     });
 
     if (!verdict.passed) {
@@ -425,12 +476,14 @@ export async function runStockCycle(
       score: verdict.score,
       grade: verdict.grade,
       setupKey: verdict.setupKey,
-      summary: verdict.flags.length > 0
+      summary: `[${profile.label}] ` + (verdict.flags.length > 0
         ? `${verdict.summary} | flags: ${verdict.flags.join('; ')}`
-        : verdict.summary,
-      strategy: 'stock_momentum',
+        : verdict.summary),
+      strategy: `stock_${profile.kind}`,
+      profile,
     });
   }
+
 
 
   console.log(`📈 Equity scan: ${candidates.length} pass / ${rejected.length} rejected of ${shortlist.length}`);
@@ -455,11 +508,22 @@ export async function runStockCycle(
   const opened: Array<Record<string, unknown>> = [];
 
   for (const candidate of candidates.slice(0, regimeSlotCap)) {
-    const targetUsd = Math.min(equity * (maxPositionPct / 100), Math.max(0, capitalCeiling - deployed), cash);
-    if (targetUsd < 25) {
-      console.log(`📈 ${candidate.symbol}: position budget $${targetUsd.toFixed(2)} too small — stopping.`);
+    // Instrument class scales size: a 3× fund or a $2 micro-cap takes a fraction
+    // of the size a mega-cap or index ETF gets, because the same % stop is a much
+    // bigger real-world risk in those products.
+    const classPositionPct = maxPositionPct * candidate.profile.positionScale;
+    const remainingBudget = Math.min(Math.max(0, capitalCeiling - deployed), cash);
+    if (remainingBudget < 25) {
+      console.log(`📈 Remaining budget $${remainingBudget.toFixed(2)} too small — stopping.`);
       break;
     }
+    const targetUsd = Math.min(equity * (classPositionPct / 100), remainingBudget);
+    if (targetUsd < 25) {
+      console.log(`📈 ${candidate.symbol}: ${candidate.profile.label} budget $${targetUsd.toFixed(2)} below the $25 minimum — skipping.`);
+      continue;
+    }
+
+
 
     // Intraday-margin guardrail (replaces the eliminated PDT day-trade count).
     const exposure = checkIntradayExposure({

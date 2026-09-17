@@ -27,6 +27,8 @@ import {
 } from "../_shared/stock-features.ts";
 import { evaluateStockPlaybook } from "../_shared/stock-playbook.ts";
 import { solveStockGeometry } from "../_shared/stock-geometry.ts";
+import { classifyInstrument, profileFor } from "../_shared/instrument-classes.ts";
+
 import { evaluateStockTape, realizedVolatilityPct, type IndexRead } from "../_shared/stock-tape.ts";
 import type { Bar } from "./candles.ts";
 import type { BacktestParams } from "./params.ts";
@@ -265,6 +267,16 @@ const RVOL_LOOKBACK_SESSIONS = 12;
 
 export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
   const { symbol, params, positionValue } = input;
+  // Instrument class for this symbol (ETF, leveraged fund, ADR, REIT, micro-cap…).
+  // Historical issuer names are not cached, so classification uses the symbol
+  // lists plus the replay's own price/turnover context.
+  const lastDaily = input.dailyBars.length > 0 ? input.dailyBars[input.dailyBars.length - 1] : null;
+  const instrumentClass_ = classifyInstrument({
+    symbol,
+    price: lastDaily?.close ?? null,
+    dollarVolume: lastDaily ? (lastDaily.volume ?? 0) * (lastDaily.close ?? 0) : null,
+  });
+  const instrumentProfile_ = profileFor(instrumentClass_);
   const out: SymbolReplay = {
     symbol,
     trades: [],
@@ -276,8 +288,13 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
     lastBarAt: input.minuteBars.length ? input.minuteBars[input.minuteBars.length - 1].start : null,
   };
   if (input.minuteBars.length < 400 || input.dailyBars.length < 25) return out;
+  if (!instrumentProfile_.tradable) {
+    out.vetoTally[instrumentProfile_.skipReason ?? 'instrument_not_tradable'] = 1;
+    return out;
+  }
 
   const tally = (reason: string) => { out.vetoTally[reason] = (out.vetoTally[reason] ?? 0) + 1; };
+
 
   // Group the whole minute history into regular-hours sessions ONCE. Every later
   // decision re-slices this, so per-decision cost does not grow with the window.
@@ -348,6 +365,7 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
           maxStopPct: params.geometry.maxRiskPct,
           atrMult: params.geometry.stopAtrMult,
         },
+        instrumentProfile_,
       );
       if (!geo.reachable) { tally('target_unreachable'); continue; }
 
@@ -362,11 +380,25 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
         targetPct: geo.takeProfitPct,
         holdMinutes: geo.holdMinutes,
         tuning: params.stockPlaybook,
+        // Same instrument-class shaping the live engine applies, so an ETF, a
+        // leveraged fund and a micro-cap replay under their own rules.
+        instrument: {
+          kind: instrumentProfile_.kind,
+          label: instrumentProfile_.label,
+          minRvol: instrumentProfile_.minRvol,
+          scoreDelta: instrumentProfile_.scoreDelta,
+          minDailyAtrPct: instrumentProfile_.minDailyAtrPct,
+          maxDailyAtrPct: instrumentProfile_.maxDailyAtrPct,
+          earningsRelevant: instrumentProfile_.earningsRelevant,
+          requireIndexAlignment: instrumentProfile_.requireIndexAlignment,
+          leverage: instrumentClass_.leverage,
+        },
       });
       if (!verdict.passed) {
         tally(normaliseStockVeto(verdict.vetoes[0] ?? 'score_below_floor'));
         continue;
       }
+
 
       // ── ENTRY ─────────────────────────────────────────────────────────────
       const entryFlatIdx = flatIndexBySec.get(Math.floor(Date.parse(bar.t) / 1000));
@@ -381,7 +413,9 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
         targetPct: geo.takeProfitPct,
         holdMinutes: geo.holdMinutes,
         feePct: params.feePct,
-        positionValue,
+        // Same class-based size scaling the live engine applies.
+        positionValue: positionValue * instrumentProfile_.positionScale,
+
         score: verdict.score,
         grade: verdict.grade,
         setupKey: verdict.setupKey,

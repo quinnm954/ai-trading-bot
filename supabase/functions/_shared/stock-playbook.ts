@@ -62,6 +62,21 @@ export interface StockPlaybookVerdict {
   components: Record<string, number>;
 }
 
+export interface StockInstrumentContext {
+  kind: string;
+  label: string;
+  minRvol?: number;
+  scoreDelta?: number;
+  minDailyAtrPct?: number;
+  maxDailyAtrPct?: number;
+  maxSpreadPct?: number;
+  /** Single-company reports only: baskets have no earnings date. */
+  earningsRelevant?: boolean;
+  /** Leveraged funds must be moving WITH their index, never against it. */
+  requireIndexAlignment?: boolean;
+  leverage?: number;
+}
+
 export interface StockPlaybookInput {
   features: StockFeatures;
   /** Nearest scheduled report, or null when the window is clear. */
@@ -73,6 +88,14 @@ export interface StockPlaybookInput {
   /** Max hold in minutes, used for the volatility-reachability test. */
   holdMinutes: number;
   tuning?: StockPlaybookTuning;
+  /**
+   * Instrument class the symbol belongs to (common share, ETF, leveraged fund,
+   * ADR, REIT, small-cap). Shapes participation, volatility and spread tests —
+   * an index ETF is not judged like a $2 micro-cap.
+   */
+  instrument?: StockInstrumentContext | null;
+  /** Live bid/ask spread as % of mid, when available. */
+  spreadPct?: number | null;
 }
 
 function band(value: number, low: number, high: number): number {
@@ -84,14 +107,38 @@ function band(value: number, low: number, high: number): number {
 
 export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookVerdict {
   const f = input.features;
+  const inst = input.instrument ?? null;
   const t = { ...STOCK_PLAYBOOK_DEFAULTS, ...(input.tuning ?? {}) };
+
+  // Instrument class raises the bar where its risks live and lowers it where the
+  // crypto-style thresholds simply do not apply (an index ETF's ATR is small by
+  // construction, not "too quiet to trade").
+  if (inst) {
+    if (Number(inst.minRvol) > 0) t.minRvol = Math.max(t.minRvol, Number(inst.minRvol));
+    if (Number(inst.minDailyAtrPct) > 0) t.minDailyAtrPct = Number(inst.minDailyAtrPct);
+    if (Number(inst.maxDailyAtrPct) > 0) t.maxDailyAtrPct = Number(inst.maxDailyAtrPct);
+    if (Number.isFinite(Number(inst.scoreDelta))) t.minScore = t.minScore + Number(inst.scoreDelta);
+  }
 
   const vetoes: string[] = [];
   const evidence: string[] = [];
   const flags: string[] = [];
 
-  // ── 1. Earnings proximity ────────────────────────────────────────────────
-  if (input.earnings) {
+  // ── 0. Tradability / execution cost of this instrument class ─────────────
+  const spread = Number(input.spreadPct);
+  if (inst && Number(inst.maxSpreadPct) > 0 && Number.isFinite(spread)) {
+    if (spread > Number(inst.maxSpreadPct)) {
+      vetoes.push(`bid/ask spread ${spread.toFixed(2)}% too wide for a ${inst.label} — slippage would eat the target`);
+    } else {
+      evidence.push(`spread ${spread.toFixed(2)}% acceptable for a ${inst.label}`);
+    }
+  }
+
+  // ── 1. Earnings proximity (single companies only) ────────────────────────
+  const earningsRelevant = inst ? inst.earningsRelevant !== false : true;
+  if (!earningsRelevant) {
+    evidence.push(`${inst?.label ?? 'basket'} — no single-company earnings risk`);
+  } else if (input.earnings) {
     const { daysUntil, timing } = input.earnings;
     const holdDays = Math.ceil(input.holdMinutes / 390);
     if (daysUntil <= Math.max(t.earningsBufferDays, holdDays)) {
@@ -106,6 +153,7 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
   } else {
     evidence.push('no earnings scheduled in the next 10 sessions');
   }
+
 
   // ── Session timing ───────────────────────────────────────────────────────
   if (f.minutesFromOpen < t.minMinutesFromOpen) {
@@ -190,8 +238,21 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
   }
 
   // ── 6. Relative strength vs index and sector ─────────────────────────────
+  // A geared fund mechanically "beats" or "lags" its index by its own multiple,
+  // so relative strength says nothing about it. What matters is that the index it
+  // tracks is actually up, and that the fund is moving with it, not decaying.
   let rsPoints = 0;
-  if (f.rsDayPct < t.minRsDayPct) {
+  const indexDayPct = f.dayChangePct - f.rsDayPct;
+  if (inst?.requireIndexAlignment) {
+    if (!(indexDayPct > 0)) {
+      vetoes.push(`its index is ${indexDayPct.toFixed(2)}% today — a ${inst.label} must only be held with the index rising`);
+    } else if (!(f.dayChangePct > indexDayPct)) {
+      vetoes.push(`${inst.label} up ${f.dayChangePct.toFixed(2)}% against a ${indexDayPct.toFixed(2)}% index move — not tracking its gearing`);
+    } else {
+      rsPoints += Math.round(8 + 6 * band(f.dayChangePct / Math.max(0.05, indexDayPct), 1.2, Math.max(1.5, Number(inst.leverage) || 2)));
+      evidence.push(`tracking a rising index (${indexDayPct.toFixed(2)}%) with ${f.dayChangePct.toFixed(2)}% gearing`);
+    }
+  } else if (f.rsDayPct < t.minRsDayPct) {
     vetoes.push(`lagging the index by ${Math.abs(f.rsDayPct).toFixed(2)}% today — broad-market drift, not stock strength`);
   } else {
     rsPoints += Math.round(6 + 8 * band(f.rsDayPct, 0, 2));
@@ -201,7 +262,7 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
     rsPoints += 3;
     evidence.push('leading the index over the last 30 minutes');
   }
-  if (f.rsSectorPct !== null) {
+  if (f.rsSectorPct !== null && !inst?.requireIndexAlignment) {
     if (f.rsSectorPct < -1.0) {
       vetoes.push(`lagging its sector by ${Math.abs(f.rsSectorPct).toFixed(2)}% — sector rotation is against it`);
     } else {
@@ -209,6 +270,7 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
       evidence.push(`sector-relative ${f.rsSectorPct >= 0 ? '+' : ''}${f.rsSectorPct.toFixed(2)}%`);
     }
   }
+
 
   // ── 7. Daily structure ───────────────────────────────────────────────────
   let trendPoints = 0;
@@ -259,12 +321,14 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
 
   const setupKey = [
     'eq',
+    inst?.kind ?? 'common_stock',
     f.vwapState,
     f.orState,
     f.gapState,
     f.rvol >= 2 ? 'rvol_high' : f.rvol >= 1.4 ? 'rvol_solid' : 'rvol_base',
     f.rsDayPct >= 0.5 ? 'rs_leader' : 'rs_inline',
   ].join(':');
+
 
   const summary = passed
     ? `${f.symbol} ${grade} (${score}): ${evidence.slice(0, 4).join('; ')}`

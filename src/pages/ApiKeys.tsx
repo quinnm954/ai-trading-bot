@@ -37,7 +37,7 @@ const exchanges: ExchangeConfig[] = [
     provider: 'alpaca',
     name: 'Alpaca',
     logo: '📈',
-    description: 'US stocks and ETFs. Free paper keys are enough for practice trading (prices only)',
+    description: 'US shares, ETFs, leveraged funds, ADRs and REITs. Free paper keys are enough for practice trading (prices only)',
     docsUrl: 'https://docs.alpaca.markets/docs/trading-api',
     requiresPassphrase: false,
     keyHint: 'PK... paper keys (practice), AK... live keys (real money)',
