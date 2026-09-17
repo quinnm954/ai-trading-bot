@@ -92,7 +92,9 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
   // baseline, so a comparison never drifts because Coinbase reordered by volume.
   const explicit = Array.isArray(body?.universe) ? (body.universe as unknown[]).map(String) : null;
   const universe = explicit && explicit.length >= 5
-    ? explicit.map((productId) => ({ symbol: productId.split('-')[0], productId, volume: 0 }))
+    ? explicit
+      .map((productId) => ({ symbol: productId.split('-')[0], productId, volume: 0 }))
+      .filter((p, i, arr) => arr.findIndex((q) => q.symbol === p.symbol) === i)
     : await fetchUniverse(params.universeSize);
   if (universe.length < 5) return json({ success: false, error: 'could not resolve a tradable universe' }, 502);
 
