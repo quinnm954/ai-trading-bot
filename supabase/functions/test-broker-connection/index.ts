@@ -702,14 +702,23 @@ serve(async (req) => {
         const paper = apiKey.startsWith("PK");
         const account = await getAccount({ keyId: apiKey, secretKey, paper });
         if (!account) throw new Error("Alpaca rejected these keys");
-        accountInfo = {
-          equity: account.equity,
-          cash: account.cash,
-          buyingPower: account.buyingPower,
-          accountType: account.accountType,
-          paper,
-          tradingBlocked: account.tradingBlocked || account.accountBlocked,
-        };
+        // Paper keys are only used for market data — never surface or store
+        // Alpaca's paper balance, Titan's own simulated paper account is the
+        // source of truth for paper trading.
+        accountInfo = paper
+          ? {
+            paper: true,
+            accountType: account.accountType,
+            tradingBlocked: account.tradingBlocked || account.accountBlocked,
+          }
+          : {
+            equity: account.equity,
+            cash: account.cash,
+            buyingPower: account.buyingPower,
+            accountType: account.accountType,
+            paper: false,
+            tradingBlocked: account.tradingBlocked || account.accountBlocked,
+          };
         break;
       }
 

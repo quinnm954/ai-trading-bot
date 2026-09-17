@@ -138,8 +138,10 @@ export function useApiConnections() {
         if (insertError) throw insertError;
       }
 
-      // Create/update live_account with synced balance
-      if (data.accountInfo) {
+      // Create/update live_account with synced balance.
+      // Paper broker keys (e.g. Alpaca paper) never seed a balance — paper
+      // trading always uses Titan's own simulated paper account.
+      if (data.accountInfo && !data.accountInfo.paper) {
         const { balance, buying_power, equity } = data.accountInfo;
         
         const { data: existingAccount } = await supabase
