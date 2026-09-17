@@ -17,12 +17,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   cacheBars,
+  cacheKey,
   cachedCount,
   fetchHistory,
+  fetchStockHistory,
+  fetchStockUniverse,
   fetchUniverse,
   loadBars,
   type Bar,
 } from "./candles.ts";
+import { loadDataCreds } from "../_shared/alpaca-creds.ts";
+import type { AlpacaCreds } from "../_shared/alpaca.ts";
+
 import { resolveParams, type BacktestParams } from "./params.ts";
 import {
   applySlotCap,
