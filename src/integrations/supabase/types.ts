@@ -293,6 +293,7 @@ export type Database = {
           last_loss_reset_date: string | null
           live_initial_investment: number
           live_mode_confirmed_at: string | null
+          market_mode: string
           max_capital_usage: number | null
           max_concurrent_trades: number | null
           max_daily_loss: number | null
@@ -304,6 +305,12 @@ export type Database = {
           prioritize_moonshots: boolean | null
           reinvest_profits: boolean
           risk_tolerance: string | null
+          stock_allow_extended_hours: boolean
+          stock_cash_account: boolean
+          stock_max_intraday_exposure_pct: number
+          stock_max_stop_pct: number
+          stock_min_stop_pct: number
+          stock_stop_atr_mult: number
           target_equity: number | null
           trading_mode: string
           updated_at: string | null
@@ -328,6 +335,7 @@ export type Database = {
           last_loss_reset_date?: string | null
           live_initial_investment?: number
           live_mode_confirmed_at?: string | null
+          market_mode?: string
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
@@ -339,6 +347,12 @@ export type Database = {
           prioritize_moonshots?: boolean | null
           reinvest_profits?: boolean
           risk_tolerance?: string | null
+          stock_allow_extended_hours?: boolean
+          stock_cash_account?: boolean
+          stock_max_intraday_exposure_pct?: number
+          stock_max_stop_pct?: number
+          stock_min_stop_pct?: number
+          stock_stop_atr_mult?: number
           target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
@@ -363,6 +377,7 @@ export type Database = {
           last_loss_reset_date?: string | null
           live_initial_investment?: number
           live_mode_confirmed_at?: string | null
+          market_mode?: string
           max_capital_usage?: number | null
           max_concurrent_trades?: number | null
           max_daily_loss?: number | null
@@ -374,6 +389,12 @@ export type Database = {
           prioritize_moonshots?: boolean | null
           reinvest_profits?: boolean
           risk_tolerance?: string | null
+          stock_allow_extended_hours?: boolean
+          stock_cash_account?: boolean
+          stock_max_intraday_exposure_pct?: number
+          stock_max_stop_pct?: number
+          stock_min_stop_pct?: number
+          stock_stop_atr_mult?: number
           target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
@@ -451,6 +472,7 @@ export type Database = {
       }
       backtest_candles: {
         Row: {
+          asset_class: string
           bucket_start: number
           close: number
           granularity: string
@@ -461,6 +483,7 @@ export type Database = {
           volume: number
         }
         Insert: {
+          asset_class?: string
           bucket_start: number
           close: number
           granularity: string
@@ -471,6 +494,7 @@ export type Database = {
           volume?: number
         }
         Update: {
+          asset_class?: string
           bucket_start?: number
           close?: number
           granularity?: string
@@ -484,6 +508,7 @@ export type Database = {
       }
       backtest_jobs: {
         Row: {
+          asset_class: string
           candles_loaded: number
           created_at: string
           error: string | null
@@ -506,6 +531,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          asset_class?: string
           candles_loaded?: number
           created_at?: string
           error?: string | null
@@ -528,6 +554,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          asset_class?: string
           candles_loaded?: number
           created_at?: string
           error?: string | null
@@ -553,6 +580,7 @@ export type Database = {
       }
       backtest_runs: {
         Row: {
+          asset_class: string
           avg_loss: number
           avg_win: number
           best_trade: number
@@ -576,6 +604,7 @@ export type Database = {
           worst_trade: number
         }
         Insert: {
+          asset_class?: string
           avg_loss?: number
           avg_win?: number
           best_trade?: number
@@ -599,6 +628,7 @@ export type Database = {
           worst_trade?: number
         }
         Update: {
+          asset_class?: string
           avg_loss?: number
           avg_win?: number
           best_trade?: number
