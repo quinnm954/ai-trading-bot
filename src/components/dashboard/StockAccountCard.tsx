@@ -14,9 +14,21 @@ const money = (v: number) =>
  * crypto dashboard is untouched.
  */
 export function StockAccountCard() {
-  const { connected, balance, buyingPower, equity, lastSyncedAt, positions, positionsValue, unrealizedPnl, loading } =
-    useStockAccount();
+  const {
+    isPaper,
+    connected,
+    hasKeys,
+    balance,
+    buyingPower,
+    equity,
+    lastSyncedAt,
+    positions,
+    positionsValue,
+    unrealizedPnl,
+    loading,
+  } = useStockAccount();
   const sessionOpen = isRegularSessionNow();
+  const blocked = !loading && (isPaper ? !hasKeys : !connected);
 
   return (
     <Card>
@@ -30,21 +42,30 @@ export function StockAccountCard() {
             {sessionOpen ? 'Market open' : 'Market closed'}
           </Badge>
         </div>
-        <CardDescription>US stocks and ETFs through Alpaca. Long only, regular hours.</CardDescription>
+        <CardDescription>
+          {isPaper
+            ? 'Practice stocks: buys and sells are simulated inside this app at real market prices. Nothing is placed on Alpaca.'
+            : 'Real money. US stocks and ETFs placed with Alpaca. Long only, regular hours.'}
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!connected && !loading ? (
+        {blocked ? (
           <div className="space-y-3">
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
               <Link2Off className="h-4 w-4 mt-0.5 shrink-0" />
-              <p>No Alpaca account connected yet, so stock trading stays paused.</p>
+              <p>
+                {isPaper
+                  ? 'Practice stock trading is paused because there are no Alpaca keys saved yet. They are only used to read live stock prices — your practice money stays in this app and no orders ever reach Alpaca.'
+                  : 'No live Alpaca account connected yet, so real-money stock trading stays paused.'}
+              </p>
             </div>
             <Button asChild size="sm" variant="outline">
-              <Link to="/api-keys">Connect Alpaca</Link>
+              <Link to="/api-keys">{isPaper ? 'Add Alpaca keys for prices' : 'Connect Alpaca'}</Link>
             </Button>
           </div>
         ) : (
+
           <>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
