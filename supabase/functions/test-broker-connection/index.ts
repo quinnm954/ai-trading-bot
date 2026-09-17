@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getAccount } from "../_shared/alpaca.ts";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
 /**
