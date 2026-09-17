@@ -139,8 +139,14 @@ interface DetectionResult {
 function detectExchange(apiKey: string, secretKey: string): DetectionResult | null {
   console.log("Detecting exchange from key format...");
   
-  
+  // 📈 Alpaca stock keys: paper keys start with PK, live keys with AK.
+  if (/^(PK|AK)[A-Z0-9]{10,}$/.test(apiKey)) {
+    console.log("Detected: Alpaca (equities)");
+    return { exchange: "alpaca", authType: "keys", confidence: 0.95 };
+  }
+
   // CRYPTO EXCHANGE DETECTION
+
   // Check for Coinbase CDP (most distinctive)
   if (apiKey.startsWith("organizations/") || 
       secretKey.includes("-----BEGIN") || 
