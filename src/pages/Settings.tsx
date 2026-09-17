@@ -81,7 +81,11 @@ export default function Settings() {
         </TabsList>
 
         <TabsContent value="general" className="mt-6">
+          <div className="mb-6">
+            <MarketModeToggle />
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
             {/* Notifications */}
             <div className="glass-panel p-6">
               <div className="flex items-center gap-2 mb-6">
