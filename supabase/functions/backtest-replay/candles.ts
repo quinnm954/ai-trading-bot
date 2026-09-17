@@ -134,8 +134,9 @@ export async function fetchStockUniverse(
 ): Promise<{ symbol: string; productId: string; volume: number }[]> {
   const assets = await listTradableAssets(creds);
   const eligible = assets
-    .filter((a) => a.tradable && a.status === 'active' && a.exchange !== 'OTC')
+    .filter((a) => a.tradable && a.exchange !== 'OTC')
     .map((a) => a.symbol.toUpperCase());
+
 
   // Rank by dollar volume from the latest snapshot so "most liquid first" matches
   // the live stock feed's own universe ordering.
