@@ -258,14 +258,16 @@ async function tickReplay(admin: any, job: any) {
   const startSec = secs(job.range_start);
   const endSec = secs(job.range_end);
   const summary = (job.summary ?? {}) as Record<string, unknown>;
+  const assetClass: 'crypto' | 'stocks' = job.asset_class === 'stocks' ? 'stocks' : 'crypto';
 
   // ── Step A: build the tape timeline once, from every market's hourly closes ──
   if (!summary.tape) {
     const hourlyBySymbol = new Map<string, Bar[]>();
     for (const productId of universe) {
-      const bars = await loadBars(admin, productId, 'ONE_HOUR', startSec, endSec);
+      const bars = await loadBars(admin, cacheKey(assetClass, productId), 'ONE_HOUR', startSec, endSec);
       if (bars.length) hourlyBySymbol.set(productId, bars);
     }
+
     const tape = buildTapeTimeline(hourlyBySymbol, params);
     summary.tape = {
       open_hours: [...tape.open],
