@@ -216,12 +216,27 @@ async function tickReplay(admin: any, job: any) {
     * (params.maxCapitalUsagePct / 100)
     * (params.maxPositionSizePct / 100);
 
-  let cursor: number = job.replay_cursor ?? 0;
+  const startCursor: number = job.replay_cursor ?? 0;
   const perSymbol = (summary.per_symbol ?? {}) as Record<string, unknown>;
   const allTrades: SimTrade[] = ((summary.trades ?? []) as SimTrade[]);
 
+  // ── Claim this slice ────────────────────────────────────────────────────────
+  // Two callers can poll the same job at once (the page and a script). The cursor
+  // is advanced conditionally, so only one caller owns a slice and results are
+  // never counted twice.
+  const claimTo = Math.min(startCursor + REPLAY_PER_TICK, universe.length);
+  const { data: claimed } = await admin.from('backtest_jobs')
+    .update({ replay_cursor: claimTo })
+    .eq('id', job.id)
+    .eq('replay_cursor', startCursor)
+    .select()
+    .maybeSingle();
+  if (!claimed) return json({ success: true, job, busy: true });
+
+  let cursor = startCursor;
+
   // ── Step B: replay a slice of markets ───────────────────────────────────────
-  for (let n = 0; n < REPLAY_PER_TICK && cursor < universe.length; n++, cursor++) {
+  for (; cursor < claimTo; cursor++) {
     const productId = universe[cursor];
     const symbol = productId.split('-')[0];
     const bars5m = await loadBars(admin, productId, 'FIVE_MINUTE', startSec, endSec);
@@ -231,6 +246,7 @@ async function tickReplay(admin: any, job: any) {
     const closed = closedOnly(result.trades);
     const metrics = computeMetrics(result.trades, params.initialBalance);
 
+    await deleteExisting(admin, job.run_group_id, symbol);
     await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
@@ -263,6 +279,7 @@ async function tickReplay(admin: any, job: any) {
       profit_factor: Number(metrics.profitFactor.toFixed(2)),
       exit_breakdown: metrics.exitBreakdown,
       bars_stand_down_share: result.barsEvaluated ? result.barsStandDown / result.barsEvaluated : 0,
+      playbook_veto_tally: result.vetoTally,
     };
     for (const t of closed) allTrades.push(t);
   }
@@ -282,6 +299,7 @@ async function tickReplay(admin: any, job: any) {
       for (const [k, n] of Object.entries(tally)) vetoTotals[k] = (vetoTotals[k] ?? 0) + n;
     }
 
+    await deleteExisting(admin, job.run_group_id, 'PORTFOLIO');
     await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
@@ -348,4 +366,14 @@ async function tickReplay(admin: any, job: any) {
     progress_note: `Replayed ${cursor}/${universe.length} markets`,
   }).eq('id', job.id).select().single();
   return json({ success: true, job: updated });
+}
+
+/** Results are rewritten, never appended, so a re-run of a slice cannot duplicate rows. */
+// deno-lint-ignore no-explicit-any
+async function deleteExisting(admin: any, runGroupId: string, symbol: string) {
+  await admin.from('backtest_runs')
+    .delete()
+    .eq('symbol', symbol)
+    .eq('strategy', 'live_engine_replay')
+    .contains('details', { run_group_id: runGroupId });
 }
