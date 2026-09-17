@@ -161,7 +161,7 @@ export function LegalAndPrivacy() {
             <AccordionContent className="text-sm text-muted-foreground space-y-4 pb-4">
               <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 text-warning">
                 <p className="font-semibold">⚠️ Important Risk Warning</p>
-                <p className="mt-1">Trading cryptocurrencies involves substantial risk of loss and is not suitable for all investors.</p>
+                <p className="mt-1">Trading cryptocurrencies and stocks involves substantial risk of loss and is not suitable for all investors.</p>
               </div>
               
               <section>
@@ -169,7 +169,7 @@ export function LegalAndPrivacy() {
                 <ul className="list-disc list-inside ml-2 space-y-1">
                   <li>You may lose some or all of your invested capital</li>
                   <li>Past performance is not indicative of future results</li>
-                  <li>Cryptocurrency markets are highly volatile and can move rapidly</li>
+                  <li>Cryptocurrency and stock markets are volatile and can move rapidly</li>
                   <li>Automated trading systems can malfunction or produce unexpected results</li>
                   <li>Market conditions can change rapidly, affecting trading strategies</li>
                 </ul>

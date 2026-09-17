@@ -537,23 +537,38 @@ export default function AITrader() {
                 <div>
                   <p className="font-medium text-foreground">Crypto</p>
                   <p className="text-xs text-muted-foreground">
-                    Cryptocurrencies via Coinbase
+                    Cryptocurrencies via Coinbase, 24/7
                     {connectedBrokers.includes('coinbase') && (
                       <span className="ml-2 text-success">• Connected</span>
                     )}
                   </p>
                 </div>
               </div>
-              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-primary/20 text-primary border border-primary/30">
-                Always on
-              </span>
+            </div>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center text-xl">
+                  📈
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">US Stocks</p>
+                  <p className="text-xs text-muted-foreground">
+                    Commission-free shares via Alpaca, during market hours
+                    {connectedBrokers.includes('alpaca') && (
+                      <span className="ml-2 text-success">• Connected</span>
+                    )}
+                  </p>
+                </div>
+              </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              This platform trades crypto exclusively — markets are open 24/7, so there are no
-              session hours or day-trading restrictions to work around.
+              Pick which one this account trades from the switch at the top of the Dashboard or in
+              Settings. Crypto runs around the clock; stocks only trade while the US market is open
+              and follow their own stop and target sizing.
             </p>
           </div>
         </div>
+
 
 
         {/* AI Behavior */}
