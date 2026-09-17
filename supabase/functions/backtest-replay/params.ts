@@ -66,17 +66,43 @@ export function resolveParams(
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
 
+  // Asset class comes from the override (a stock run is requested explicitly) or
+  // from the account's own market mode, so a "baseline" run always mirrors what
+  // the account actually trades.
+  const assetClass: AssetClass = overrides?.assetClass
+    ? assetClassOf(overrides.assetClass)
+    : assetClassOf(aiSettings?.market_mode);
+  const isStock = assetClass === 'stocks';
+
   const base: BacktestParams = {
+    assetClass,
     days: 90,
     universeSize: 30,
     initialBalance: 100_000,
     maxCapitalUsagePct: numOr(aiSettings?.max_capital_usage, 85),
     maxPositionSizePct: numOr(aiSettings?.max_position_size, 15),
     maxConcurrent: Math.round(numOr(aiSettings?.max_concurrent_trades, 12)),
-    wideStopMode: Boolean(scalpSettings?.wide_stop_mode ?? false),
-    stopPct: numOr(scalpSettings?.hard_stop_loss_pct, MAX_RISK_PCT),
-    tape: { ...TAPE_DEFAULTS },
-    geometry: { ...GEOMETRY_DEFAULTS },
+    // Wide-stop swing mode is a crypto-only contract.
+    wideStopMode: isStock ? false : Boolean(scalpSettings?.wide_stop_mode ?? false),
+    stopPct: isStock
+      ? numOr(aiSettings?.stock_max_stop_pct, STOCK_STOP_MAX_PCT)
+      : numOr(scalpSettings?.hard_stop_loss_pct, MAX_RISK_PCT),
+    // Equities gate on index tape + breadth, not on a 24h/1h crypto read.
+    tape: isStock
+      ? { min24hPct: STOCK_TAPE_MIN_INDEX_PCT, min1hPct: STOCK_TAPE_MIN_INDEX_PCT, minBreadth: STOCK_TAPE_MIN_BREADTH }
+      : { ...TAPE_DEFAULTS },
+    geometry: isStock
+      ? {
+        maxRiskPct: numOr(aiSettings?.stock_max_stop_pct, STOCK_STOP_MAX_PCT),
+        minRewardRisk: STOCK_MIN_REWARD_RISK,
+        minStopPct: numOr(aiSettings?.stock_min_stop_pct, STOCK_STOP_MIN_PCT),
+        tpFloorPct: STOCK_TP_FLOOR_PCT,
+        costPct: roundTripCostPct('stocks'),
+        stopAtrMult: numOr(aiSettings?.stock_stop_atr_mult, STOCK_STOP_ATR_MULT),
+        minHoldMinutes: STOCK_MIN_HOLD_MINUTES,
+        maxHoldMinutes: STOCK_MAX_HOLD_MINUTES,
+      }
+      : { ...GEOMETRY_DEFAULTS },
     playbookTuning: {
       minScore: numOr(scalpSettings?.playbook_min_score, PLAYBOOK_TUNING_DEFAULTS.minScore),
       minVolumeRatio: numOr(scalpSettings?.playbook_min_volume_ratio, PLAYBOOK_TUNING_DEFAULTS.minVolumeRatio),
@@ -84,9 +110,10 @@ export function resolveParams(
       rsiMax: numOr(scalpSettings?.playbook_rsi_max, PLAYBOOK_TUNING_DEFAULTS.rsiMax),
       maxChase5m: numOr(scalpSettings?.playbook_max_chase_5m_pct, PLAYBOOK_TUNING_DEFAULTS.maxChase5m),
     },
-    feePct: ROUND_TRIP_FEE_PCT,
+    feePct: isStock ? roundTripCostPct('stocks') : ROUND_TRIP_FEE_PCT,
     intrabarTieBreak: 'stop_first',
   };
+
 
   const o = overrides ?? {};
   const out: BacktestParams = {
