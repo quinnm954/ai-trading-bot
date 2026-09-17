@@ -386,6 +386,8 @@ export async function runStockCycle(
     setupKey: string;
     summary: string;
     strategy: string;
+    /** Instrument class profile — drives size scaling on execution. */
+    profile: InstrumentProfile;
   }
 
   const candidates: Candidate[] = [];
@@ -397,6 +399,16 @@ export async function runStockCycle(
     const daily = (dailyBars[quote.symbol] ?? []) as EquityBar[];
     if (intraday.length < 40 || daily.length < 25) {
       rejected.push({ symbol: quote.symbol, reason: 'not enough bar history' });
+      continue;
+    }
+
+    // Instrument class: an ETF, a 3× fund, an ADR, a REIT and a $2 micro-cap each
+    // get their own stop band, participation bar, spread limit and size scale.
+    const classification = feed.instruments[quote.symbol] ??
+      classifyInstrument({ symbol: quote.symbol, price: quote.price, dollarVolume: quote.volume });
+    const profile = profileFor(classification);
+    if (!profile.tradable) {
+      rejected.push({ symbol: quote.symbol, reason: profile.skipReason ?? 'instrument class not tradable' });
       continue;
     }
 
@@ -423,6 +435,7 @@ export async function runStockCycle(
       htf?.swingAtrPct ?? features.dailyAtrPct,
       Number(settings.stock_max_stop_pct),
       geometryBounds,
+      profile,
     );
     if (!geo.reachable) {
       rejected.push({ symbol: quote.symbol, reason: `target +${geo.takeProfitPct.toFixed(2)}% unreachable for its range` });
@@ -436,6 +449,19 @@ export async function runStockCycle(
       targetPct: geo.takeProfitPct,
       holdMinutes: geo.holdMinutes,
       tuning,
+      instrument: {
+        kind: profile.kind,
+        label: profile.label,
+        minRvol: profile.minRvol,
+        scoreDelta: profile.scoreDelta,
+        minDailyAtrPct: profile.minDailyAtrPct,
+        maxDailyAtrPct: profile.maxDailyAtrPct,
+        maxSpreadPct: profile.maxSpreadPct,
+        earningsRelevant: profile.earningsRelevant,
+        requireIndexAlignment: profile.requireIndexAlignment,
+        leverage: classification.leverage,
+      },
+      spreadPct: quote.spreadPct ?? null,
     });
 
     if (!verdict.passed) {
@@ -450,12 +476,14 @@ export async function runStockCycle(
       score: verdict.score,
       grade: verdict.grade,
       setupKey: verdict.setupKey,
-      summary: verdict.flags.length > 0
+      summary: `[${profile.label}] ` + (verdict.flags.length > 0
         ? `${verdict.summary} | flags: ${verdict.flags.join('; ')}`
-        : verdict.summary,
-      strategy: 'stock_momentum',
+        : verdict.summary),
+      strategy: `stock_${profile.kind}`,
+      profile,
     });
   }
+
 
 
   console.log(`📈 Equity scan: ${candidates.length} pass / ${rejected.length} rejected of ${shortlist.length}`);
