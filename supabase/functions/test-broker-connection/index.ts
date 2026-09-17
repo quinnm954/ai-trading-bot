@@ -696,6 +696,22 @@ serve(async (req) => {
       case "bitget":
         accountInfo = await testBitget(apiKey, secretKey, passphrase);
         break;
+      // 📈 Alpaca: paper keys start with PK, live with AK.
+      case "alpaca": {
+        const paper = apiKey.startsWith("PK");
+        const account = await getAccount({ apiKey, secretKey, paper });
+        if (!account) throw new Error("Alpaca rejected these keys");
+        accountInfo = {
+          equity: account.equity,
+          cash: account.cash,
+          buyingPower: account.buyingPower,
+          accountType: account.accountType,
+          paper,
+          tradingBlocked: account.tradingBlocked || account.accountBlocked,
+        };
+        break;
+      }
+
       default:
         throw new Error(`Unsupported exchange: ${detectedExchange}`);
     }
