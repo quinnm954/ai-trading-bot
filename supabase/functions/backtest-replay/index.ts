@@ -24,6 +24,7 @@ import {
   fetchStockUniverse,
   fetchUniverse,
   loadBars,
+  GRANULARITY_SECONDS,
   type Bar,
   type Granularity,
 } from "./candles.ts";
@@ -263,16 +264,24 @@ async function tickSync(admin: any, job: any) {
   const stockCreds = assetClass === 'stocks' ? await loadDataCreds(admin, job.user_id) : null;
   if (assetClass === 'stocks' && !stockCreds) throw new Error('Alpaca market-data credentials unavailable');
 
-  for (let n = 0; n < SYNC_PER_TICK && cursor < universe.length; n++, cursor++) {
-    const productId = universe[cursor];
+  // Stock runs also cache index/volatility/sector context, which the equity tape
+  // gate and relative-strength checks are computed from.
+  const list = syncList(assetClass, universe);
+  const tradedUniverse = new Set(universe);
+
+  for (let n = 0; n < SYNC_PER_TICK && cursor < list.length; n++, cursor++) {
+    const productId = list[cursor];
     const key = cacheKey(assetClass, productId);
-    for (const granularity of ['FIVE_MINUTE', 'ONE_HOUR'] as const) {
+    const grans = assetClass === 'stocks' && !tradedUniverse.has(productId)
+      ? granularitiesForContext(productId, universe)
+      : granularitiesFor(assetClass);
+    for (const granularity of grans) {
       // Skip a market/granularity that is already cached for this window.
       const have = await cachedCount(admin, key, granularity, startSec, endSec);
+      // Equities only print during the regular session: ~6.5h a weekday, so a
+      // window holds far fewer bars than a 24/7 crypto window of the same length.
       const sessionShare = assetClass === 'stocks' ? (6.5 / 24) * (5 / 7) * 0.8 : 0.8;
-      const expected = granularity === 'FIVE_MINUTE'
-        ? Math.floor((endSec - startSec) / 300) * sessionShare
-        : Math.floor((endSec - startSec) / 3600) * sessionShare;
+      const expected = Math.floor((endSec - startSec) / GRANULARITY_SECONDS[granularity]) * sessionShare;
       if (have >= expected) { loaded += have; continue; }
       const bars = assetClass === 'stocks'
         ? await fetchStockHistory(stockCreds!, productId, granularity, startSec, endSec)
@@ -281,14 +290,13 @@ async function tickSync(admin: any, job: any) {
     }
   }
 
-
-  const done = cursor >= universe.length;
+  const done = cursor >= list.length;
   const update: Record<string, unknown> = {
     sync_cursor: cursor,
     candles_loaded: loaded,
     progress_note: done
       ? `Candle sync complete — ${loaded.toLocaleString()} bars cached. Building the tape timeline.`
-      : `Synced ${cursor}/${universe.length} markets (${loaded.toLocaleString()} bars)`,
+      : `Synced ${cursor}/${list.length} markets (${loaded.toLocaleString()} bars)`,
   };
   if (done) update.phase = 'replaying';
 
