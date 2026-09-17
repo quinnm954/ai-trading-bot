@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from '@/hooks/use-toast';
-import SeoHead from '@/components/SeoHead';
+import { SeoHead } from '@/components/seo/SeoHead';
 
 interface Job {
   id: string;
