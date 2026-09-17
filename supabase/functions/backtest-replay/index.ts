@@ -48,7 +48,7 @@ import {
   type IntradayIndex,
   type StockTapeTimeline,
 } from "./stock-replay.ts";
-import { SECTOR_ETF_BY_SYMBOL } from "../_shared/stock-feed.ts";
+import { SECTOR_ETF_BY_SYMBOL } from "../_shared/stock-features.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
