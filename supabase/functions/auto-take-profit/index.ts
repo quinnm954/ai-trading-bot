@@ -902,20 +902,34 @@ async function processUserPositions(supabase: any, userId: string, isPaperMode: 
   }
 
 
-  // Fetch ALL open crypto positions for this user
-  const { data: positions, error: posError } = await supabase
+  // Fetch ALL open positions for this user
+  const { data: allPositions, error: posError } = await supabase
     .from('positions')
     .select('*')
     .eq('user_id', userId)
     .eq('is_paper', isPaperMode);
 
-  if (posError || !positions || positions.length === 0) {
+  if (posError || !allPositions || allPositions.length === 0) {
     return { takeProfitCount: 0, stopLossCount: 0, conversions: 0 };
   }
 
-  // Crypto-only platform: every position is a crypto position
+  // 📈 Equity positions exit on their own rules (market hours, commission-free
+  // P&L, equity geometry). Handled first, then removed from the crypto loop so
+  // the crypto path below sees exactly what it always has.
+  const stockPositions = allPositions.filter((p: any) => p.market_type === 'stocks');
+  if (stockPositions.length > 0) {
+    const stockSummary = await processStockPositions(supabase, userId, isPaperMode, stockPositions);
+    console.log(`📈 Stock exits for ${userId}: ${JSON.stringify(stockSummary)}`);
+  }
+
+  const positions = allPositions.filter((p: any) => p.market_type !== 'stocks');
+  if (positions.length === 0) {
+    return { takeProfitCount: 0, stopLossCount: 0, conversions: 0 };
+  }
+
   const cryptoSymbols: string[] = [...new Set(positions.map((p: any) => p.symbol))] as string[];
   const livePrices = await fetchLivePrices(cryptoSymbols);
+
 
   // Get account balance
   let cashBalance = 0;
