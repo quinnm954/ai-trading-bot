@@ -216,12 +216,27 @@ async function tickReplay(admin: any, job: any) {
     * (params.maxCapitalUsagePct / 100)
     * (params.maxPositionSizePct / 100);
 
-  let cursor: number = job.replay_cursor ?? 0;
+  const startCursor: number = job.replay_cursor ?? 0;
   const perSymbol = (summary.per_symbol ?? {}) as Record<string, unknown>;
   const allTrades: SimTrade[] = ((summary.trades ?? []) as SimTrade[]);
 
+  // ── Claim this slice ────────────────────────────────────────────────────────
+  // Two callers can poll the same job at once (the page and a script). The cursor
+  // is advanced conditionally, so only one caller owns a slice and results are
+  // never counted twice.
+  const claimTo = Math.min(startCursor + REPLAY_PER_TICK, universe.length);
+  const { data: claimed } = await admin.from('backtest_jobs')
+    .update({ replay_cursor: claimTo })
+    .eq('id', job.id)
+    .eq('replay_cursor', startCursor)
+    .select()
+    .maybeSingle();
+  if (!claimed) return json({ success: true, job, busy: true });
+
+  let cursor = startCursor;
+
   // ── Step B: replay a slice of markets ───────────────────────────────────────
-  for (let n = 0; n < REPLAY_PER_TICK && cursor < universe.length; n++, cursor++) {
+  for (; cursor < claimTo; cursor++) {
     const productId = universe[cursor];
     const symbol = productId.split('-')[0];
     const bars5m = await loadBars(admin, productId, 'FIVE_MINUTE', startSec, endSec);
