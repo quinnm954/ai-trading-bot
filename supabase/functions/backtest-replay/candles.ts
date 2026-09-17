@@ -149,7 +149,7 @@ export async function fetchStockUniverse(
     const snaps = await getSnapshots(creds, candidates.slice(i, i + 100));
     for (const s of snaps) {
       if (!(s.price > 0)) continue;
-      ranked.push({ symbol: s.symbol, volume: (s.dayVolume ?? 0) * s.price + (CORE.has(s.symbol) ? 1e12 : 0) });
+      ranked.push({ symbol: s.symbol, volume: (s.volume ?? 0) * s.price + (CORE.has(s.symbol) ? 1e12 : 0) });
     }
   }
 
@@ -168,23 +168,26 @@ export async function fetchStockHistory(
   endSec: number,
 ): Promise<Bar[]> {
   const timeframe = granularity === 'FIVE_MINUTE' ? '5Min' : '1Hour';
-  const bars = await getBars(creds, symbol, timeframe, {
-    start: new Date(startSec * 1000).toISOString(),
-    end: new Date(endSec * 1000).toISOString(),
-    limit: 10_000,
-  });
+  const bars = await getBars(
+    creds,
+    symbol,
+    timeframe,
+    new Date(startSec * 1000).toISOString(),
+    new Date(endSec * 1000).toISOString(),
+  );
   return bars
     .map((b) => ({
-      start: Math.floor(Date.parse(b.timestamp) / 1000),
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
-      volume: b.volume,
+      start: Math.floor(Date.parse(b.t) / 1000),
+      open: Number(b.o),
+      high: Number(b.h),
+      low: Number(b.l),
+      close: Number(b.c),
+      volume: Number(b.v) || 0,
     }))
     .filter((b) => Number.isFinite(b.start) && b.close > 0)
     .sort((a, b) => a.start - b.start);
 }
+
 
 /** Persist bars to the shared cache in chunks. */
 // deno-lint-ignore no-explicit-any
