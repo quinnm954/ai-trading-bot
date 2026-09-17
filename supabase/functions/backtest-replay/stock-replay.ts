@@ -174,6 +174,7 @@ export function buildStockTapeTimeline(
         minBreadth: params.tape.minBreadth,
         minAdRatio: params.tape.minAdRatio,
         maxRealizedVolPct: params.tape.maxRealizedVolPct,
+        maxVixProxyJumpPct: params.tape.maxVixProxyJumpPct,
       },
 
     });

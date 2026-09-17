@@ -43,7 +43,7 @@ export interface BacktestParams {
   /** Account's configured hard stop, fed to solveAdaptiveGeometry as the tuned stop. */
   stopPct: number;
   /** Tape gate thresholds. Stock runs also read the two equity-only legs. */
-  tape: TapeThresholds & { minAdRatio?: number; maxRealizedVolPct?: number };
+  tape: TapeThresholds & { minAdRatio?: number; maxRealizedVolPct?: number; maxVixProxyJumpPct?: number };
 
   /** Stop cap / payoff floor being tested (defaults = the live constants). */
   geometry: GeometryKnobs;
@@ -155,6 +155,9 @@ export function resolveParams(
         : {}),
       ...(Number.isFinite(Number((o.tape as Record<string, unknown>)?.maxRealizedVolPct))
         ? { maxRealizedVolPct: Number((o.tape as Record<string, unknown>).maxRealizedVolPct) }
+        : {}),
+      ...(Number.isFinite(Number((o.tape as Record<string, unknown>)?.maxVixProxyJumpPct))
+        ? { maxVixProxyJumpPct: Number((o.tape as Record<string, unknown>).maxVixProxyJumpPct) }
         : {}),
     },
 
