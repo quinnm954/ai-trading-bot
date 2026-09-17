@@ -69,9 +69,10 @@ export function StockAccountCard() {
           <>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <p className="text-xs text-muted-foreground">Cash</p>
+                <p className="text-xs text-muted-foreground">{isPaper ? 'Practice cash' : 'Cash'}</p>
                 <p className="font-semibold">{money(balance)}</p>
               </div>
+
               <div>
                 <p className="text-xs text-muted-foreground">Buying power</p>
                 <p className="font-semibold">{money(buyingPower)}</p>
@@ -108,13 +109,16 @@ export function StockAccountCard() {
               </div>
             )}
 
-            <PDTWarning equity={equity} accountType="cash" />
+            {!isPaper && <PDTWarning equity={equity} accountType="cash" />}
 
             <p className="text-xs text-muted-foreground">
-              {lastSyncedAt
-                ? `Last reconciled with Alpaca ${new Date(lastSyncedAt).toLocaleString()}`
-                : 'Waiting for the first balance sync'}
+              {isPaper
+                ? 'Simulated in-app against live Alpaca prices — no orders are sent to Alpaca in practice mode.'
+                : lastSyncedAt
+                  ? `Last reconciled with Alpaca ${new Date(lastSyncedAt).toLocaleString()}`
+                  : 'Waiting for the first balance sync'}
             </p>
+
           </>
         )}
       </CardContent>
