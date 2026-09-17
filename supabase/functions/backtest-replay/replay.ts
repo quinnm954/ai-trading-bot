@@ -173,9 +173,10 @@ export function replaySymbol(
 
     // ── GEOMETRY: exactly what this trade would be given ──────────────────────
     const swingAtrPct = htf?.swingAtrPct;
+    const knobs = params.geometry ?? GEOMETRY_DEFAULTS;
     const geo = params.wideStopMode
       ? solveWideGeometry(swingAtrPct)
-      : solveAdaptiveGeometry(swingAtrPct, params.stopPct);
+      : solveVariantAdaptive(swingAtrPct, params.stopPct, knobs);
     const holdMinutes = params.wideStopMode
       ? WIDE_MAX_HOLD_MINUTES
       : (geo as { holdMinutes?: number }).holdMinutes ?? 1440;
