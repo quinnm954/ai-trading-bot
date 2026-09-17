@@ -8,6 +8,16 @@ import {
   WIDE_STOP_MAX_PCT,
   ROUND_TRIP_FEE_PCT,
 } from "../_shared/exit-geometry.ts";
+import {
+  STOCK_MIN_REWARD_RISK,
+  STOCK_STOP_MAX_PCT,
+  requiredStockTakeProfit,
+} from "../_shared/stock-geometry.ts";
+import { roundTripCostPct } from "../_shared/asset-class.ts";
+
+/** Equities are commission-free on Alpaca — spread allowance only. */
+const STOCK_COST_PCT = roundTripCostPct('stocks');
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
