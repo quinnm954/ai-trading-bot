@@ -69,6 +69,11 @@ export async function fetchUniverse(size: number): Promise<{ symbol: string; pro
       volume: Number(p.approximate_quote_24h_volume ?? 0),
     }))
     .sort((a: { volume: number }, b: { volume: number }) => b.volume - a.volume)
+    // ONE PRODUCT PER COIN. Coinbase lists BTC-USD and BTC-USDC separately, so an
+    // undeduped top-N was really N/2 coins counted twice — and because results are
+    // keyed by base symbol, the second product silently overwrote the first row.
+    .filter((p: { symbol: string }, _i: number, arr: { symbol: string }[]) =>
+      arr.findIndex((q) => q.symbol === p.symbol) === _i)
     .slice(0, size);
 }
 
