@@ -191,7 +191,9 @@ export function computeStockFeaturesFromSessions(input: StockFeatureSessionInput
 
   const last = bars[bars.length - 1];
   const lastPrice = last.c;
-  const minutesFromOpen = last.minutesFromOpen + 5;
+  const minutesFromOpen = last.minutesFromOpen + barMinutes;
+  /** How many bars make up a 30-minute look-back at this bar size. */
+  const barsPer30m = Math.max(1, Math.round(30 / barMinutes));
 
   // ── VWAP (typical price × volume, session-anchored) ────────────────────────
   let pv = 0;
