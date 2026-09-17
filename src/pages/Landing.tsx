@@ -12,8 +12,8 @@ export default function Landing() {
     <div className="min-h-screen bg-background">
       <SeoHead
         path="/"
-        title="Titan AI Trader — Autonomous Crypto Trading Agents"
-        description={`Five AI agents watch the market, score risk and place crypto trades on your own Coinbase account every 30 minutes. Free trial, then $${MONTHLY_PRICE_USD} per 30 days.`}
+        title="Titan AI Trader — Autonomous Crypto & Stock Trading Agents"
+        description={`Five AI agents watch the market, score risk and trade crypto on your Coinbase account or US stocks through Alpaca every 30 minutes. Free trial, then $${MONTHLY_PRICE_USD} per 30 days.`}
       />
       {/* Navigation */}
       <header className="border-b border-border sticky top-0 z-50 bg-background/80 backdrop-blur-sm">
