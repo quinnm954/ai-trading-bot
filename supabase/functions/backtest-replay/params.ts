@@ -137,7 +137,12 @@ export function resolveParams(
       minRewardRisk: numOr((o.geometry as Record<string, unknown>)?.minRewardRisk, base.geometry.minRewardRisk),
       minStopPct: numOr((o.geometry as Record<string, unknown>)?.minStopPct, base.geometry.minStopPct),
       tpFloorPct: numOr((o.geometry as Record<string, unknown>)?.tpFloorPct, base.geometry.tpFloorPct),
+      costPct: finiteOr((o.geometry as Record<string, unknown>)?.costPct, base.geometry.costPct),
+      stopAtrMult: numOr((o.geometry as Record<string, unknown>)?.stopAtrMult, base.geometry.stopAtrMult),
+      minHoldMinutes: numOr((o.geometry as Record<string, unknown>)?.minHoldMinutes, base.geometry.minHoldMinutes),
+      maxHoldMinutes: numOr((o.geometry as Record<string, unknown>)?.maxHoldMinutes, base.geometry.maxHoldMinutes),
     },
+
     playbookTuning: {
       minScore: numOr((o.playbookTuning as Record<string, unknown>)?.minScore, base.playbookTuning.minScore),
       minVolumeRatio: numOr((o.playbookTuning as Record<string, unknown>)?.minVolumeRatio, base.playbookTuning.minVolumeRatio),
