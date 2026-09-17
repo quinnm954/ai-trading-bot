@@ -25,6 +25,7 @@ import {
   fetchUniverse,
   loadBars,
   type Bar,
+  type Granularity,
 } from "./candles.ts";
 import { loadDataCreds } from "../_shared/alpaca-creds.ts";
 import type { AlpacaCreds } from "../_shared/alpaca.ts";
@@ -38,6 +39,16 @@ import {
   type SymbolReplay,
 } from "./replay.ts";
 import { buildRunRow, closedOnly, computeMetrics } from "./stats.ts";
+import {
+  buildIntradayIndex,
+  buildStockTapeTimeline,
+  etDay,
+  replayStockSymbol,
+  stockContextSymbols,
+  type IntradayIndex,
+  type StockTapeTimeline,
+} from "./stock-replay.ts";
+import { SECTOR_ETF_BY_SYMBOL } from "../_shared/stock-feed.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -49,6 +60,40 @@ const corsHeaders = {
 const SYNC_PER_TICK = 1;
 /** Markets replayed per tick. */
 const REPLAY_PER_TICK = 3;
+/**
+ * A stock replay walks MINUTE bars over a full session clock, which is ~30× the
+ * work of a 5-minute crypto walk, so stock ticks take one market at a time.
+ */
+const STOCK_REPLAY_PER_TICK = 1;
+
+/**
+ * Bars a run needs cached.
+ *  • crypto: 5-minute decisions + hourly context (as before)
+ *  • stocks: MINUTE bars — session VWAP, the opening range and same-minute
+ *    relative volume cannot be reproduced from 5-minute bars — plus hourly bars
+ *    for the ATR the exit geometry is solved from, and daily bars for the
+ *    20/50-day structure, ATR%, prior close and the tape/breadth timeline.
+ */
+function granularitiesFor(assetClass: 'crypto' | 'stocks'): readonly Granularity[] {
+  return assetClass === 'stocks'
+    ? ['ONE_MINUTE', 'ONE_HOUR', 'ONE_DAY'] as const
+    : ['FIVE_MINUTE', 'ONE_HOUR'] as const;
+}
+
+/** Every symbol a run must cache: the replay universe plus index/sector context. */
+function syncList(assetClass: 'crypto' | 'stocks', universe: string[]): string[] {
+  return assetClass === 'stocks' ? [...universe, ...stockContextSymbols(universe)] : universe;
+}
+
+/** Context symbols only need daily bars, except SPY and sectors used for intraday RS. */
+function granularitiesForContext(symbol: string, universe: string[]): readonly Granularity[] {
+  const sectorsInUse = new Set(
+    universe.map((s) => SECTOR_ETF_BY_SYMBOL[s.toUpperCase()]).filter(Boolean),
+  );
+  return symbol === 'SPY' || sectorsInUse.has(symbol)
+    ? ['ONE_MINUTE', 'ONE_DAY'] as const
+    : ['ONE_DAY'] as const;
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
