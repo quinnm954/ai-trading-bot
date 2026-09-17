@@ -3,6 +3,11 @@
 // Coinbase returns at most 350 candles per request, so 90 days of 5-minute bars is
 // ~75 paginated calls per market. That is far too slow to redo on every run, so bars
 // are cached in `backtest_candles` once and every later replay reads from the cache.
+//
+// Equity history comes from Alpaca; those rows are namespaced in the same cache.
+
+import { getBars, getSnapshots, listTradableAssets, type AlpacaCreds } from "../_shared/alpaca.ts";
+import { STOCK_CORE_UNIVERSE } from "../_shared/stock-feed.ts";
 
 export type Granularity = 'FIVE_MINUTE' | 'ONE_HOUR';
 
