@@ -309,7 +309,7 @@ async function tickReplay(admin: any, job: any) {
     }
 
     await deleteExisting(admin, job.run_group_id, 'PORTFOLIO');
-    await admin.from('backtest_runs').insert(buildRunRow({
+    const { error: portfolioInsertError } = await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
       symbol: 'PORTFOLIO',
@@ -340,6 +340,7 @@ async function tickReplay(admin: any, job: any) {
         per_symbol: perSymbol,
       },
     }));
+    if (portfolioInsertError) throw new Error(`persist PORTFOLIO failed: ${portfolioInsertError.message}`);
 
     // Trade-level detail is not persisted on the job (it can be thousands of rows);
     // the per-symbol and portfolio run rows carry everything needed to compare runs.
