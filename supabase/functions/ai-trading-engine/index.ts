@@ -25,24 +25,12 @@ import {
   PLAYBOOK_TUNING_BOUNDS,
   type PlaybookTuning,
 } from "../_shared/entry-playbook.ts";
-// 📐 Indicator + candle-feature math lives in _shared so the backtest replay scores
-// history with byte-identical logic. These were extracted verbatim from this file.
-import {
-  findSupportLevel,
-  classifyVol,
-  computeRSI,
-  computeBollinger,
-  computeEMA,
-  computeMacdHistogram,
-  computeVWAP,
-  computeVolumeRatio,
-  hasHigherLows,
-} from "../_shared/indicators.ts";
+// 📐 Indicator + candle-feature math lives in _shared/indicators.ts and
+// _shared/candle-technicals.ts (extracted verbatim from this file) so the backtest
+// replay scores historical candles with byte-identical logic.
 import {
   computeCandleTechnicals,
   computeHtfContext,
-  MIN_CLOSED_5M_BARS,
-  MAX_5M_GAP_SECONDS,
   type CandleTechnicals,
 } from "../_shared/candle-technicals.ts";
 
