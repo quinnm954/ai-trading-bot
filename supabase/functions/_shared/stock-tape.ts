@@ -44,6 +44,8 @@ export interface StockTapeInput {
     minBreadth?: number;
     minAdRatio?: number;
     maxRealizedVolPct?: number;
+    /** Day move in the VIX proxy that counts as a shock. Raise it to disable the leg. */
+    maxVixProxyJumpPct?: number;
   };
 }
 
@@ -78,6 +80,7 @@ export function evaluateStockTape(input: StockTapeInput): StockTapeRead {
   const minBreadth = th.minBreadth ?? STOCK_TAPE_MIN_BREADTH;
   const minAdRatio = th.minAdRatio ?? STOCK_TAPE_MIN_AD_RATIO;
   const maxRealizedVol = th.maxRealizedVolPct ?? STOCK_TAPE_MAX_REALIZED_VOL;
+  const maxVixJump = th.maxVixProxyJumpPct ?? STOCK_TAPE_MAX_VIX_PROXY_JUMP;
 
   const indices = input.indices.filter((i) => Number.isFinite(i.dayChangePct));
   const uni = input.universeChanges.filter((v) => Number.isFinite(v));
@@ -111,7 +114,7 @@ export function evaluateStockTape(input: StockTapeInput): StockTapeRead {
 
   const realizedVolPct = input.realizedVolPct ?? null;
   const volShock = (realizedVolPct !== null && realizedVolPct > maxRealizedVol && indexAvg < 0) ||
-    (Number.isFinite(input.vixProxyChangePct ?? NaN) && (input.vixProxyChangePct as number) > STOCK_TAPE_MAX_VIX_PROXY_JUMP);
+    (Number.isFinite(input.vixProxyChangePct ?? NaN) && (input.vixProxyChangePct as number) > maxVixJump);
 
   const reasons: string[] = [];
   if (indexAvg < minIndexPct) reasons.push(`index avg ${indexAvg.toFixed(2)}% below the ${minIndexPct}% floor`);
