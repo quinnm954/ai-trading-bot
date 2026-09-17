@@ -279,6 +279,7 @@ async function tickReplay(admin: any, job: any) {
       profit_factor: Number(metrics.profitFactor.toFixed(2)),
       exit_breakdown: metrics.exitBreakdown,
       bars_stand_down_share: result.barsEvaluated ? result.barsStandDown / result.barsEvaluated : 0,
+      playbook_veto_tally: result.vetoTally,
     };
     for (const t of closed) allTrades.push(t);
   }
