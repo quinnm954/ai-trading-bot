@@ -230,7 +230,7 @@ export function computeStockFeaturesFromSessions(input: StockFeatureSessionInput
 
   // ── Opening range: first 30 minutes ───────────────────────────────────────
   const orBars = bars.filter((b) => b.minutesFromOpen < 30);
-  const orComplete = minutesFromOpen >= 30 && orBars.length >= 4;
+  const orComplete = minutesFromOpen >= 30 && orBars.length * barMinutes >= 20;
   const orHigh = orBars.length > 0 ? Math.max(...orBars.map((b) => b.h)) : last.h;
   const orLow = orBars.length > 0 ? Math.min(...orBars.map((b) => b.l)) : last.l;
   const orRangePct = orLow > 0 ? ((orHigh - orLow) / orLow) * 100 : 0;
