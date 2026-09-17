@@ -23,6 +23,9 @@ import {
   WIDE_PARTIAL_TP_PCT,
   WIDE_PARTIAL_FRACTION,
 } from "../_shared/exit-geometry.ts";
+// 📈 Equity exits live in their own module so the crypto exit path is untouched.
+import { processStockPositions } from "./stock-exits.ts";
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
