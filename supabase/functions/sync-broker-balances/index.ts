@@ -710,12 +710,37 @@ serve(async (req) => {
           }
           
           // 📈 STOCKS: Alpaca account + equity positions.
+          // LIVE ONLY. Paper stock trading is simulated inside the app against the
+          // paper_account balance (same as crypto paper), so an Alpaca paper account
+          // must never be mirrored into our tables.
           else if (conn.provider === "alpaca") {
+            const { data: stockSettings } = await serviceClient
+              .from("ai_settings")
+              .select("trading_mode")
+              .eq("user_id", userId)
+              .maybeSingle();
+
+            if (stockSettings?.trading_mode !== "live") {
+              allResults[userId] = {
+                provider: conn.provider,
+                message: "Paper stock trading is simulated in-app — no Alpaca account sync",
+              };
+              continue;
+            }
+
             const creds = await loadAlpacaCreds(serviceClient, userId);
             if (!creds) {
               allResults[userId] = { provider: conn.provider, message: "No Alpaca keys saved" };
               continue;
             }
+            if (creds.paper) {
+              allResults[userId] = {
+                provider: conn.provider,
+                message: "Saved Alpaca keys are paper keys — live sync skipped",
+              };
+              continue;
+            }
+
 
             const account = await getAccount(creds);
             if (!account) {
