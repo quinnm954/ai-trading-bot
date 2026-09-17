@@ -176,7 +176,7 @@ export default function Backtesting() {
     <div className="space-y-6">
       <SeoHead
         title="Strategy Backtesting | Titan AI Trader"
-        description="Replay the live Titan AI trading rules over 60-90 days of real Coinbase history and store the evidence before changing any parameter."
+        description="Replay the live Titan AI trading rules over real Coinbase and Alpaca history and store the evidence before changing any parameter."
         path="/backtesting"
         noindex
       />
@@ -187,7 +187,8 @@ export default function Backtesting() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Replays the exact live rules — entry playbook, market stand-down gate and fee-aware exits — over real
-          historical candles. Evaluation only: nothing here places trades or changes your settings.
+          historical candles — 5-minute Coinbase bars for crypto, 1-minute Alpaca bars for stocks so session VWAP,
+          the opening range and relative volume replay faithfully. Evaluation only: nothing here places trades or changes your settings.
         </p>
       </div>
 
