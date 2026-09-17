@@ -250,6 +250,31 @@ async function tickJob(admin: any, userId: string, jobId: string) {
 
 const secs = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
+/**
+ * Minute + daily bars for an index or sector ETF, indexed for point-in-time reads
+ * and memoised for the duration of one tick.
+ */
+// deno-lint-ignore no-explicit-any
+async function intradayContext(
+  admin: any,
+  assetClass: 'crypto' | 'stocks',
+  symbol: string,
+  startSec: number,
+  endSec: number,
+  cache: Map<string, IntradayIndex>,
+): Promise<IntradayIndex> {
+  const cached = cache.get(symbol);
+  if (cached) return cached;
+  const key = cacheKey(assetClass, symbol);
+  const [minute, daily] = await Promise.all([
+    loadBars(admin, key, 'ONE_MINUTE', startSec, endSec),
+    loadBars(admin, key, 'ONE_DAY', startSec, endSec),
+  ]);
+  const built = buildIntradayIndex(minute, daily);
+  cache.set(symbol, built);
+  return built;
+}
+
 // deno-lint-ignore no-explicit-any
 async function tickSync(admin: any, job: any) {
   const universe: string[] = job.universe ?? [];
