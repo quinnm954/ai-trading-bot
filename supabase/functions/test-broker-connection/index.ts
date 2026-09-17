@@ -700,7 +700,7 @@ serve(async (req) => {
       // 📈 Alpaca: paper keys start with PK, live with AK.
       case "alpaca": {
         const paper = apiKey.startsWith("PK");
-        const account = await getAccount({ apiKey, secretKey, paper });
+        const account = await getAccount({ keyId: apiKey, secretKey, paper });
         if (!account) throw new Error("Alpaca rejected these keys");
         accountInfo = {
           equity: account.equity,
