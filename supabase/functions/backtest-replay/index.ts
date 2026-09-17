@@ -253,7 +253,7 @@ async function tickReplay(admin: any, job: any) {
     const metrics = computeMetrics(result.trades, params.initialBalance);
 
     await deleteExisting(admin, job.run_group_id, symbol);
-    await admin.from('backtest_runs').insert(buildRunRow({
+    const { error: symbolInsertError } = await admin.from('backtest_runs').insert(buildRunRow({
       userId: job.user_id,
       runGroupId: job.run_group_id,
       symbol,
