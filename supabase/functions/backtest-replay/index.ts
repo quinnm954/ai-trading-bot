@@ -367,3 +367,13 @@ async function tickReplay(admin: any, job: any) {
   }).eq('id', job.id).select().single();
   return json({ success: true, job: updated });
 }
+
+/** Results are rewritten, never appended, so a re-run of a slice cannot duplicate rows. */
+// deno-lint-ignore no-explicit-any
+async function deleteExisting(admin: any, runGroupId: string, symbol: string) {
+  await admin.from('backtest_runs')
+    .delete()
+    .eq('symbol', symbol)
+    .eq('strategy', 'live_engine_replay')
+    .contains('details', { run_group_id: runGroupId });
+}
