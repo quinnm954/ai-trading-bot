@@ -172,7 +172,10 @@ export function buildStockTapeTimeline(
       thresholds: {
         minIndexPct: params.tape.min24hPct,
         minBreadth: params.tape.minBreadth,
+        minAdRatio: params.tape.minAdRatio,
+        maxRealizedVolPct: params.tape.maxRealizedVolPct,
       },
+
     });
 
     evaluated++;
