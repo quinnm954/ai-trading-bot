@@ -33,6 +33,13 @@ export interface StockPlaybookTuning {
   minDailyAtrPct?: number;
   maxDailyAtrPct?: number;
   maxVwapDistPct?: number;
+  /**
+   * Tolerance BELOW session VWAP, in %. 0 (the live default) keeps the hard rule:
+   * longs only above VWAP. A positive value lets a name sitting within that much
+   * of VWAP through as neutral evidence instead of a veto — used to test how much
+   * of the equity opportunity set the strict VWAP rule removes.
+   */
+  allowBelowVwapPct?: number;
 }
 
 export const STOCK_PLAYBOOK_DEFAULTS = {
@@ -44,11 +51,13 @@ export const STOCK_PLAYBOOK_DEFAULTS = {
   minDailyAtrPct: 0.8,
   maxDailyAtrPct: 8.0,
   maxVwapDistPct: 2.5,
+  allowBelowVwapPct: 0,
   /** No entries while the opening range is still forming, or into the close. */
   minMinutesFromOpen: 30,
   maxMinutesFromOpen: 375,
   minRvolSessions: 3,
 };
+
 
 export interface StockPlaybookVerdict {
   passed: boolean;
@@ -164,6 +173,11 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
   }
 
   // ── 2. VWAP ──────────────────────────────────────────────────────────────
+  // `allowBelowVwapPct` is 0 in live config, so the rule below is the hard one:
+  // longs only above VWAP (held or reclaimed). A positive tolerance is used by
+  // backtests to measure what the strict rule costs.
+  const vwapTolerance = Math.max(0, Number(t.allowBelowVwapPct) || 0);
+  const withinVwapTolerance = vwapTolerance > 0 && f.vwapDistPct >= -vwapTolerance;
   let vwapPoints = 0;
   if (f.vwapState === 'above_held') {
     vwapPoints = 18;
@@ -171,6 +185,9 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
   } else if (f.vwapState === 'reclaimed') {
     vwapPoints = 14;
     evidence.push('VWAP reclaim from below');
+  } else if (withinVwapTolerance) {
+    vwapPoints = 5;
+    flags.push(`${f.vwapDistPct.toFixed(2)}% vs VWAP — inside the ${vwapTolerance.toFixed(2)}% tolerance, not above it`);
   } else if (f.vwapState === 'rejected') {
     vetoes.push('rejected at VWAP — sellers control the session average');
   } else {
@@ -179,6 +196,7 @@ export function evaluateStockPlaybook(input: StockPlaybookInput): StockPlaybookV
   if (f.vwapDistPct > t.maxVwapDistPct) {
     vetoes.push(`extended ${f.vwapDistPct.toFixed(2)}% above VWAP — no edge chasing this far from the benchmark`);
   }
+
 
   // ── 3. Opening range ─────────────────────────────────────────────────────
   let orPoints = 0;

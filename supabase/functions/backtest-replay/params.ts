@@ -42,7 +42,9 @@ export interface BacktestParams {
   wideStopMode: boolean;
   /** Account's configured hard stop, fed to solveAdaptiveGeometry as the tuned stop. */
   stopPct: number;
-  tape: TapeThresholds;
+  /** Tape gate thresholds. Stock runs also read the two equity-only legs. */
+  tape: TapeThresholds & { minAdRatio?: number; maxRealizedVolPct?: number };
+
   /** Stop cap / payoff floor being tested (defaults = the live constants). */
   geometry: GeometryKnobs;
   playbookTuning: Required<PlaybookTuning>;
@@ -146,7 +148,16 @@ export function resolveParams(
       min24hPct: finiteOr((o.tape as Record<string, unknown>)?.min24hPct, base.tape.min24hPct),
       min1hPct: finiteOr((o.tape as Record<string, unknown>)?.min1hPct, base.tape.min1hPct),
       minBreadth: finiteOr((o.tape as Record<string, unknown>)?.minBreadth, base.tape.minBreadth),
+      // Equity-only legs: advance/decline ratio and the realized-volatility ceiling.
+      // Undefined leaves the live constants in place.
+      ...(Number.isFinite(Number((o.tape as Record<string, unknown>)?.minAdRatio))
+        ? { minAdRatio: Number((o.tape as Record<string, unknown>).minAdRatio) }
+        : {}),
+      ...(Number.isFinite(Number((o.tape as Record<string, unknown>)?.maxRealizedVolPct))
+        ? { maxRealizedVolPct: Number((o.tape as Record<string, unknown>).maxRealizedVolPct) }
+        : {}),
     },
+
     geometry: {
       maxRiskPct: numOr((o.geometry as Record<string, unknown>)?.maxRiskPct, base.geometry.maxRiskPct),
       minRewardRisk: numOr((o.geometry as Record<string, unknown>)?.minRewardRisk, base.geometry.minRewardRisk),
