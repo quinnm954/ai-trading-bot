@@ -265,6 +265,16 @@ const RVOL_LOOKBACK_SESSIONS = 12;
 
 export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
   const { symbol, params, positionValue } = input;
+  // Instrument class for this symbol (ETF, leveraged fund, ADR, REIT, micro-cap…).
+  // Historical issuer names are not cached, so classification uses the symbol
+  // lists plus the replay's own price/turnover context.
+  const lastDaily = input.dailyBars.length > 0 ? input.dailyBars[input.dailyBars.length - 1] : null;
+  const instrumentClass_ = classifyInstrument({
+    symbol,
+    price: lastDaily?.close ?? null,
+    dollarVolume: lastDaily ? (lastDaily.volume ?? 0) * (lastDaily.close ?? 0) : null,
+  });
+  const instrumentProfile_ = profileFor(instrumentClass_);
   const out: SymbolReplay = {
     symbol,
     trades: [],
@@ -276,8 +286,13 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
     lastBarAt: input.minuteBars.length ? input.minuteBars[input.minuteBars.length - 1].start : null,
   };
   if (input.minuteBars.length < 400 || input.dailyBars.length < 25) return out;
+  if (!instrumentProfile_.tradable) {
+    out.vetoTally[instrumentProfile_.skipReason ?? 'instrument_not_tradable'] = 1;
+    return out;
+  }
 
   const tally = (reason: string) => { out.vetoTally[reason] = (out.vetoTally[reason] ?? 0) + 1; };
+
 
   // Group the whole minute history into regular-hours sessions ONCE. Every later
   // decision re-slices this, so per-decision cost does not grow with the window.
