@@ -313,7 +313,38 @@ async function tickReplay(admin: any, job: any) {
   const summary = (job.summary ?? {}) as Record<string, unknown>;
   const assetClass: 'crypto' | 'stocks' = job.asset_class === 'stocks' ? 'stocks' : 'crypto';
 
-  // ── Step A: build the tape timeline once, from every market's hourly closes ──
+  // ── Step A: build the tape timeline once ────────────────────────────────────
+  // Stocks resolve a per-SESSION gate from daily closes (index trend, breadth,
+  // advance/decline, realized vol, VIX proxy) taken at the PRIOR session's close,
+  // so a day's gate can never be informed by the day it is gating.
+  if (!summary.tape && assetClass === 'stocks') {
+    const dailyUniverse = new Map<string, Bar[]>();
+    for (const productId of universe) {
+      const bars = await loadBars(admin, cacheKey(assetClass, productId), 'ONE_DAY', startSec, endSec);
+      if (bars.length) dailyUniverse.set(productId.toUpperCase(), bars);
+    }
+    const dailyContext = new Map<string, Bar[]>();
+    for (const symbol of stockContextSymbols(universe)) {
+      const bars = await loadBars(admin, cacheKey(assetClass, symbol), 'ONE_DAY', startSec, endSec);
+      if (bars.length) dailyContext.set(symbol.toUpperCase(), bars);
+    }
+
+    const tape = buildStockTapeTimeline(dailyUniverse, dailyContext, params);
+    summary.tape = {
+      open_days: [...tape.openDays],
+      regime_by_day: tape.regimeByDay,
+      days_evaluated: tape.daysEvaluated,
+      days_open: tape.daysOpen,
+      open_share: tape.daysEvaluated ? tape.daysOpen / tape.daysEvaluated : 0,
+      universe_size: dailyUniverse.size,
+    };
+    const { data: updated } = await admin.from('backtest_jobs').update({
+      summary,
+      progress_note: `Equity tape open on ${tape.daysOpen}/${tape.daysEvaluated} sessions — replaying markets`,
+    }).eq('id', job.id).select().single();
+    return json({ success: true, job: updated });
+  }
+
   if (!summary.tape) {
     const hourlyBySymbol = new Map<string, Bar[]>();
     for (const productId of universe) {
@@ -336,7 +367,18 @@ async function tickReplay(admin: any, job: any) {
     return json({ success: true, job: updated });
   }
 
-  const tapeOpen = new Set<number>((summary.tape as { open_hours: number[] }).open_hours ?? []);
+  const tapeSummary = summary.tape as Record<string, unknown>;
+  const tapeOpen = new Set<number>((tapeSummary.open_hours as number[]) ?? []);
+  const stockTape: StockTapeTimeline | null = assetClass === 'stocks'
+    ? {
+      openDays: new Set<string>((tapeSummary.open_days as string[]) ?? []),
+      daysEvaluated: Number(tapeSummary.days_evaluated ?? 0),
+      daysOpen: Number(tapeSummary.days_open ?? 0),
+      regimeByDay: (tapeSummary.regime_by_day as Record<string, string>) ?? {},
+    }
+    : null;
+  // Index/sector bars are shared across the markets replayed in this tick.
+  const contextCache = new Map<string, IntradayIndex>();
   const positionValue = params.initialBalance
     * (params.maxCapitalUsagePct / 100)
     * (params.maxPositionSizePct / 100);
@@ -349,7 +391,8 @@ async function tickReplay(admin: any, job: any) {
   // Two callers can poll the same job at once (the page and a script). The cursor
   // is advanced conditionally, so only one caller owns a slice and results are
   // never counted twice.
-  const claimTo = Math.min(startCursor + REPLAY_PER_TICK, universe.length);
+  const perTick = assetClass === 'stocks' ? STOCK_REPLAY_PER_TICK : REPLAY_PER_TICK;
+  const claimTo = Math.min(startCursor + perTick, universe.length);
   const { data: claimed } = await admin.from('backtest_jobs')
     .update({ replay_cursor: claimTo })
     .eq('id', job.id)
@@ -365,9 +408,32 @@ async function tickReplay(admin: any, job: any) {
     const productId = universe[cursor];
     const symbol = assetClass === 'stocks' ? productId.toUpperCase() : productId.split('-')[0];
     const key = cacheKey(assetClass, productId);
-    const bars5m = await loadBars(admin, key, 'FIVE_MINUTE', startSec, endSec);
-    const bars1h = await loadBars(admin, key, 'ONE_HOUR', startSec, endSec);
-    const result: SymbolReplay = replaySymbol(symbol, bars5m, bars1h, tapeOpen, params, positionValue);
+    let result: SymbolReplay;
+    if (assetClass === 'stocks') {
+      const sectorEtf = SECTOR_ETF_BY_SYMBOL[symbol] ?? null;
+      const [bars1m, bars1h, bars1d] = await Promise.all([
+        loadBars(admin, key, 'ONE_MINUTE', startSec, endSec),
+        loadBars(admin, key, 'ONE_HOUR', startSec, endSec),
+        loadBars(admin, key, 'ONE_DAY', startSec, endSec),
+      ]);
+      result = replayStockSymbol({
+        symbol,
+        minuteBars: bars1m,
+        hourlyBars: bars1h,
+        dailyBars: bars1d,
+        spy: await intradayContext(admin, assetClass, 'SPY', startSec, endSec, contextCache),
+        sector: sectorEtf
+          ? await intradayContext(admin, assetClass, sectorEtf, startSec, endSec, contextCache)
+          : null,
+        tape: stockTape!,
+        params,
+        positionValue,
+      });
+    } else {
+      const bars5m = await loadBars(admin, key, 'FIVE_MINUTE', startSec, endSec);
+      const bars1h = await loadBars(admin, key, 'ONE_HOUR', startSec, endSec);
+      result = replaySymbol(symbol, bars5m, bars1h, tapeOpen, params, positionValue);
+    }
 
 
     const closed = closedOnly(result.trades);
