@@ -449,6 +449,108 @@ export type Database = {
         }
         Relationships: []
       }
+      backtest_candles: {
+        Row: {
+          bucket_start: number
+          close: number
+          granularity: string
+          high: number
+          low: number
+          open: number
+          product_id: string
+          volume: number
+        }
+        Insert: {
+          bucket_start: number
+          close: number
+          granularity: string
+          high: number
+          low: number
+          open: number
+          product_id: string
+          volume?: number
+        }
+        Update: {
+          bucket_start?: number
+          close?: number
+          granularity?: string
+          high?: number
+          low?: number
+          open?: number
+          product_id?: string
+          volume?: number
+        }
+        Relationships: []
+      }
+      backtest_jobs: {
+        Row: {
+          candles_loaded: number
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          label: string | null
+          params: Json
+          period_days: number
+          phase: string
+          progress_note: string | null
+          range_end: string | null
+          range_start: string | null
+          replay_cursor: number
+          run_group_id: string
+          summary: Json | null
+          symbols_replayed: number
+          sync_cursor: number
+          universe: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          candles_loaded?: number
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          label?: string | null
+          params?: Json
+          period_days?: number
+          phase?: string
+          progress_note?: string | null
+          range_end?: string | null
+          range_start?: string | null
+          replay_cursor?: number
+          run_group_id?: string
+          summary?: Json | null
+          symbols_replayed?: number
+          sync_cursor?: number
+          universe?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          candles_loaded?: number
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          label?: string | null
+          params?: Json
+          period_days?: number
+          phase?: string
+          progress_note?: string | null
+          range_end?: string | null
+          range_start?: string | null
+          replay_cursor?: number
+          run_group_id?: string
+          summary?: Json | null
+          symbols_replayed?: number
+          sync_cursor?: number
+          universe?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       backtest_runs: {
         Row: {
           avg_loss: number

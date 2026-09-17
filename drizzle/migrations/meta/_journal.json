@@ -148,6 +148,13 @@
       "when": 1789369384731,
       "tag": "0020_restore_one_open_position_per_symbol_index",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789619141755,
+      "tag": "0021_backtest_pipeline_tables",
+      "breakpoints": true
     }
   ]
 }
