@@ -512,11 +512,17 @@ export async function runStockCycle(
     // of the size a mega-cap or index ETF gets, because the same % stop is a much
     // bigger real-world risk in those products.
     const classPositionPct = maxPositionPct * candidate.profile.positionScale;
-    const targetUsd = Math.min(equity * (classPositionPct / 100), Math.max(0, capitalCeiling - deployed), cash);
-    if (targetUsd < 25) {
-      console.log(`📈 ${candidate.symbol}: position budget $${targetUsd.toFixed(2)} too small — stopping.`);
+    const remainingBudget = Math.min(Math.max(0, capitalCeiling - deployed), cash);
+    if (remainingBudget < 25) {
+      console.log(`📈 Remaining budget $${remainingBudget.toFixed(2)} too small — stopping.`);
       break;
     }
+    const targetUsd = Math.min(equity * (classPositionPct / 100), remainingBudget);
+    if (targetUsd < 25) {
+      console.log(`📈 ${candidate.symbol}: ${candidate.profile.label} budget $${targetUsd.toFixed(2)} below the $25 minimum — skipping.`);
+      continue;
+    }
+
 
 
     // Intraday-margin guardrail (replaces the eliminated PDT day-trade count).
