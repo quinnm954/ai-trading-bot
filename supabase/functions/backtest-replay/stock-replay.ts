@@ -411,7 +411,9 @@ export function replayStockSymbol(input: StockReplayInput): SymbolReplay {
         targetPct: geo.takeProfitPct,
         holdMinutes: geo.holdMinutes,
         feePct: params.feePct,
-        positionValue,
+        // Same class-based size scaling the live engine applies.
+        positionValue: positionValue * instrumentProfile_.positionScale,
+
         score: verdict.score,
         grade: verdict.grade,
         setupKey: verdict.setupKey,
