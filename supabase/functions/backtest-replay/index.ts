@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
     if (action === 'start') return await startJob(admin, user.id, body);
     if (action === 'tick') return await tickJob(admin, user.id, String(body?.jobId ?? ''));
     if (action === 'status') return await statusJob(admin, user.id, String(body?.jobId ?? ''));
+    if (action === 'repair') return await repairJob(admin, user.id, String(body?.jobId ?? ''));
     return json({ success: false, error: `unknown action: ${action}` }, 400);
   } catch (err) {
     console.error('backtest-replay failed:', err);
@@ -87,7 +88,12 @@ async function startJob(admin: any, userId: string, body: Record<string, unknown
   ]);
 
   const params = resolveParams(aiSettings, scalpSettings, (body?.overrides ?? {}) as Record<string, unknown>);
-  const universe = await fetchUniverse(params.universeSize);
+  // An explicit universe lets every variant replay the SAME cached markets as the
+  // baseline, so a comparison never drifts because Coinbase reordered by volume.
+  const explicit = Array.isArray(body?.universe) ? (body.universe as unknown[]).map(String) : null;
+  const universe = explicit && explicit.length >= 5
+    ? explicit.map((productId) => ({ symbol: productId.split('-')[0], productId, volume: 0 }))
+    : await fetchUniverse(params.universeSize);
   if (universe.length < 5) return json({ success: false, error: 'could not resolve a tradable universe' }, 502);
 
   const endSec = Math.floor(Date.now() / 1000);
