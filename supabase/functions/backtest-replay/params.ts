@@ -7,11 +7,27 @@ import { ROUND_TRIP_FEE_PCT } from "../_shared/exit-geometry.ts";
 import { PLAYBOOK_TUNING_DEFAULTS, type PlaybookTuning } from "../_shared/entry-playbook.ts";
 import { TAPE_DEFAULTS, type TapeThresholds } from "../_shared/tape-gate.ts";
 import { GEOMETRY_DEFAULTS, type GeometryKnobs } from "./geometry.ts";
+import { roundTripCostPct, type AssetClass, assetClassOf } from "../_shared/asset-class.ts";
+import {
+  STOCK_MIN_REWARD_RISK,
+  STOCK_STOP_ATR_MULT,
+  STOCK_STOP_MAX_PCT,
+  STOCK_STOP_MIN_PCT,
+  STOCK_TP_FLOOR_PCT,
+  STOCK_MIN_HOLD_MINUTES,
+  STOCK_MAX_HOLD_MINUTES,
+} from "../_shared/stock-geometry.ts";
+import {
+  STOCK_TAPE_MIN_BREADTH,
+  STOCK_TAPE_MIN_INDEX_PCT,
+} from "../_shared/stock-tape.ts";
 
 export interface BacktestParams {
+  /** Which asset class this run replays. Crypto is the default. */
+  assetClass: AssetClass;
   /** Days of history to replay. */
   days: number;
-  /** How many Coinbase markets (most liquid first) to include. */
+  /** How many markets (most liquid first) to include. */
   universeSize: number;
   initialBalance: number;
   maxCapitalUsagePct: number;
@@ -25,11 +41,12 @@ export interface BacktestParams {
   /** Stop cap / payoff floor being tested (defaults = the live constants). */
   geometry: GeometryKnobs;
   playbookTuning: Required<PlaybookTuning>;
-  /** Round-trip fee charged on every simulated trade. */
+  /** Round-trip cost charged on every simulated trade (crypto fees, stock spread). */
   feePct: number;
   /** How a bar whose range spans both stop and target is resolved. */
   intrabarTieBreak: 'stop_first';
 }
+
 
 export const HARD_LIMITS = {
   maxDays: 120,
