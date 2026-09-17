@@ -218,7 +218,7 @@ export function computeStockFeaturesFromSessions(input: StockFeatureSessionInput
     const v = rvolSum > 0 ? rpv / rvolSum : b.c;
     above.push(b.c >= v);
   }
-  const recent = above.slice(-6);
+  const recent = above.slice(-barsPer30m);
   const wasBelow = recent.slice(0, Math.max(1, recent.length - 2)).some((a) => !a);
   const nowAbove = above[above.length - 1];
   const heldAbove = recent.every((a) => a);
