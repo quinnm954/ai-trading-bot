@@ -276,6 +276,9 @@ async function tickReplay(admin: any, job: any) {
         note: 'per-symbol rows are unconstrained by the portfolio slot cap; the PORTFOLIO row applies it',
       },
     }));
+    // A silently dropped insert is how the first baseline lost half its per-symbol
+    // rows. Persistence failure now fails the job instead of finishing incomplete.
+    if (symbolInsertError) throw new Error(`persist ${symbol} failed: ${symbolInsertError.message}`);
 
     perSymbol[symbol] = {
       trades: metrics.trades,
