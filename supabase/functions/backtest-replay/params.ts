@@ -6,6 +6,7 @@ import { MAX_RISK_PCT } from "../_shared/exit-geometry.ts";
 import { ROUND_TRIP_FEE_PCT } from "../_shared/exit-geometry.ts";
 import { PLAYBOOK_TUNING_DEFAULTS, type PlaybookTuning } from "../_shared/entry-playbook.ts";
 import { TAPE_DEFAULTS, type TapeThresholds } from "../_shared/tape-gate.ts";
+import { GEOMETRY_DEFAULTS, type GeometryKnobs } from "./geometry.ts";
 
 export interface BacktestParams {
   /** Days of history to replay. */
@@ -21,6 +22,8 @@ export interface BacktestParams {
   /** Account's configured hard stop, fed to solveAdaptiveGeometry as the tuned stop. */
   stopPct: number;
   tape: TapeThresholds;
+  /** Stop cap / payoff floor being tested (defaults = the live constants). */
+  geometry: GeometryKnobs;
   playbookTuning: Required<PlaybookTuning>;
   /** Round-trip fee charged on every simulated trade. */
   feePct: number;
