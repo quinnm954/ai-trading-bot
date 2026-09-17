@@ -146,13 +146,48 @@ export interface StockFeatureInput {
   sectorDayChangePct?: number | null;
 }
 
+export interface StockSession {
+  day: string;
+  bars: SessionBar[];
+}
+
 export function computeStockFeatures(input: StockFeatureInput): StockFeatures | null {
-  const sessions = groupSessions(input.intraday);
+  return computeStockFeaturesFromSessions({
+    symbol: input.symbol,
+    sessions: groupSessions(input.intraday),
+    daily: input.daily,
+    indexDayChangePct: input.indexDayChangePct,
+    indexIntradayPct: input.indexIntradayPct,
+    sectorDayChangePct: input.sectorDayChangePct,
+  });
+}
+
+export interface StockFeatureSessionInput {
+  symbol: string;
+  /** Sessions oldest-first; the LAST one is the session being traded, truncated to the decision moment. */
+  sessions: StockSession[];
+  daily: Bar[];
+  indexDayChangePct: number;
+  indexIntradayPct: number;
+  sectorDayChangePct?: number | null;
+  /** Bar interval in minutes (5 live, 1 in minute-level replay). */
+  barMinutes?: number;
+}
+
+/**
+ * Same feature set from already-grouped sessions. Historical replay groups a
+ * symbol's whole minute history once and then re-slices it, which keeps the
+ * per-decision cost independent of how much history is loaded.
+ */
+export function computeStockFeaturesFromSessions(input: StockFeatureSessionInput): StockFeatures | null {
+  const sessions = input.sessions;
   if (sessions.length === 0) return null;
+  const barMinutes = input.barMinutes && input.barMinutes > 0 ? input.barMinutes : 5;
 
   const today = sessions[sessions.length - 1];
   const bars = today.bars;
-  if (bars.length < 4) return null; // fewer than 20 minutes of tape
+  // At least 20 minutes of tape before anything is read off the session.
+  if (bars.length * barMinutes < 20) return null;
 
   const last = bars[bars.length - 1];
   const lastPrice = last.c;
