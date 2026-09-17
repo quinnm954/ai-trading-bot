@@ -12,7 +12,12 @@ export interface StockPositionRow {
 }
 
 export interface StockAccountSnapshot {
+  /** True when the numbers come from the in-app simulated paper account. */
+  isPaper: boolean;
+  /** Paper: always true once a paper account exists. Live: an Alpaca account is synced. */
   connected: boolean;
+  /** Alpaca keys are saved — needed for market data in both modes. */
+  hasKeys: boolean;
   balance: number;
   buyingPower: number;
   equity: number;
@@ -23,7 +28,9 @@ export interface StockAccountSnapshot {
 }
 
 const EMPTY: StockAccountSnapshot = {
+  isPaper: true,
   connected: false,
+  hasKeys: false,
   balance: 0,
   buyingPower: 0,
   equity: 0,
@@ -34,10 +41,11 @@ const EMPTY: StockAccountSnapshot = {
 };
 
 /**
- * The connected Alpaca account and its stock positions.
+ * Stock account snapshot.
  *
- * Reads only what the balance sync already writes, so nothing here depends on the
- * browser being open — the numbers are whatever the server last reconciled.
+ * Paper mode reads the app's own simulated paper account (the same table crypto
+ * paper trading uses) — nothing is read from or placed on Alpaca's paper account.
+ * Live mode reads whatever the server last reconciled with the real Alpaca account.
  */
 export function useStockAccount() {
   const { user } = useAuth();
@@ -46,10 +54,30 @@ export function useStockAccount() {
 
   const load = useCallback(async () => {
     if (!user) return;
-    const [{ data: account }, { data: positions }] = await Promise.all([
+
+    const { data: settings } = await supabase
+      .from('ai_settings')
+      .select('trading_mode')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const isPaper = settings?.trading_mode !== 'live';
+
+    const [{ data: paper }, { data: account }, { data: creds }, { data: positions }] = await Promise.all([
+      supabase
+        .from('paper_account')
+        .select('balance, initial_balance, updated_at')
+        .eq('user_id', user.id)
+        .maybeSingle(),
       supabase
         .from('live_account')
         .select('balance, buying_power, equity, last_synced_at')
+        .eq('user_id', user.id)
+        .eq('provider', 'alpaca')
+        .maybeSingle(),
+      supabase
+        .from('broker_credentials')
+        .select('id')
         .eq('user_id', user.id)
         .eq('provider', 'alpaca')
         .maybeSingle(),
@@ -58,6 +86,7 @@ export function useStockAccount() {
         .select('id, symbol, quantity, avg_entry_price, current_price, unrealized_pnl')
         .eq('user_id', user.id)
         .eq('market_type', 'stocks')
+        .eq('is_paper', isPaper)
         .order('symbol'),
     ]);
 
@@ -66,16 +95,20 @@ export function useStockAccount() {
       (sum, p) => sum + Number(p.quantity) * Number(p.current_price ?? p.avg_entry_price),
       0,
     );
+    const unrealizedPnl = rows.reduce((sum, p) => sum + Number(p.unrealized_pnl ?? 0), 0);
+    const paperCash = Number(paper?.balance ?? 0);
 
     setSnapshot({
-      connected: !!account,
-      balance: Number(account?.balance ?? 0),
-      buyingPower: Number(account?.buying_power ?? 0),
-      equity: Number(account?.equity ?? 0),
-      lastSyncedAt: account?.last_synced_at ?? null,
+      isPaper,
+      connected: isPaper ? !!paper : !!account,
+      hasKeys: !!creds,
+      balance: isPaper ? paperCash : Number(account?.balance ?? 0),
+      buyingPower: isPaper ? paperCash : Number(account?.buying_power ?? 0),
+      equity: isPaper ? paperCash + positionsValue : Number(account?.equity ?? 0),
+      lastSyncedAt: isPaper ? paper?.updated_at ?? null : account?.last_synced_at ?? null,
       positions: rows,
       positionsValue,
-      unrealizedPnl: rows.reduce((sum, p) => sum + Number(p.unrealized_pnl ?? 0), 0),
+      unrealizedPnl,
     });
     setLoading(false);
   }, [user]);

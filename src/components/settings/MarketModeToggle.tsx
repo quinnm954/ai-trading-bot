@@ -17,8 +17,9 @@ export function MarketModeToggle() {
     if (next === mode) return;
     if (next === 'stocks' && !hasAlpacaKeys) {
       toast({
-        title: 'Add your stock brokerage keys first',
-        description: 'Connect an Alpaca account under API Keys, then switch to stocks.',
+        title: 'Add Alpaca keys for stock prices first',
+        description:
+          'Practice stock trades are simulated in this app, but live stock prices still come from Alpaca. Add keys under API Keys, then switch to stocks.',
         variant: 'destructive',
       });
       return;
@@ -32,10 +33,11 @@ export function MarketModeToggle() {
       title: next === 'stocks' ? 'Now trading stocks' : 'Now trading crypto',
       description:
         next === 'stocks'
-          ? 'Entries only run while the US market is open, with equity-sized stops and no commission assumption.'
+          ? 'Practice stock trades are simulated in-app at real prices. Entries only run while the US market is open, with no commission assumption.'
           : 'Back to 24/7 crypto trading on Coinbase with the usual settings.',
     });
   };
+
 
   return (
     <Card>
