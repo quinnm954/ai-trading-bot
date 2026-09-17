@@ -307,10 +307,17 @@ export type Database = {
           risk_tolerance: string | null
           stock_allow_extended_hours: boolean
           stock_cash_account: boolean
+          stock_earnings_buffer_days: number | null
           stock_max_intraday_exposure_pct: number
           stock_max_stop_pct: number
           stock_min_stop_pct: number
+          stock_playbook_max_extension_mult: number | null
+          stock_playbook_min_rs_day_pct: number | null
+          stock_playbook_min_rvol: number | null
+          stock_playbook_min_score: number | null
           stock_stop_atr_mult: number
+          stock_tape_min_breadth: number | null
+          stock_tape_min_index_pct: number | null
           target_equity: number | null
           trading_mode: string
           updated_at: string | null
@@ -349,10 +356,17 @@ export type Database = {
           risk_tolerance?: string | null
           stock_allow_extended_hours?: boolean
           stock_cash_account?: boolean
+          stock_earnings_buffer_days?: number | null
           stock_max_intraday_exposure_pct?: number
           stock_max_stop_pct?: number
           stock_min_stop_pct?: number
+          stock_playbook_max_extension_mult?: number | null
+          stock_playbook_min_rs_day_pct?: number | null
+          stock_playbook_min_rvol?: number | null
+          stock_playbook_min_score?: number | null
           stock_stop_atr_mult?: number
+          stock_tape_min_breadth?: number | null
+          stock_tape_min_index_pct?: number | null
           target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
@@ -391,10 +405,17 @@ export type Database = {
           risk_tolerance?: string | null
           stock_allow_extended_hours?: boolean
           stock_cash_account?: boolean
+          stock_earnings_buffer_days?: number | null
           stock_max_intraday_exposure_pct?: number
           stock_max_stop_pct?: number
           stock_min_stop_pct?: number
+          stock_playbook_max_extension_mult?: number | null
+          stock_playbook_min_rs_day_pct?: number | null
+          stock_playbook_min_rvol?: number | null
+          stock_playbook_min_score?: number | null
           stock_stop_atr_mult?: number
+          stock_tape_min_breadth?: number | null
+          stock_tape_min_index_pct?: number | null
           target_equity?: number | null
           trading_mode?: string
           updated_at?: string | null
