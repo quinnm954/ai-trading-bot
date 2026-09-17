@@ -33,6 +33,7 @@ import {
   computeHtfContext,
   type CandleTechnicals,
 } from "../_shared/candle-technicals.ts";
+import { evaluateTape, TAPE_UNIVERSE_SIZE } from "../_shared/tape-gate.ts";
 
 // 🎓 LEARNED SETUP MEMORY — setup fingerprints that have proven negative expectancy
 // over a real sample are benched by record_setup_outcome() and never traded again
