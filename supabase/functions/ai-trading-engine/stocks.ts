@@ -14,14 +14,26 @@
 //   • intraday-margin guardrails instead of the eliminated PDT day-trade count
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { computeCandleTechnicals, computeHtfContext } from '../_shared/candle-technicals.ts';
-import { evaluateEntryPlaybook, type PlaybookTuning } from '../_shared/entry-playbook.ts';
+import { computeHtfContext } from '../_shared/candle-technicals.ts';
 import { loadAlpacaCreds, loadDataCreds } from '../_shared/alpaca-creds.ts';
 import type { AlpacaBar, AlpacaCreds } from '../_shared/alpaca.ts';
 import { getBars, getBarsMany, getSnapshots, placeOrder, waitForFill, getAccount, getAsset } from '../_shared/alpaca.ts';
 import { getSessionState } from '../_shared/market-hours.ts';
 import { fetchStockMarket } from '../_shared/stock-feed.ts';
-import { evaluateStockTape, STOCK_TAPE_INDEX_SYMBOLS } from '../_shared/stock-tape.ts';
+import {
+  evaluateStockTape,
+  realizedVolatilityPct,
+  STOCK_TAPE_INDEX_SYMBOLS,
+  STOCK_VIX_PROXY,
+  type IndexRead,
+} from '../_shared/stock-tape.ts';
+import {
+  computeStockFeatures,
+  SECTOR_ETF_BY_SYMBOL,
+  type Bar as EquityBar,
+} from '../_shared/stock-features.ts';
+import { evaluateStockPlaybook, stockTuningFromSettings } from '../_shared/stock-playbook.ts';
+import { fetchEarningsCalendar, earningsFor } from '../_shared/earnings-calendar.ts';
 import {
   checkIntradayExposure,
   describeStockGeometry,
@@ -213,10 +225,46 @@ export async function runStockCycle(
     return { status: 'no_market_data', assetClass: 'stocks', message, session };
   }
 
-  const indexChanges = feed.indexChanges.length > 0
-    ? feed.indexChanges
-    : feed.quotes.filter((q) => STOCK_TAPE_INDEX_SYMBOLS.includes(q.symbol)).map((q) => q.change24h);
-  const tape = evaluateStockTape(indexChanges, feed.quotes.map((q) => q.change24h));
+  // Equity regime read: index trend across caps, advance/decline breadth, and
+  // realized-volatility context. Built from daily index bars, not a single change %.
+  const tapeSymbols = [...STOCK_TAPE_INDEX_SYMBOLS, STOCK_VIX_PROXY];
+  const [tapeSnaps, tapeDaily] = await Promise.all([
+    getSnapshots(dataCreds, tapeSymbols),
+    getBarsMany(dataCreds, tapeSymbols, '1Day', new Date(Date.now() - 90 * 86400_000).toISOString(), undefined, 4),
+  ]);
+
+  const indexReads: IndexRead[] = STOCK_TAPE_INDEX_SYMBOLS.map((symbol) => {
+    const snap = tapeSnaps.find((s) => s.symbol === symbol);
+    const bars = tapeDaily[symbol] ?? [];
+    const closes = bars.map((b) => b.c).filter((c) => c > 0);
+    const sma20 = closes.length >= 21
+      ? closes.slice(-21, -1).reduce((s, v) => s + v, 0) / 20
+      : null;
+    const price = snap?.price ?? (closes.length > 0 ? closes[closes.length - 1] : 0);
+    const fiveBack = closes.length >= 6 ? closes[closes.length - 6] : 0;
+    return {
+      symbol,
+      dayChangePct: snap?.change24h ?? Number.NaN,
+      aboveSma20: sma20 !== null && price > sma20,
+      fiveDayChangePct: fiveBack > 0 ? ((price - fiveBack) / fiveBack) * 100 : 0,
+    };
+  }).filter((r) => Number.isFinite(r.dayChangePct));
+
+  const spyCloses = (tapeDaily['SPY'] ?? []).map((b) => b.c);
+  const vixSnap = tapeSnaps.find((s) => s.symbol === STOCK_VIX_PROXY);
+
+  const tape = evaluateStockTape({
+    indices: indexReads,
+    universeChanges: feed.quotes
+      .filter((q) => !STOCK_TAPE_INDEX_SYMBOLS.includes(q.symbol))
+      .map((q) => q.change24h),
+    realizedVolPct: realizedVolatilityPct(spyCloses),
+    vixProxyChangePct: vixSnap?.change24h ?? null,
+    thresholds: {
+      minIndexPct: Number(settings.stock_tape_min_index_pct) || undefined,
+      minBreadth: Number(settings.stock_tape_min_breadth) || undefined,
+    },
+  });
 
   if (!tape.rising) {
     const message = `📈 Stand-down (equities): ${tape.label}`;
@@ -247,14 +295,8 @@ export async function runStockCycle(
     return { status: 'daily_loss_limit', assetClass: 'stocks', message, session, tape };
   }
 
-  // ── 7. CANDIDATE SCAN ──────────────────────────────────────────────────────
-  const tuning: PlaybookTuning = {
-    minScore: Number(settings.playbook_min_score) || undefined,
-    minVolumeRatio: Number(settings.playbook_min_volume_ratio) || undefined,
-    maxPercentB: Number(settings.playbook_max_percent_b) || undefined,
-    rsiMax: Number(settings.playbook_rsi_max) || undefined,
-    maxChase5m: Number(settings.playbook_max_chase_5m_pct) || undefined,
-  };
+  // ── 7. CANDIDATE SCAN (equity playbook) ────────────────────────────────────
+  const tuning = stockTuningFromSettings(settings);
 
   const geometryBounds = {
     minStopPct: Number(settings.stock_min_stop_pct) || undefined,
@@ -277,13 +319,35 @@ export async function runStockCycle(
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const fiveMinStart = new Date(Date.now() - 3 * 86400_000).toISOString();
+  // 14 calendar days of 5-minute bars gives ~9 prior sessions for same-time-of-day
+  // relative volume; 90 days of dailies covers the 50-day average and ATR.
+  const fiveMinStart = new Date(Date.now() - 14 * 86400_000).toISOString();
+  const dailyStart = new Date(Date.now() - 120 * 86400_000).toISOString();
   const hourlyStart = new Date(Date.now() - 30 * 86400_000).toISOString();
 
-  const [fiveMinBars, hourlyBars] = await Promise.all([
-    getBarsMany(dataCreds, shortlist.map((q) => q.symbol), '5Min', fiveMinStart, undefined, 5),
-    getBarsMany(dataCreds, shortlist.map((q) => q.symbol), '1Hour', hourlyStart, undefined, 5),
+  const sectorSymbols = Array.from(
+    new Set(shortlist.map((q) => SECTOR_ETF_BY_SYMBOL[q.symbol]).filter((s): s is string => !!s)),
+  );
+  const scanSymbols = shortlist.map((q) => q.symbol);
+
+  const [fiveMinBars, hourlyBars, dailyBars, benchIntraday, benchSnaps, earningsCal] = await Promise.all([
+    getBarsMany(dataCreds, scanSymbols, '5Min', fiveMinStart, undefined, 5),
+    getBarsMany(dataCreds, scanSymbols, '1Hour', hourlyStart, undefined, 5),
+    getBarsMany(dataCreds, scanSymbols, '1Day', dailyStart, undefined, 5),
+    getBarsMany(dataCreds, ['SPY'], '5Min', new Date(Date.now() - 2 * 86400_000).toISOString(), undefined, 2),
+    sectorSymbols.length > 0 ? getSnapshots(dataCreds, sectorSymbols) : Promise.resolve([]),
+    fetchEarningsCalendar(10),
   ]);
+
+  // Index legs for relative strength: today's move plus the last ~30 minutes.
+  const spyDayChange = indexReads.find((i) => i.symbol === 'SPY')?.dayChangePct ?? tape.indexAvg;
+  const spyIntradayBars = (benchIntraday['SPY'] ?? []) as EquityBar[];
+  const spyIntradayPct = (() => {
+    if (spyIntradayBars.length < 7) return 0;
+    const from = spyIntradayBars[spyIntradayBars.length - 7].c;
+    const to = spyIntradayBars[spyIntradayBars.length - 1].c;
+    return from > 0 ? ((to - from) / from) * 100 : 0;
+  })();
 
   interface Candidate {
     symbol: string;
@@ -300,53 +364,49 @@ export async function runStockCycle(
   const rejected: Array<{ symbol: string; reason: string }> = [];
 
   for (const quote of shortlist) {
-    const intraday = fiveMinBars[quote.symbol] ?? [];
+    const intraday = (fiveMinBars[quote.symbol] ?? []) as EquityBar[];
     const hourly = hourlyBars[quote.symbol] ?? [];
-    if (intraday.length < 40 || hourly.length < 30) {
+    const daily = (dailyBars[quote.symbol] ?? []) as EquityBar[];
+    if (intraday.length < 40 || daily.length < 25) {
       rejected.push({ symbol: quote.symbol, reason: 'not enough bar history' });
       continue;
     }
 
-    const tech = computeCandleTechnicals(toRawCandles(intraday), nowSeconds);
-    const htf = computeHtfContext(toRawCandles(hourly), nowSeconds);
-    if (!tech) {
-      rejected.push({ symbol: quote.symbol, reason: 'candle features unavailable' });
+    const sectorEtf = SECTOR_ETF_BY_SYMBOL[quote.symbol];
+    const sectorChange = sectorEtf
+      ? benchSnaps.find((s) => s.symbol === sectorEtf)?.change24h ?? null
+      : null;
+
+    const features = computeStockFeatures({
+      symbol: quote.symbol,
+      intraday,
+      daily,
+      indexDayChangePct: spyDayChange,
+      indexIntradayPct: spyIntradayPct,
+      sectorDayChangePct: sectorChange,
+    });
+    if (!features) {
+      rejected.push({ symbol: quote.symbol, reason: 'equity session features unavailable' });
       continue;
     }
 
-    const geo = solveStockGeometry(htf?.swingAtrPct, Number(settings.stock_max_stop_pct), geometryBounds);
+    const htf = computeHtfContext(toRawCandles(hourly), nowSeconds);
+    const geo = solveStockGeometry(
+      htf?.swingAtrPct ?? features.dailyAtrPct,
+      Number(settings.stock_max_stop_pct),
+      geometryBounds,
+    );
     if (!geo.reachable) {
       rejected.push({ symbol: quote.symbol, reason: `target +${geo.takeProfitPct.toFixed(2)}% unreachable for its range` });
       continue;
     }
 
-    const verdict = evaluateEntryPlaybook({
-      symbol: quote.symbol,
-      change5m: tech.change5m,
-      change15m: tech.change15m,
-      change1h: htf?.change1h ?? quote.change1h,
-      change24h: quote.change24h,
-      rsi14: tech.rsi14,
-      percentB: tech.percentB,
-      bbWidth: tech.bbWidth,
-      ema9: tech.ema9,
-      ema21: tech.ema21,
-      lastClose: tech.lastClose,
-      macdHist: tech.macdHist,
-      macdHistPrev: tech.macdHistPrev,
-      vwap: tech.vwap,
-      higherLows: tech.higherLows,
-      volumeRatio: tech.volumeRatio,
-      atrPct: tech.atrPct,
-      swingAtrPct: htf?.swingAtrPct ?? tech.swingAtrPct,
-      volClass: tech.volClass,
-      supportContext: tech.supportContext,
-      distanceToSupportPct: tech.distanceToSupportPct,
-      htfAboveEma: htf?.htfAboveEma,
-      htfSlopePct: htf?.htfSlopePct,
-      regime: 'equities',
-      strategy: 'stock_momentum',
+    const verdict = evaluateStockPlaybook({
+      features,
+      earnings: earningsFor(earningsCal, quote.symbol),
+      earningsCalendarAvailable: earningsCal.available,
       targetPct: geo.takeProfitPct,
+      holdMinutes: geo.holdMinutes,
       tuning,
     });
 
@@ -357,15 +417,18 @@ export async function runStockCycle(
 
     candidates.push({
       symbol: quote.symbol,
-      price: quote.price,
+      price: features.lastPrice || quote.price,
       geo,
       score: verdict.score,
       grade: verdict.grade,
       setupKey: verdict.setupKey,
-      summary: verdict.summary,
+      summary: verdict.flags.length > 0
+        ? `${verdict.summary} | flags: ${verdict.flags.join('; ')}`
+        : verdict.summary,
       strategy: 'stock_momentum',
     });
   }
+
 
   console.log(`📈 Equity scan: ${candidates.length} pass / ${rejected.length} rejected of ${shortlist.length}`);
 
@@ -378,14 +441,17 @@ export async function runStockCycle(
   candidates.sort((a, b) => b.score - a.score);
 
   // ── 8. SIZING + EXECUTION ──────────────────────────────────────────────────
-  const maxPositionPct = Number(settings.max_position_size) || 15;
+  // Regime-aware throttle: a broad risk-on tape earns full slots, a narrow grind
+  // earns at most two new names, so a thin rally isn't chased across the book.
+  const regimeSlotCap = tape.regime === 'risk_on' ? remainingSlots : Math.min(remainingSlots, 2);
+  const maxPositionPct = (Number(settings.max_position_size) || 15) * (tape.regime === 'risk_on' ? 1 : 0.7);
   const maxCapitalPct = Number(settings.max_capital_usage) || 85;
   const capitalCeiling = equity * (maxCapitalPct / 100);
   let deployed = openExposureUsd;
   let tradesOpened = 0;
   const opened: Array<Record<string, unknown>> = [];
 
-  for (const candidate of candidates.slice(0, remainingSlots)) {
+  for (const candidate of candidates.slice(0, regimeSlotCap)) {
     const targetUsd = Math.min(equity * (maxPositionPct / 100), Math.max(0, capitalCeiling - deployed), cash);
     if (targetUsd < 25) {
       console.log(`📈 ${candidate.symbol}: position budget $${targetUsd.toFixed(2)} too small — stopping.`);
