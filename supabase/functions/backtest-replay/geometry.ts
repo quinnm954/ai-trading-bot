@@ -83,7 +83,7 @@ export function solveVariantAdaptive(
 ): VariantGeometry {
   const atr = Number(hourlyAtrPct) > 0 ? Number(hourlyAtrPct) : 0;
   const tuned = Math.abs(Number(tunedStopPct)) > 0 ? Math.abs(Number(tunedStopPct)) : k.maxRiskPct;
-  const raw = atr > 0 ? atr * ADAPTIVE_STOP_ATR_MULT : tuned;
+  const raw = atr > 0 ? atr * k.stopAtrMult : tuned;
   const minStop = Math.min(k.minStopPct, k.maxRiskPct);
   const stopLossPct = Math.min(k.maxRiskPct, Math.max(minStop, raw));
   const takeProfitPct = requiredTp(stopLossPct, k);
@@ -91,14 +91,15 @@ export function solveVariantAdaptive(
   const hoursToTarget = atr > 0 ? takeProfitPct / atr : Infinity;
   const neededMinutes = Number.isFinite(hoursToTarget)
     ? Math.ceil((hoursToTarget / ADAPTIVE_REACH_FACTOR) * 60)
-    : ADAPTIVE_MAX_HOLD_MINUTES;
+    : k.maxHoldMinutes;
   const holdMinutes = Math.min(
-    ADAPTIVE_MAX_HOLD_MINUTES,
-    Math.max(ADAPTIVE_MIN_HOLD_MINUTES, neededMinutes),
+    k.maxHoldMinutes,
+    Math.max(k.minHoldMinutes, neededMinutes),
   );
 
-  const netLossPct = stopLossPct + ROUND_TRIP_FEE_PCT;
-  const netWinPct = takeProfitPct - ROUND_TRIP_FEE_PCT;
+  const netLossPct = stopLossPct + k.costPct;
+  const netWinPct = takeProfitPct - k.costPct;
+
 
   return {
     stopLossPct,
