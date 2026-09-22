@@ -199,32 +199,15 @@ serve(async (req) => {
             continue;
           }
 
-          // Trader quality filters
-          const traderWinRate = Number(signal.top_traders?.win_rate ?? 0);
-          const traderTrades = Number(signal.top_traders?.total_trades ?? 0);
-          if (traderWinRate < Number(cfg.min_trader_win_rate) || traderTrades < Number(cfg.min_trader_trades)) {
-            log(`Skip - trader below quality bar`, { traderWinRate, traderTrades });
-            continue;
-          }
-
           const { data: settings } = await supabase
             .from('ai_settings')
-            .select('*')
+            .select('trading_mode')
             .eq('user_id', follower.user_id)
             .maybeSingle();
 
-          if (!settings?.enabled) {
-            log(`Skipping user ${follower.user_id} - AI disabled`);
-            continue;
-          }
-          if (settings.kill_switch_active) {
-            log(`Skipping user ${follower.user_id} - kill switch active`);
-            continue;
-          }
-
           // Copy trades are simulated fills. In live mode a fill must come from the
           // broker, so never fabricate a live position here.
-          const isPaperUser = settings.trading_mode === 'paper';
+          const isPaperUser = settings?.trading_mode !== 'live';
           if (!isPaperUser) {
             log(`Skipping user ${follower.user_id} - copy trading is paper-only (live fills must come from the broker)`);
             continue;
@@ -237,6 +220,7 @@ serve(async (req) => {
             .maybeSingle();
 
           const balance = Number(paperAccount?.balance ?? 0);
+
 
           // ── PURE MIRROR ────────────────────────────────────────────────────
           // Copy trading is a pure mirror: the copied trader's size is used as-is
