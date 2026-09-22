@@ -3323,6 +3323,18 @@ serve(async (req) => {
       
       const isPaperMode = settings?.trading_mode !== 'live';
 
+      // 📋 COPY-ONLY MODE: while copy trading is on, engine-proposed buys are
+      // not executed even if they were approved — only copied trades open longs.
+      if (side === 'buy' && await isCopyOnlyMode(supabase, userId)) {
+        return new Response(JSON.stringify({
+          error: 'Copy-only mode',
+          details: 'Copy trading is active — only copied trades open new positions.',
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       // 🧯 DUPLICATE TRADE GUARD (approved-trade execution path)
       // Prevent accidental repeated approvals/retries stacking the same trade.
       if (side === 'buy') {
