@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { closeOpenTrade } from "../_shared/close-trade.ts";
+import { isCopyOnlyMode } from "../_shared/copy-trading.ts";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
@@ -3598,6 +3599,17 @@ serve(async (req) => {
     }
 
     const isPaperMode = settings.trading_mode === 'paper';
+
+    // 📋 COPY-ONLY MODE — while copy trading is on and at least one trader is
+    // being followed, the engine opens NO buys of its own. Every new long comes
+    // from the copy-trade executor. Exit management below still runs so existing
+    // engine positions are looked after.
+    const copyOnlyMode = await isCopyOnlyMode(supabase, user.id);
+    if (copyOnlyMode) {
+      console.log('📋 COPY-ONLY MODE: copy trading is active — engine will not open its own buys this cycle');
+    }
+
+
 
 
     // Get current balance
