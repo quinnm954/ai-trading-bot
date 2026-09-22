@@ -1,14 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-import {
-  solveExitGeometry,
-  solveWideGeometry,
-  describeGeometry,
-  TP_FLOOR_GROSS_PCT,
-  MAX_RISK_PCT,
-  WIDE_MAX_HOLD_MINUTES,
-  WIDE_TRAILING_ENABLED,
-} from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +10,8 @@ const log = (step: string, details?: any) => {
   console.log(`[COPY-TRADE] ${step}`, details ? JSON.stringify(details) : '');
 };
 
-// Copy trades follow the SAME exit contract as the main engine — no bespoke geometry.
-const SCALP_HOLD_MINUTES = 720; // 12h for non-wide copy entries
+// Copied positions carry NO exit contract of ours — they close when the trader closes.
+
 
 // A signal older than this is history, not a tradable idea. Backlogged signals
 // used to sit "pending" forever and then all fire at once on the first run.
@@ -199,32 +190,15 @@ serve(async (req) => {
             continue;
           }
 
-          // Trader quality filters
-          const traderWinRate = Number(signal.top_traders?.win_rate ?? 0);
-          const traderTrades = Number(signal.top_traders?.total_trades ?? 0);
-          if (traderWinRate < Number(cfg.min_trader_win_rate) || traderTrades < Number(cfg.min_trader_trades)) {
-            log(`Skip - trader below quality bar`, { traderWinRate, traderTrades });
-            continue;
-          }
-
           const { data: settings } = await supabase
             .from('ai_settings')
-            .select('*')
+            .select('trading_mode')
             .eq('user_id', follower.user_id)
             .maybeSingle();
 
-          if (!settings?.enabled) {
-            log(`Skipping user ${follower.user_id} - AI disabled`);
-            continue;
-          }
-          if (settings.kill_switch_active) {
-            log(`Skipping user ${follower.user_id} - kill switch active`);
-            continue;
-          }
-
           // Copy trades are simulated fills. In live mode a fill must come from the
           // broker, so never fabricate a live position here.
-          const isPaperUser = settings.trading_mode === 'paper';
+          const isPaperUser = settings?.trading_mode !== 'live';
           if (!isPaperUser) {
             log(`Skipping user ${follower.user_id} - copy trading is paper-only (live fills must come from the broker)`);
             continue;
@@ -238,31 +212,23 @@ serve(async (req) => {
 
           const balance = Number(paperAccount?.balance ?? 0);
 
-          // ── MIRROR MODE ────────────────────────────────────────────────────
-          // With a signed risk acknowledgement the copied trade follows the
-          // trader's own moves instead of our exit contract: no stop, no target,
-          // no time-based exit — it closes when the trader closes. The SIZE is
-          // still governed by the same risk rules (copy %, per-copy cap, max
-          // position size, capital-usage ceiling, concurrency).
-          const mirrorMode = !!cfg.risk_acknowledged;
 
-          const copyPercentage = Number(follower.copy_percentage ?? cfg.copy_percentage);
-          const maxCopyAmount = Number(follower.max_copy_amount_usd ?? cfg.max_copy_amount_usd);
-          const maxPositionPct = Number(settings.max_position_size) > 0 ? Number(settings.max_position_size) : 100;
+          // ── PURE MIRROR ────────────────────────────────────────────────────
+          // Copy trading is a pure mirror: the copied trader's size is used as-is
+          // (only limited by available cash) and NONE of our own risk parameters
+          // apply — no risk-manager veto, no position/concurrency caps, no stop,
+          // no target, no time exit. The position closes when the trader closes.
+          const traderStake = Number(signal.trade_value_usd);
+          const tradeValue = traderStake > 0
+            ? traderStake
+            : Number(follower.max_copy_amount_usd ?? cfg.max_copy_amount_usd);
 
-          const tradeValue = Math.min(
-            (balance * copyPercentage) / 100,
-            maxCopyAmount,
-            (balance * maxPositionPct) / 100,
-            Number(signal.trade_value_usd) > 0 ? Number(signal.trade_value_usd) : maxCopyAmount,
-          );
-
-          if (tradeValue < 5) {
-            log(`Skip - trade value too low: $${tradeValue.toFixed(2)}`);
+          if (!(tradeValue > 0)) {
+            log(`Skip - copied trade has no size`);
             continue;
           }
           if (tradeValue > balance) {
-            log(`Skip - insufficient paper balance ($${balance.toFixed(2)})`);
+            log(`Skip - not enough cash to mirror $${tradeValue.toFixed(2)} (balance $${balance.toFixed(2)})`);
             continue;
           }
 
@@ -283,95 +249,9 @@ serve(async (req) => {
               continue;
             }
 
-            // Per-position exit contract — identical helpers to the trading engine so
-            // auto-take-profit measures copy trades on the same levels.
-            const { data: scalpCfg } = await supabase
-              .from('scalp_settings')
-              .select('wide_stop_mode')
-              .eq('user_id', follower.user_id)
-              .maybeSingle();
-            const wideMode = !!scalpCfg?.wide_stop_mode;
-            const geo = wideMode ? solveWideGeometry(null) : solveExitGeometry(TP_FLOOR_GROSS_PCT, MAX_RISK_PCT);
-            const holdMinutes = wideMode ? WIDE_MAX_HOLD_MINUTES : SCALP_HOLD_MINUTES;
-
-            // 🔒 RISK-MANAGER GATE — copy trades must respect the user's risk settings.
-            const { data: openPositions } = await supabase
-              .from('positions')
-              .select('quantity, current_price, avg_entry_price, unrealized_pnl')
-              .eq('user_id', follower.user_id)
-              .eq('is_paper', isPaperUser);
-
-            const openCount = openPositions?.length ?? 0;
-            if (openCount >= Number(cfg.max_concurrent_copies) + 0 && Number(cfg.max_concurrent_copies) > 0) {
-              // Concurrency ceiling for copied exposure.
-              const { count: copiedOpen } = await supabase
-                .from('trades')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', follower.user_id)
-                .eq('status', 'open')
-                .eq('strategy', 'custom');
-              if ((copiedOpen ?? 0) >= Number(cfg.max_concurrent_copies)) {
-                log(`Skip - max concurrent copies reached (${copiedOpen})`);
-                continue;
-              }
-            }
-
-            const openValue = (openPositions ?? []).reduce(
-              (s: number, p: any) => s + Number(p.current_price ?? p.avg_entry_price ?? 0) * Number(p.quantity ?? 0),
-              0,
-            );
-            const openUnrealized = (openPositions ?? []).reduce(
-              (s: number, p: any) => s + Number(p.unrealized_pnl ?? 0),
-              0,
-            );
-
-            // In mirror mode the acknowledged user has accepted that the trader's
-            // own exits replace our stop/target contract, so the geometry veto is
-            // waived. Sizing limits above still bound the loss to a capped stake.
-            if (mirrorMode) {
-              log(`📋 MIRROR MODE ${signal.symbol} — trader-driven exits, risk veto acknowledged`, {
-                stake: tradeValue.toFixed(2),
-              });
-            } else try {
-              const riskResp = await fetch(
-                `${Deno.env.get('SUPABASE_URL')}/functions/v1/risk-manager`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-                  },
-                  body: JSON.stringify({
-                    action: 'validate_trade',
-                    userId: follower.user_id,
-                    currentEquity: balance,
-                    openPositionsCount: openCount,
-                    openPositionsValue: openValue,
-                    openPositionsUnrealizedPnl: openUnrealized,
-                    tradeProposal: {
-                      symbol: signal.symbol,
-                      side: 'buy',
-                      quantity,
-                      price: executionPrice,
-                      positionValue: tradeValue,
-                      stopLoss: executionPrice * (1 - geo.stopLossPct / 100),
-                      takeProfit: executionPrice * (1 + geo.takeProfitPct / 100),
-                      // Wide-stop swings are ATR-scaled, so the risk manager must judge
-                      // them against the wide cap rather than the scalp cap.
-                      wideStop: wideMode,
-                    },
-                  }),
-                },
-              );
-              const riskJson = await riskResp.json().catch(() => ({ approved: false, reason: 'risk-manager unreachable' }));
-              if (!riskJson?.approved) {
-                log(`🛑 Risk-manager blocked copy trade for ${signal.symbol}: ${riskJson?.reason ?? 'unknown'}`);
-                continue;
-              }
-            } catch (e: any) {
-              log(`Risk check error — blocking copy trade: ${e?.message ?? e}`);
-              continue;
-            }
+            log(`📋 MIRROR ${signal.symbol} — trader-driven exits, our risk rules do not apply`, {
+              stake: tradeValue.toFixed(2),
+            });
 
             const { error: posError } = await supabase
               .from('positions')
@@ -386,11 +266,11 @@ serve(async (req) => {
                 is_paper: isPaperUser,
                 market_type: 'crypto',
                 strategy: 'custom',
-                mirror_only: mirrorMode,
-                stop_loss_pct: mirrorMode ? null : Number(geo.stopLossPct.toFixed(4)),
-                take_profit_pct: mirrorMode ? null : Number(geo.takeProfitPct.toFixed(4)),
-                max_hold_minutes: mirrorMode ? null : holdMinutes,
-                trailing_enabled: mirrorMode ? false : (wideMode ? WIDE_TRAILING_ENABLED : true),
+                mirror_only: true,
+                stop_loss_pct: null,
+                take_profit_pct: null,
+                max_hold_minutes: null,
+                trailing_enabled: false,
               });
 
             if (posError) {
@@ -418,13 +298,11 @@ serve(async (req) => {
               is_paper: isPaperUser,
               market_type: 'crypto',
               strategy: 'custom',
-              stop_loss_price: mirrorMode ? null : executionPrice * (1 - geo.stopLossPct / 100),
-              take_profit_price: mirrorMode ? null : executionPrice * (1 + geo.takeProfitPct / 100),
-              risk_reward: mirrorMode ? null : Number(geo.netRewardRisk.toFixed(2)),
-              entry_reasoning: mirrorMode
-                ? `Mirror copy: exits follow the trader, stake capped at $${tradeValue.toFixed(2)} by risk sizing rules`
-                : describeGeometry(geo),
-              ai_reasoning: `📋 Copy trade from ${signal.top_traders?.display_name || 'followed trader'} (${traderWinRate.toFixed(1)}% win rate)`,
+              stop_loss_price: null,
+              take_profit_price: null,
+              risk_reward: null,
+              entry_reasoning: `Mirror copy: trader's own size ($${tradeValue.toFixed(2)}); exits follow the trader, our risk rules do not apply`,
+              ai_reasoning: `📋 Copy trade from ${signal.top_traders?.display_name || 'followed trader'}`,
             });
 
 
@@ -433,7 +311,7 @@ serve(async (req) => {
               decision_type: 'copy_trade',
               symbol: signal.symbol,
               action: 'buy',
-              reasoning: `Copied ${String(signal.action).toUpperCase()} from ${signal.top_traders?.display_name}. $${tradeValue.toFixed(2)} @ $${executionPrice}. ${mirrorMode ? 'Mirror mode: exits follow the trader; stake capped by risk sizing rules.' : describeGeometry(geo)}`,
+              reasoning: `Copied ${String(signal.action).toUpperCase()} from ${signal.top_traders?.display_name}. $${tradeValue.toFixed(2)} @ $${executionPrice}. Pure mirror: exits follow the trader and our risk parameters are not applied.`,
               strategy: 'custom',
             });
 
@@ -444,6 +322,7 @@ serve(async (req) => {
               value: tradeValue.toFixed(2),
               quantity: quantity.toFixed(6),
             });
+
 
           } else if (signal.action === 'sell') {
             const { data: position } = await supabase

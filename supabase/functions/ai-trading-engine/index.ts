@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { closeOpenTrade } from "../_shared/close-trade.ts";
+import { isCopyOnlyMode } from "../_shared/copy-trading.ts";
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 import {
   solveExitGeometry,
@@ -3322,6 +3323,18 @@ serve(async (req) => {
       
       const isPaperMode = settings?.trading_mode !== 'live';
 
+      // 📋 COPY-ONLY MODE: while copy trading is on, engine-proposed buys are
+      // not executed even if they were approved — only copied trades open longs.
+      if (side === 'buy' && await isCopyOnlyMode(supabase, userId)) {
+        return new Response(JSON.stringify({
+          error: 'Copy-only mode',
+          details: 'Copy trading is active — only copied trades open new positions.',
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       // 🧯 DUPLICATE TRADE GUARD (approved-trade execution path)
       // Prevent accidental repeated approvals/retries stacking the same trade.
       if (side === 'buy') {
@@ -3598,6 +3611,17 @@ serve(async (req) => {
     }
 
     const isPaperMode = settings.trading_mode === 'paper';
+
+    // 📋 COPY-ONLY MODE — while copy trading is on and at least one trader is
+    // being followed, the engine opens NO buys of its own. Every new long comes
+    // from the copy-trade executor. Exit management below still runs so existing
+    // engine positions are looked after.
+    const copyOnlyMode = await isCopyOnlyMode(supabase, user.id);
+    if (copyOnlyMode) {
+      console.log('📋 COPY-ONLY MODE: copy trading is active — engine will not open its own buys this cycle');
+    }
+
+
 
 
     // Get current balance
@@ -4457,7 +4481,7 @@ serve(async (req) => {
     console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (strict: ai=${settings.max_concurrent_trades}, scalp=${scalpCfg.max_concurrent_positions}, hard=${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
 
 
-    if (remainingSlots === 0 && tradeable.length > 0) {
+    if (remainingSlots === 0 && tradeable.length > 0 && !copyOnlyMode) {
       const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0], scalpCfg);
       if (rotated) {
         openPositionsCount = Math.max(0, openPositionsCount - 1);
@@ -4839,6 +4863,13 @@ serve(async (req) => {
       const side = decision.action as TradeSide;
       const key = tradeKey(symbolUpper, side);
       const lastAt = lastTradeByKey.get(key);
+
+      // 📋 COPY-ONLY MODE: the copy-trade executor owns every new long.
+      if (copyOnlyMode && side === 'buy') {
+        console.log(`📋 COPY-ONLY: skipping engine BUY ${symbolUpper} — only copied trades open positions`);
+        continue;
+      }
+
 
       if (side === 'buy' && openPositionSymbols.has(symbolUpper) && !(decision as any)._topup) {
         console.log(`🧯 SKIP duplicate BUY: already holding ${symbolUpper}`);
