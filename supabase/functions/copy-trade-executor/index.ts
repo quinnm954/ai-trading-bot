@@ -1,14 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-import {
-  solveExitGeometry,
-  solveWideGeometry,
-  describeGeometry,
-  TP_FLOOR_GROSS_PCT,
-  MAX_RISK_PCT,
-  WIDE_MAX_HOLD_MINUTES,
-  WIDE_TRAILING_ENABLED,
-} from "../_shared/exit-geometry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +10,8 @@ const log = (step: string, details?: any) => {
   console.log(`[COPY-TRADE] ${step}`, details ? JSON.stringify(details) : '');
 };
 
-// Copy trades follow the SAME exit contract as the main engine — no bespoke geometry.
-const SCALP_HOLD_MINUTES = 720; // 12h for non-wide copy entries
+// Copied positions carry NO exit contract of ours — they close when the trader closes.
+
 
 // A signal older than this is history, not a tradable idea. Backlogged signals
 // used to sit "pending" forever and then all fire at once on the first run.
