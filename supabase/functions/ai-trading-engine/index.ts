@@ -4469,7 +4469,7 @@ serve(async (req) => {
     console.log(`📊 Trade slots: ${openPositionsCount} used / ${effectiveMaxTrades} max (strict: ai=${settings.max_concurrent_trades}, scalp=${scalpCfg.max_concurrent_positions}, hard=${SCALP_MAX_CONCURRENT}) = ${remainingSlots} remaining`);
 
 
-    if (remainingSlots === 0 && tradeable.length > 0) {
+    if (remainingSlots === 0 && tradeable.length > 0 && !copyOnlyMode) {
       const rotated = await tryLossRotation(supabase, user.id, isPaperMode, marketData, tradeable[0], scalpCfg);
       if (rotated) {
         openPositionsCount = Math.max(0, openPositionsCount - 1);
@@ -4851,6 +4851,13 @@ serve(async (req) => {
       const side = decision.action as TradeSide;
       const key = tradeKey(symbolUpper, side);
       const lastAt = lastTradeByKey.get(key);
+
+      // 📋 COPY-ONLY MODE: the copy-trade executor owns every new long.
+      if (copyOnlyMode && side === 'buy') {
+        console.log(`📋 COPY-ONLY: skipping engine BUY ${symbolUpper} — only copied trades open positions`);
+        continue;
+      }
+
 
       if (side === 'buy' && openPositionSymbols.has(symbolUpper) && !(decision as any)._topup) {
         console.log(`🧯 SKIP duplicate BUY: already holding ${symbolUpper}`);
