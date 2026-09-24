@@ -112,8 +112,39 @@ serve(async (req) => {
       });
     }
 
+    // 🔁 ROUND-TRIP NETTING: if a trader's buy is followed by a sell of the same
+    // symbol on the same UTC day within this batch, the trader is already out.
+    // Copying both would just open and close at the same price — skip the pair.
+    const nettedIds = new Set<string>();
+    const dayOf = (ts: string) => String(ts).slice(0, 10);
+    for (const buy of pendingSignals) {
+      if (buy.action !== 'buy' || nettedIds.has(buy.id)) continue;
+      const sell = pendingSignals.find(s =>
+        s.action === 'sell' && !nettedIds.has(s.id) &&
+        s.trader_id === buy.trader_id && s.symbol === buy.symbol &&
+        dayOf(s.created_at) === dayOf(buy.created_at) &&
+        new Date(s.created_at).getTime() >= new Date(buy.created_at).getTime()
+      );
+      if (sell) {
+        nettedIds.add(buy.id);
+        nettedIds.add(sell.id);
+        log(`🔁 NETTED round trip ${buy.symbol} — trader bought and sold within this batch, skipping both`);
+      }
+    }
+    if (nettedIds.size) {
+      await supabase.from('copy_trade_signals')
+        .update({ status: 'skipped_round_trip' })
+        .in('id', [...nettedIds]);
+    }
+    const activeSignals = pendingSignals.filter(s => !nettedIds.has(s.id));
+    if (activeSignals.length === 0) {
+      return new Response(JSON.stringify({ success: true, processed: 0, netted: nettedIds.size }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Everyone actively following the traders behind these signals.
-    const traderIds = [...new Set(pendingSignals.map(s => s.trader_id))];
+    const traderIds = [...new Set(activeSignals.map(s => s.trader_id))];
 
     const { data: followers, error: followersError } = await supabase
       .from('followed_traders')
