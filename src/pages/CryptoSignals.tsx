@@ -102,8 +102,9 @@ export default function CryptoSignals() {
       const { data, error } = await supabase
         .from('top_traders')
         .select('*')
-        .order('win_rate', { ascending: false })
-        .limit(20);
+        .eq('source', 'fomo')
+        .order('total_pnl_usd', { ascending: false })
+        .limit(25);
       if (error) throw error;
       return data;
     },
@@ -503,7 +504,7 @@ export default function CryptoSignals() {
                           >
                             <span className="font-medium text-sm">{trader.display_name}</span>
                             <Badge variant="outline" className="text-xs border-green-500/50 text-green-400">
-                              {trader.win_rate?.toFixed(0)}% WR
+                              @{trader.external_handle}
                             </Badge>
                             <Button
                               size="sm"
@@ -649,7 +650,7 @@ export default function CryptoSignals() {
                       Top Traders
                     </CardTitle>
                     <CardDescription>
-                      Track and copy successful traders with proven track records
+                      Top FOMO.family traders by 7-day profit. Only coins Coinbase sells get copied; others are skipped and logged.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -660,7 +661,7 @@ export default function CryptoSignals() {
                         </div>
                       ) : topTraders?.length === 0 ? (
                         <div className="text-center py-12 text-muted-foreground">
-                          No traders found. Click "Scan Now" to discover top traders.
+                          No FOMO traders yet. They appear once the FOMO data key is added and a scan runs.
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -694,7 +695,7 @@ export default function CryptoSignals() {
                                         )}
                                       </div>
                                       <p className="text-xs text-muted-foreground font-mono">
-                                        {trader.wallet_address?.slice(0, 6)}...{trader.wallet_address?.slice(-4)}
+                                        @{trader.external_handle} · FOMO.family
                                       </p>
                                     </div>
                                   </div>
@@ -722,11 +723,11 @@ export default function CryptoSignals() {
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                   <div>
-                                    <p className="text-muted-foreground">Win Rate</p>
-                                    <p className="font-medium text-green-400">{trader.win_rate?.toFixed(1)}%</p>
+                                    <p className="text-muted-foreground">Avg trade</p>
+                                    <p className="font-medium">{trader.avg_trade_size_usd != null ? `$${Number(trader.avg_trade_size_usd).toLocaleString()}` : '—'}</p>
                                   </div>
                                   <div>
-                                    <p className="text-muted-foreground">Total P&L</p>
+                                    <p className="text-muted-foreground">7-day P&L</p>
                                     <p className={`font-medium ${trader.total_pnl_usd >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                       ${trader.total_pnl_usd?.toLocaleString()}
                                     </p>
@@ -736,8 +737,8 @@ export default function CryptoSignals() {
                                     <p className="font-medium">{trader.total_trades}</p>
                                   </div>
                                   <div>
-                                    <p className="text-muted-foreground">Style</p>
-                                    <Badge variant="outline">{trader.trading_style}</Badge>
+                                    <p className="text-muted-foreground">Source</p>
+                                    <Badge variant="outline">FOMO</Badge>
                                   </div>
                                   <div>
                                     <p className="text-muted-foreground">Followers</p>
