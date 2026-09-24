@@ -169,6 +169,13 @@
       "when": 1789645390048,
       "tag": "0023_stock_playbook_thresholds",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790215186964,
+      "tag": "0024_fomo_trader_source",
+      "breakpoints": true
     }
   ]
 }
