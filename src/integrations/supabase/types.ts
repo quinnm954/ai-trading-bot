@@ -2367,10 +2367,13 @@ export type Database = {
           best_performing_assets: string[] | null
           created_at: string
           display_name: string | null
+          external_handle: string | null
           followers_count: number | null
           id: string
           last_active_at: string | null
+          last_polled_at: string | null
           risk_score: number | null
+          source: string
           total_pnl_usd: number | null
           total_trades: number | null
           trading_style: string | null
@@ -2383,10 +2386,13 @@ export type Database = {
           best_performing_assets?: string[] | null
           created_at?: string
           display_name?: string | null
+          external_handle?: string | null
           followers_count?: number | null
           id?: string
           last_active_at?: string | null
+          last_polled_at?: string | null
           risk_score?: number | null
+          source?: string
           total_pnl_usd?: number | null
           total_trades?: number | null
           trading_style?: string | null
@@ -2399,10 +2405,13 @@ export type Database = {
           best_performing_assets?: string[] | null
           created_at?: string
           display_name?: string | null
+          external_handle?: string | null
           followers_count?: number | null
           id?: string
           last_active_at?: string | null
+          last_polled_at?: string | null
           risk_score?: number | null
+          source?: string
           total_pnl_usd?: number | null
           total_trades?: number | null
           trading_style?: string | null
