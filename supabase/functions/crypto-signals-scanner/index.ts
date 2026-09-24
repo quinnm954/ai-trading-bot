@@ -1,11 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
-  fetchTopTraderCandidates,
-  fetchRecentFills,
-  statsFromFills,
-  fillToAction,
-} from "../_shared/hyperliquid.ts";
+  getFomoKey,
+  fetchFomoLeaderboard,
+  fetchFomoPositions,
+  FomoApiError,
+} from "../_shared/fomo.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,8 +95,8 @@ serve(async (req) => {
 
     // Update top traders and generate copy trade signals — all from real on-chain data
     if (scanType === 'all' || scanType === 'traders') {
-      logStep("Syncing real Hyperliquid traders and their fills");
-      results.topTraders = await syncRealTopTraders(supabase);
+      logStep("Syncing FOMO.family traders and their trades");
+      results.topTraders = await syncRealTopTraders(supabase, scanType === 'traders');
 
       const signalsGenerated = await generateCopyTradeSignals(supabase);
       results.copyTradeSignals = signalsGenerated;
@@ -336,152 +336,115 @@ async function scanMEVOpportunities(): Promise<any[]> {
   return opportunities;
 }
 
-// ── REAL top traders (Hyperliquid mainnet leaderboard + that wallet's own fills) ──
-// Nothing here is generated: wallets, PnL, ROI, win rate, sizing and activity all
-// come from public on-chain data.
-async function syncRealTopTraders(supabase: any): Promise<number> {
-  const candidates = await fetchTopTraderCandidates(TRADER_SCAN_LIMIT);
-  logStep(`Leaderboard candidates`, { count: candidates.length });
+// ── REAL top traders from the FOMO.family leaderboard (via FOMO API) ─────────
+// Replaces Hyperliquid. The free key allows ~1,000 calls/month, so the board is
+// refreshed at most once a day and followed traders are polled on a budget.
+const LEADERBOARD_REFRESH_MS = 24 * 60 * 60 * 1000;
+const DAILY_POSITION_CALLS = 28;
 
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  let saved = 0;
+async function syncRealTopTraders(supabase: any, force = false): Promise<number> {
+  const key = getFomoKey();
+  if (!key) { logStep('FOMO_API_KEY missing — trader sync paused'); return 0; }
 
-  for (const c of candidates) {
-    let fills;
-    try {
-      fills = (await fetchRecentFills(c.wallet)).filter((f) => f.time >= weekAgo);
-    } catch (e) {
-      logStep(`Fills fetch failed for ${c.wallet}`, { error: String(e) });
-      continue;
+  if (!force) {
+    const { data: latest } = await supabase.from('top_traders').select('updated_at')
+      .eq('source', 'fomo').order('updated_at', { ascending: false }).limit(1).maybeSingle();
+    if (latest && Date.now() - new Date(latest.updated_at).getTime() < LEADERBOARD_REFRESH_MS) {
+      logStep('FOMO leaderboard fresh, skipping refresh');
+      return 0;
     }
-
-    // Only list traders whose recent activity is actually copyable: fills in the
-    // last 24h, on coins we can trade. Otherwise following them yields no signals.
-    const copyable = fills.filter((f) => TRADABLE_SYMBOLS.has(f.coin) && f.time >= dayAgo);
-    if (copyable.length < 5) continue;
-
-    const stats = statsFromFills(fills);
-
-    // A trader with no measurable closed trades cannot be judged, so don't list them.
-    if (stats.winRate === null || stats.bestAssets.length === 0) continue;
-
-
-    const { error } = await supabase.from('top_traders').upsert({
-      wallet_address: c.wallet,
-      display_name: c.displayName || `${c.wallet.slice(0, 6)}…${c.wallet.slice(-4)}`,
-      total_pnl_usd: Math.round(c.allTimePnl),
-      win_rate: Number(stats.winRate.toFixed(2)),
-      total_trades: stats.closedTrades,
-      avg_trade_size_usd: Math.round(stats.avgTradeSizeUsd),
-      best_performing_assets: stats.bestAssets,
-      trading_style: stats.tradingStyle,
-      risk_score: stats.riskScore,
-      last_active_at: stats.lastActiveAt,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'wallet_address' });
-
-    if (error) {
-      logStep(`Upsert failed for ${c.wallet}`, { error: error.message });
-      continue;
-    }
-    saved++;
   }
 
-  // Drop traders that have gone quiet so the list never shows stale performance.
-  await supabase
-    .from('top_traders')
-    .delete()
-    .lt('last_active_at', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString());
-
+  const traders = await fetchFomoLeaderboard(key, '7d', 25);
+  let saved = 0;
+  for (const t of traders) {
+    const { error } = await supabase.from('top_traders').upsert({
+      wallet_address: `fomo:${t.userId}`,
+      source: 'fomo',
+      external_handle: t.handle,
+      display_name: t.displayName || `@${t.handle}`,
+      total_pnl_usd: Math.round(t.pnlUsd),
+      win_rate: null,
+      total_trades: t.trades,
+      avg_trade_size_usd: t.trades > 0 ? Math.round(t.volumeUsd / t.trades) : null,
+      followers_count: t.followers,
+      trading_style: 'fomo',
+      last_active_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'wallet_address' });
+    if (!error) saved++;
+    else logStep(`Upsert failed for @${t.handle}`, { error: error.message });
+  }
   return saved;
 }
 
-// ── REAL copy trade signals — one per actual fill by a followed wallet ─────────
+// ── REAL copy trade signals from followed FOMO traders' positions ─────────────
 async function generateCopyTradeSignals(supabase: any): Promise<number> {
-  const { data: followedTraderIds } = await supabase
-    .from('followed_traders')
-    .select('trader_id')
-    .eq('is_active', true);
+  const key = getFomoKey();
+  if (!key) return 0;
 
-  if (!followedTraderIds || followedTraderIds.length === 0) {
-    logStep("No followed traders, skipping signal generation");
-    return 0;
-  }
+  const { data: follows } = await supabase.from('followed_traders').select('trader_id').eq('is_active', true);
+  const ids = [...new Set((follows ?? []).map((f: any) => f.trader_id))];
+  if (ids.length === 0) { logStep('No followed traders, skipping signal generation'); return 0; }
 
-  const uniqueTraderIds = [...new Set(followedTraderIds.map((f: any) => f.trader_id))];
-
-  const { data: traders } = await supabase
-    .from('top_traders')
-    .select('id, wallet_address, display_name')
-    .in('id', uniqueTraderIds);
-
+  const { data: traders } = await supabase.from('top_traders')
+    .select('id, external_handle, display_name, last_polled_at')
+    .eq('source', 'fomo').in('id', ids);
   if (!traders || traders.length === 0) return 0;
 
-  const since = Date.now() - SIGNAL_LOOKBACK_MINUTES * 60 * 1000;
+  // Spread the daily call budget across followed traders.
+  const intervalMs = Math.max(60, Math.ceil((1440 * traders.length) / DAILY_POSITION_CALLS)) * 60 * 1000;
   let signalsGenerated = 0;
 
   for (const trader of traders) {
-    let fills: Awaited<ReturnType<typeof fetchRecentFills>>;
+    const last = trader.last_polled_at ? new Date(trader.last_polled_at).getTime() : 0;
+    if (Date.now() - last < intervalMs) continue;
+
+    let positions;
     try {
-      fills = (await fetchRecentFills(trader.wallet_address)).filter((f) => f.time >= since);
+      positions = await fetchFomoPositions(key, trader.external_handle);
     } catch (e) {
-      logStep(`Fills fetch failed for ${trader.wallet_address}`, { error: String(e) });
+      logStep(`Positions fetch failed for @${trader.external_handle}`, { error: String(e) });
+      if (e instanceof FomoApiError && e.status === 402) break; // out of credits
       continue;
     }
-    if (fills.length === 0) continue;
+    // First poll only looks back one interval so we don't copy stale history.
+    const since = last > 0 ? last - 5 * 60 * 1000 : Date.now() - intervalMs;
+    await supabase.from('top_traders').update({ last_polled_at: new Date().toISOString() }).eq('id', trader.id);
 
-    // Collapse the wallet's fills into one intent per coin+action, newest price wins.
-    const intents = new Map<string, { symbol: string; action: 'buy' | 'sell'; px: number; sz: number; time: number }>();
-    for (const f of fills.sort((a, b) => a.time - b.time)) {
-      if (!TRADABLE_SYMBOLS.has(f.coin)) continue; // we can only copy what we can trade
-      const action = fillToAction(f.dir);
-      if (!action) continue;
-      const key = `${f.coin}:${action}`;
-      const prev = intents.get(key);
-      intents.set(key, {
-        symbol: f.coin,
-        action,
-        px: f.px,
-        sz: (prev?.sz ?? 0) + f.sz,
-        time: f.time,
-      });
-    }
-
-    for (const intent of intents.values()) {
-      // Don't re-file the same move on the next scan.
-      const { data: recentSignal } = await supabase
-        .from('copy_trade_signals')
-        .select('id')
-        .eq('trader_id', trader.id)
-        .eq('symbol', intent.symbol)
-        .eq('action', intent.action)
-        .gte('created_at', new Date(since).toISOString())
-        .limit(1)
-        .maybeSingle();
-
-      if (recentSignal) continue;
-
-      const tradeValue = intent.px * intent.sz;
-
-      const { error } = await supabase.from('copy_trade_signals').insert({
-        trader_id: trader.id,
-        symbol: intent.symbol,
-        action: intent.action,
-        entry_price: intent.px,
-        quantity: intent.sz,
-        trade_value_usd: tradeValue,
-        status: 'pending',
-      });
-
-      if (!error) {
-        signalsGenerated++;
-        logStep(`📊 Real fill copied: ${trader.display_name} ${intent.action.toUpperCase()} ${intent.symbol} @ $${intent.px}`);
-      } else {
-        logStep(`Signal insert failed`, { error: error.message });
+    const events: { symbol: string; action: 'buy' | 'sell'; px: number; sz: number; value: number }[] = [];
+    for (const p of positions) {
+      if (!p.symbol) continue;
+      if (p.createdAt && p.createdAt >= since && p.boughtAmount > 0) {
+        const px = p.avgEntryPrice ?? (p.costBasisUsd / p.boughtAmount);
+        events.push({ symbol: p.symbol, action: 'buy', px, sz: p.boughtAmount, value: p.costBasisUsd || px * p.boughtAmount });
+      }
+      if (p.status === 'closed' && p.closedAt && p.closedAt >= since && p.soldAmount > 0) {
+        const px = p.avgExitPrice ?? 0;
+        events.push({ symbol: p.symbol, action: 'sell', px, sz: p.soldAmount, value: px * p.soldAmount });
       }
     }
-  }
 
+    for (const ev of events) {
+      const { data: dup } = await supabase.from('copy_trade_signals').select('id')
+        .eq('trader_id', trader.id).eq('symbol', ev.symbol).eq('action', ev.action)
+        .gte('created_at', new Date(since).toISOString()).limit(1).maybeSingle();
+      if (dup) continue;
+
+      // Coins Coinbase doesn't list can't be copied — log them as skipped.
+      const copyable = TRADABLE_SYMBOLS.has(ev.symbol) && ev.px > 0;
+      const { error } = await supabase.from('copy_trade_signals').insert({
+        trader_id: trader.id,
+        symbol: ev.symbol,
+        action: ev.action,
+        entry_price: ev.px || null,
+        quantity: ev.sz,
+        trade_value_usd: ev.value || null,
+        status: copyable ? 'pending' : 'skipped_not_on_coinbase',
+      });
+      if (!error && copyable) signalsGenerated++;
+      logStep(`${copyable ? '📊' : '⏭️'} @${trader.external_handle} ${ev.action.toUpperCase()} ${ev.symbol}${copyable ? '' : ' (not on Coinbase)'}`);
+    }
+  }
   return signalsGenerated;
 }
