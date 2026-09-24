@@ -615,7 +615,7 @@ export default function CryptoSignals() {
                                       </Badge>
                                     </div>
                                     <p className="text-xs text-muted-foreground">
-                                      by {signal.trader?.display_name || 'Unknown'} • {signal.trader?.win_rate?.toFixed(0)}% WR
+                                      by {signal.trader?.display_name || 'Unknown'}
                                     </p>
                                   </div>
                                 </div>
