@@ -3443,21 +3443,14 @@ serve(async (req) => {
         console.error('Position insert error:', positionError);
       }
       
-      // Update paper account if in paper mode
+      // Update paper account atomically (read-then-write lost concurrent debits)
       if (isPaperMode) {
-        const { data: paperAccount } = await supabase
-          .from('paper_account')
-          .select('balance')
-          .eq('user_id', userId)
-          .single();
-        
-        if (paperAccount) {
-          const newBalance = paperAccount.balance - (actualQuantity * actualPrice);
-          await supabase
-            .from('paper_account')
-            .update({ balance: newBalance })
-            .eq('user_id', userId);
-        }
+        const notional = actualQuantity * actualPrice;
+        const { error: balErr } = await supabase.rpc('adjust_paper_balance', {
+          p_user_id: userId,
+          p_delta: side === 'buy' ? -notional : notional,
+        });
+        if (balErr) console.error('Paper balance adjust error:', balErr);
       }
       
       return new Response(JSON.stringify({
