@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play } from 'lucide-react';
+import { Brain, Zap, Shield, ArrowRight, Users, Lock, TrendingUp, Clock, Play, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PromoReel } from '@/components/marketing/PromoReel';
 import { MONTHLY_PRICE_USD } from '@/lib/pricing';
@@ -73,6 +73,18 @@ export default function Landing() {
           <p className="text-sm text-muted-foreground mt-6">
             7-day free trial • No card needed • $100,000 practice balance included
           </p>
+          <div className="mt-6 flex flex-col items-center gap-2">
+            <Button variant="outline" size="lg" className="gap-2" asChild>
+              <a href={`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/download-windows`}>
+                <Download className="w-5 h-5" />
+                Download for Windows
+              </a>
+            </Button>
+            <p className="text-xs text-muted-foreground max-w-md">
+              Windows users: run <span className="font-medium text-foreground">TitanAITrader-Setup.exe</span> to
+              install. If Windows shows "Windows protected your PC", click "More info" then "Run anyway".
+            </p>
+          </div>
 
           <div className="mt-12 max-w-2xl mx-auto">
             <PromoReel />
