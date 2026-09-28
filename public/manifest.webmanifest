@@ -1,7 +1,7 @@
 {
-  "name": "TitanAI Trader",
-  "short_name": "TitanAI",
-  "description": "Autonomous AI crypto trading with fee-aware risk management.",
+  "name": "Titan AI Trader",
+  "short_name": "Titan AI",
+  "description": "Risk-first autonomous trading for crypto and US stocks.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
@@ -10,43 +10,13 @@
   "theme_color": "#0a0a1a",
   "icons": [
     {
-      "src": "../icons/icon-48.webp",
-      "type": "image/png",
-      "sizes": "48x48",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "../icons/icon-72.webp",
-      "type": "image/png",
-      "sizes": "72x72",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "../icons/icon-96.webp",
-      "type": "image/png",
-      "sizes": "96x96",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "../icons/icon-128.webp",
-      "type": "image/png",
-      "sizes": "128x128",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "../icons/icon-192.webp",
+      "src": "/app-icon-192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
     },
     {
-      "src": "../icons/icon-256.webp",
-      "type": "image/png",
-      "sizes": "256x256",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "../icons/icon-512.webp",
+      "src": "/app-icon-512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
