@@ -1876,7 +1876,7 @@ async function filterByTrend(
 
   marketData: MarketData[],
   cfg: ScalpCfg = SCALP_CFG_DEFAULTS,
-  opts: { memeOnly?: boolean } = {}
+  opts: { memeOnly?: boolean; skipTape?: boolean } = {}
 ): Promise<{ tradeable: MarketData[], trendAnalysis: TrendAnalysis[] }> {
   const memeOnly = !!opts.memeOnly;
   const minPrice = memeOnly ? MEME_MIN_PRICE_USD : MIN_PRICE_USD;
