@@ -13,11 +13,11 @@ import { formatDistanceToNow, format } from "date-fns";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const AGENT_META: Record<AgentName, { label: string; icon: any; color: string; bg: string; role: string }> = {
-  watcher:    { label: "Market Watcher", icon: Eye,            color: "text-blue-400",    bg: "bg-blue-400/10",    role: "Scans market, positions, regime" },
-  analyst:    { label: "Analyst",        icon: Brain,          color: "text-purple-400",  bg: "bg-purple-400/10",  role: "Reviews signals & runs daily audit" },
-  risk:       { label: "Risk Manager",   icon: Shield,         color: "text-amber-400",   bg: "bg-amber-400/10",   role: "Validates limits, can veto" },
-  trader:     { label: "Trader",         icon: Bot,            color: "text-emerald-400", bg: "bg-emerald-400/10", role: "Executes approved trades" },
-  healer:     { label: "Healer",         icon: Wrench,         color: "text-rose-400",    bg: "bg-rose-400/10",    role: "Detects failures across the app, audits agents, self-heals" },
+  watcher:    { label: "Argus · Watcher", icon: Eye,            color: "text-blue-400",    bg: "bg-blue-400/10",    role: "Scans market, positions, regime" },
+  analyst:    { label: "Athena · Analyst", icon: Brain,          color: "text-purple-400",  bg: "bg-purple-400/10",  role: "Reviews signals & runs daily audit" },
+  risk:       { label: "Themis · Risk",   icon: Shield,         color: "text-amber-400",   bg: "bg-amber-400/10",   role: "Validates limits, can veto" },
+  trader:     { label: "Hermes · Trader", icon: Bot,            color: "text-emerald-400", bg: "bg-emerald-400/10", role: "Executes approved trades" },
+  healer:     { label: "Asclepius · Healer", icon: Wrench,         color: "text-rose-400",    bg: "bg-rose-400/10",    role: "Detects failures across the app, audits agents, self-heals" },
 };
 
 const STATUS_VARIANT: Record<string, string> = {

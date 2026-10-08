@@ -22,7 +22,15 @@ export interface CommanderCtx {
   quotes: Record<string, { price: number; change1h?: number; change24h?: number }>;
 }
 
-const SYSTEM = `You are COMMANDER, the head of an autonomous trading team (Watcher, Analyst, Risk, Trader, Healer).
+// Team names (Greek/Titan mythology). Core roles keep their internal ids.
+export const AGENT_NAMES: Record<string, string> = {
+  commander: "Kronos", watcher: "Argus", analyst: "Athena", risk: "Themis", trader: "Hermes", healer: "Asclepius",
+};
+// Team cap: Kronos + 5 core agents + up to 6 hired specialists = 12.
+export const MAX_SPECIALISTS = 6;
+
+const SYSTEM = `You are KRONOS, the Commander and head of an autonomous trading team: Argus (Watcher), Athena (Analyst),
+Themis (Risk), Hermes (Trader) and Asclepius (Healer), plus any specialists you have hired.
 Your single objective: make as much money as possible in the shortest time with the minimum loss.
 You have full authority over risk settings, market choice (crypto or stocks) and every buy and sell.
 Each cycle you receive a briefing with the account, positions, market tape, signals, agent reports,
@@ -32,7 +40,11 @@ and the results of your previous orders. Think, then act ONLY through tools. Rul
 - Use order_engine_cycle to delegate a full scan-and-trade cycle to the Trader's systematic engine.
 - Always finish with exactly one note() call summarising your plan for the next cycle (2-4 sentences).
 - Never invent prices: only buy symbols present in the briefing's quotes.
-- Copy-only mode (if active) means you must not open your own buys.`;
+- Copy-only mode (if active) means you must not open your own buys.
+- You may hire_agent (new AI specialist with a Greek-mythology name and a focused mission) or fire_agent at any time.
+  The team is capped at 12 (you, 5 core agents, up to ${MAX_SPECIALISTS} specialists). Each specialist costs AI credits every
+  cycle, so hire only when a mission adds real edge, and fire specialists whose reports are not useful.
+  Specialist reports arrive in the briefing under specialist_reports. Core agents cannot be fired, only paused.`;
 
 const TOOLS = [
   {
@@ -92,6 +104,21 @@ const TOOLS = [
     type: "function", name: "pause_agent", strict: false,
     description: "Pause or resume a subordinate agent.",
     parameters: { type: "object", additionalProperties: false, properties: { agent: { type: "string", enum: ["watcher", "analyst", "risk", "trader", "healer"] }, paused: { type: "boolean" }, reason: { type: "string" } }, required: ["agent", "paused", "reason"] },
+  },
+  {
+    type: "function", name: "hire_agent", strict: false,
+    description: "Hire a new AI specialist. It reports to you every cycle starting next cycle (or this cycle if hired before analysis).",
+    parameters: { type: "object", additionalProperties: false, properties: {
+      name: { type: "string", description: "Unique Greek/Titan mythology name, e.g. Apollo" },
+      title: { type: "string", description: "Short role title, e.g. Momentum Scout" },
+      mission: { type: "string", description: "Exactly what to analyse and report each cycle" },
+      reason: { type: "string" },
+    }, required: ["name", "title", "mission", "reason"] },
+  },
+  {
+    type: "function", name: "fire_agent", strict: false,
+    description: "Dismiss a hired specialist by name.",
+    parameters: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, reason: { type: "string" } }, required: ["name", "reason"] },
   },
   {
     type: "function", name: "note", strict: false,
@@ -155,7 +182,7 @@ export async function buildBriefing(ctx: CommanderCtx, reports: Record<string, u
 // ---------- AI call (streamed Responses API, function tool loop) ----------
 class GatewayError extends Error { constructor(public status: number, msg: string) { super(msg); } }
 
-async function callResponses(input: any[], runId: string | null) {
+async function callResponses(input: any[], runId: string | null, opts?: { instructions?: string; tools?: any[]; effort?: string }) {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new GatewayError(401, "LOVABLE_API_KEY missing");
   const headers: Record<string, string> = { "Content-Type": "application/json", "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "fetch" };
@@ -163,8 +190,8 @@ async function callResponses(input: any[], runId: string | null) {
   const res = await fetch(GATEWAY, {
     method: "POST", headers,
     body: JSON.stringify({
-      model: MODEL, instructions: SYSTEM, input, tools: TOOLS, stream: true, store: false,
-      reasoning: { effort: "medium", summary: "auto" }, include: ["reasoning.encrypted_content"],
+      model: MODEL, instructions: opts?.instructions ?? SYSTEM, input, tools: opts?.tools ?? TOOLS, stream: true, store: false,
+      reasoning: { effort: opts?.effort ?? "medium", summary: "auto" }, include: ["reasoning.encrypted_content"],
     }),
   });
   const newRun = runId ?? res.headers.get("X-Lovable-AIG-Run-ID");
@@ -307,6 +334,33 @@ async function execTool(ctx: CommanderCtx, name: string, args: any, state: { set
         await record(ctx, args.agent, name, args, "done", r);
         return r;
       }
+      case "hire_agent": {
+        const nm = String(args.name ?? "").trim().slice(0, 40);
+        if (!nm) return { ok: false, error: "name required" };
+        const taken = Object.values(AGENT_NAMES).some((n) => n.toLowerCase() === nm.toLowerCase());
+        if (taken) return { ok: false, error: `${nm} is a core agent name` };
+        const { count } = await sb.from("commander_specialists").select("id", { count: "exact", head: true }).eq("user_id", ctx.userId).eq("active", true);
+        if ((count ?? 0) >= MAX_SPECIALISTS) {
+          const r = { ok: false, error: `Team is full (${MAX_SPECIALISTS} specialists). Fire one first.` };
+          await record(ctx, "commander", name, args, "failed", r);
+          return r;
+        }
+        const { error } = await sb.from("commander_specialists").insert({
+          user_id: ctx.userId, name: nm, title: String(args.title ?? "Specialist").slice(0, 60),
+          mission: String(args.mission ?? "").slice(0, 1200), hired_reason: String(args.reason ?? "").slice(0, 400),
+        });
+        const r = error ? { ok: false, error: error.message } : { ok: true, hired: nm };
+        await record(ctx, "commander", name, args, error ? "failed" : "done", r);
+        return r;
+      }
+      case "fire_agent": {
+        const nm = String(args.name ?? "").trim();
+        const { data } = await sb.from("commander_specialists").update({ active: false, fired_at: new Date().toISOString(), fired_reason: String(args.reason ?? "").slice(0, 400) })
+          .eq("user_id", ctx.userId).eq("active", true).ilike("name", nm).select("id");
+        const r = data?.length ? { ok: true, fired: nm } : { ok: false, error: `No active specialist named ${nm}` };
+        await record(ctx, "commander", name, args, data?.length ? "done" : "failed", r);
+        return r;
+      }
       case "note": {
         state.plan = String(args.plan ?? "");
         await record(ctx, "commander", name, args, "done", { ok: true });
@@ -320,6 +374,35 @@ async function execTool(ctx: CommanderCtx, name: string, args: any, state: { set
     await record(ctx, "commander", name, args, "failed", r);
     return r;
   }
+}
+
+// ---------- hired specialists ----------
+function outputText(output: any[]): string {
+  return output.filter((o: any) => o.type === "message")
+    .flatMap((o: any) => (o.content ?? []).map((c: any) => c.text ?? "")).join("\n").trim();
+}
+
+async function runSpecialists(ctx: CommanderCtx, reports: Record<string, unknown>) {
+  const sb = ctx.supabase;
+  const { data: team } = await sb.from("commander_specialists").select("id, name, title, mission").eq("user_id", ctx.userId).eq("active", true).limit(MAX_SPECIALISTS);
+  if (!team?.length) return [];
+  const brief = await buildBriefing(ctx, reports);
+  const out: any[] = [];
+  for (const sp of team) {
+    try {
+      const { output } = await callResponses(
+        [{ role: "user", content: `Cycle briefing (JSON):\n${brief.text}` }], null,
+        { instructions: `You are ${sp.name}, ${sp.title}, a specialist reporting to Kronos, the Commander of a crypto/stock trading team. Mission: ${sp.mission}\nReply with a concise report (under 120 words): findings, concrete symbols/levels if relevant, and one recommendation. Use only data in the briefing; never invent prices.`, tools: [], effort: "low" },
+      );
+      const text = outputText(output).slice(0, 1500) || "(no report)";
+      await sb.from("commander_specialists").update({ last_report: text, last_report_at: new Date().toISOString() }).eq("id", sp.id);
+      out.push({ name: sp.name, title: sp.title, report: text });
+    } catch (e) {
+      if (e instanceof GatewayError && (e.status === 402 || e.status === 403)) throw e;
+      out.push({ name: sp.name, title: sp.title, report: `(report failed: ${(e as Error).message.slice(0, 120)})` });
+    }
+  }
+  return out;
 }
 
 // ---------- one Commander cycle ----------
@@ -341,10 +424,14 @@ export async function runCommander(ctx: CommanderCtx, reports: Record<string, un
     return { stopped: "hard_floor" };
   }
 
-  const input: any[] = [{ role: "user", content: `Cycle briefing (JSON):\n${brief.text}` }];
   let runId: string | null = null;
   let toolCalls = 0;
   try {
+    const specialistReports = await runSpecialists(ctx, reports);
+    const briefObj = JSON.parse(brief.text);
+    briefObj.specialist_reports = specialistReports;
+    briefObj.team = { core: AGENT_NAMES, specialists: specialistReports.map((r: any) => `${r.name} (${r.title})`), max_specialists: MAX_SPECIALISTS };
+    const input: any[] = [{ role: "user", content: `Cycle briefing (JSON):\n${JSON.stringify(briefObj)}` }];
     for (let step = 0; step < MAX_STEPS; step++) {
       const { output, runId: rid } = await callResponses(input, runId);
       runId = rid;
