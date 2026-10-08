@@ -803,6 +803,51 @@ export type Database = {
         }
         Relationships: []
       }
+      commander_specialists: {
+        Row: {
+          active: boolean
+          created_at: string
+          fired_at: string | null
+          fired_reason: string | null
+          hired_reason: string | null
+          id: string
+          last_report: string | null
+          last_report_at: string | null
+          mission: string
+          name: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          fired_at?: string | null
+          fired_reason?: string | null
+          hired_reason?: string | null
+          id?: string
+          last_report?: string | null
+          last_report_at?: string | null
+          mission: string
+          name: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          fired_at?: string | null
+          fired_reason?: string | null
+          hired_reason?: string | null
+          id?: string
+          last_report?: string | null
+          last_report_at?: string | null
+          mission?: string
+          name?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       copy_trade_signals: {
         Row: {
           action: string
