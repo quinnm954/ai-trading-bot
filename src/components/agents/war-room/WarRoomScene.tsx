@@ -15,10 +15,10 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 function seatPos(i: number): THREE.Vector3 {
-  const a = Math.PI / 2 + ((i + 1) / (SEATS + 1)) * Math.PI * 2;
+  const a = -Math.PI / 2 + ((i + 1) / (SEATS + 1)) * Math.PI * 2;
   return new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R);
 }
-const HEAD = new THREE.Vector3(0, 0.4, R + 0.3);
+const HEAD = new THREE.Vector3(0, 0.4, -(R + 0.3));
 
 function marbleTexture() {
   const c = document.createElement("canvas"); c.width = c.height = 256;
