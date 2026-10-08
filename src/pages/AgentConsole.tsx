@@ -1,4 +1,5 @@
 import { useAgentSystem, type AgentName, type AgentMessageRow } from "@/hooks/useAgentSystem";
+import { CommanderPanel } from "@/components/agents/CommanderPanel";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -181,7 +182,7 @@ export default function AgentConsole() {
         <div>
           <h1 className="text-3xl font-bold">Agent Console</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Five specialized agents coordinating one trading system.
+            One Commander giving orders to five specialist agents.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -198,6 +199,8 @@ export default function AgentConsole() {
           </Button>
         </div>
       </div>
+
+      <CommanderPanel />
 
       {/* Agent grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
