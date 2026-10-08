@@ -1,5 +1,6 @@
 import { useAgentSystem, type AgentName, type AgentMessageRow } from "@/hooks/useAgentSystem";
 import { CommanderPanel } from "@/components/agents/CommanderPanel";
+import { WarRoom } from "@/components/agents/war-room/WarRoom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -200,6 +201,7 @@ export default function AgentConsole() {
         </div>
       </div>
 
+      <WarRoom />
       <CommanderPanel />
 
       {/* Agent grid */}
