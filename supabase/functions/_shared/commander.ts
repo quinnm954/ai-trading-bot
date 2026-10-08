@@ -292,7 +292,7 @@ async function execTool(ctx: CommanderCtx, name: string, args: any, state: { set
         const res = await fetch(`${ctx.supabaseUrl}/functions/v1/ai-trading-engine`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.serviceRole}`, "x-user-id": ctx.userId },
-          body: JSON.stringify({ user_id: ctx.userId, commander_call: true }),
+          body: JSON.stringify({ userId: ctx.userId, user_id: ctx.userId, commander_call: true }),
         });
         const body = await res.json().catch(() => ({}));
         const executed = Array.isArray(body?.executedTrades) ? body.executedTrades.length : 0;
