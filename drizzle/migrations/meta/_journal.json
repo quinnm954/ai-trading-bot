@@ -197,6 +197,13 @@
       "when": 1791432739388,
       "tag": "0027_commander_specialists",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791473989380,
+      "tag": "0028_commander_memory_and_gate_overrides",
+      "breakpoints": true
     }
   ]
 }
