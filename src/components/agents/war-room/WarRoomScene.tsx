@@ -182,6 +182,7 @@ export default function WarRoomScene({ commander, agents, orders, regime, select
       <mesh position={[0, 0.71, 0]}><torusGeometry args={[2.2, 0.04, 8, 64]} /><meshStandardMaterial color={BRONZE} metalness={0.9} roughness={0.3} /></mesh>
       {Array.from({ length: 8 }).map((_, i) => {
         const a = (i / 8) * Math.PI * 2;
+        if (Math.sin(a) > 0.3) return null; // keep the camera side open
         return <mesh key={i} position={[Math.cos(a) * 7, 2, Math.sin(a) * 7]} castShadow><cylinderGeometry args={[0.3, 0.35, 4, 16]} /><meshStandardMaterial map={tex} /></mesh>;
       })}
       <ContactShadows position={[0, 0.01, 0]} opacity={0.5} scale={12} blur={2} far={4} />
