@@ -176,6 +176,13 @@
       "when": 1790215186964,
       "tag": "0024_fomo_trader_source",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791432238904,
+      "tag": "0025_commander_agent",
+      "breakpoints": true
     }
   ]
 }
