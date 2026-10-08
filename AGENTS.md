@@ -4,3 +4,5 @@
 - Commander buys go through the engine's `execute_approved_trade` path and sells flag positions for the exit engine, so paper and live fills share one code path.
 - The hard floor (`ai_settings.hard_floor_pct`) is enforced in code and is not exposed as a Commander tool, so the AI can never remove the last emergency brake.
 - Commander-hired specialists live in `commander_specialists` and are run in `_shared/commander.ts` before the Commander's decision; the team cap (`MAX_SPECIALISTS`) is enforced in code so AI credit spend stays bounded.
+- Kronos's lessons and self-made rules live in `commander_memory`; rules are enforced in code on Commander buys (`checkRules` in `_shared/commander.ts`), so his learning actually changes his behaviour rather than just his prompt.
+- The tape gate and strategy probation are per-account Commander switches (`ai_settings.commander_skip_tape_gate` / `commander_skip_probation`); the hard floor and kill switch stay fixed in code.
