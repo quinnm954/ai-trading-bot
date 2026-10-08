@@ -85,6 +85,12 @@ async function getOverride(ctx: Ctx, agent: AgentName) {
     .from("agent_overrides").select("*")
     .eq("user_id", ctx.userId).eq("agent", agent).eq("active", true)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  // Commander pauses expire after ~2 cycles unless renewed.
+  if (data && data.override_type === "pause" && (data.payload as any)?.by === "commander"
+      && Date.now() - new Date(data.created_at).getTime() > 65 * 60 * 1000) {
+    await consumeOverride(ctx, data.id);
+    return null;
+  }
   return data;
 }
 
@@ -469,7 +475,7 @@ async function applyAction(ctx: Ctx, remedy: Remedy, detection: any): Promise<{ 
         const ids: string[] = detection?.ids ?? [];
         for (const id of ids) {
           await ctx.supabase.from("agent_state")
-            .update({ status: "idle", current_task: "reset by healer (stuck)" }).eq("id", id);
+            .update({ status: "idle", current_task: `reset by healer (stuck) at ${new Date().toISOString()}` }).eq("id", id);
         }
         return { ok: true, note: `reset ${ids.length} agents` };
       }
@@ -561,7 +567,12 @@ async function detectIssues(ctx: Ctx) {
   const { data: stuck } = await ctx.supabase.from("agent_state")
     .select("id, agent, last_heartbeat")
     .eq("user_id", ctx.userId).eq("status", "working").lt("last_heartbeat", stuckCutoff);
-  if (stuck && stuck.length > 0) {
+  const { data: pausedRows } = await ctx.supabase.from("agent_overrides")
+    .select("agent").eq("user_id", ctx.userId).eq("active", true).eq("override_type", "pause");
+  const pausedSet = new Set((pausedRows ?? []).map((r: any) => r.agent));
+  const stuckReal = (stuck ?? []).filter((s: any) => !pausedSet.has(s.agent));
+  if (stuckReal.length > 0) {
+    const stuck = stuckReal;
     issues.push({ key: "stuck_agent_working", description: `${stuck.length} agent(s) stuck`,
       detection: { ids: stuck.map((s: any) => s.id), agents: stuck.map((s: any) => s.agent) } });
   }

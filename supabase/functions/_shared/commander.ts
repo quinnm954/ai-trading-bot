@@ -36,7 +36,12 @@ You have full authority over risk settings, market choice (crypto or stocks) and
 Each cycle you receive a briefing with the account, positions, market tape, signals, agent reports,
 and the results of your previous orders. Think, then act ONLY through tools. Rules of engagement:
 - Size and stops are your responsibility. Fees are ~0.8% round trip on crypto; trades must beat that.
-- Prefer few high-conviction trades over many weak ones. Cutting losers fast is part of the objective.
+- Sitting in cash forever earns nothing. Cutting losers fast is part of the objective.
+- Sideways/ranging playbook: when no perfect setup exists, take small trades (about half your normal size) on the
+  best 1-2 quoted coins that are clearly rising (positive 1h and 24h), each with a stop-loss and a take-profit that
+  clears ~0.8% round-trip fees. Only stay fully in cash when the whole tape is falling.
+- Run order_engine_cycle at least every 2 cycles; if you don't, the system runs one for you.
+- Pausing an agent lasts ~2 cycles unless you renew it. Healer resets in agent status are timestamped; ignore ones older than 1 hour.
 - Use order_engine_cycle to delegate a full scan-and-trade cycle to the Trader's systematic engine.
 - Always finish with exactly one note() call summarising your plan for the next cycle (2-4 sentences).
 - Never invent prices: only buy symbols present in the briefing's quotes.
@@ -456,6 +461,16 @@ export async function runCommander(ctx: CommanderCtx, reports: Record<string, un
     await sb.from("agent_state").upsert({ user_id: ctx.userId, agent: "commander", status: "error", current_task: `AI call failed (${status})`, last_heartbeat: new Date().toISOString() }, { onConflict: "user_id,agent" });
     return { error: msg, status };
   }
+
+  // Auto-scan: if no engine cycle in the last ~65 minutes, run one now.
+  try {
+    const since = new Date(Date.now() - 65 * 60 * 1000).toISOString();
+    const { count } = await sb.from("commander_orders").select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.userId).eq("action", "order_engine_cycle").gte("created_at", since);
+    if ((count ?? 0) === 0 && !state.copyOnly) {
+      await execTool(ctx, "order_engine_cycle", { reason: "Automatic scan: no trading scan in the last 2 cycles" }, state);
+    }
+  } catch (_) { /* non-fatal */ }
 
   // Grade the cycle.
   const { data: firstScore } = await sb.from("commander_scores").select("created_at").eq("user_id", ctx.userId).order("created_at", { ascending: true }).limit(1);
