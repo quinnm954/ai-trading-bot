@@ -283,6 +283,8 @@ export type Database = {
           bot_status: Database["public"]["Enums"]["bot_status"] | null
           commander_enabled: boolean
           commander_paused_reason: string | null
+          commander_skip_probation: boolean
+          commander_skip_tape_gate: boolean
           created_at: string | null
           current_drawdown: number | null
           current_regime: Database["public"]["Enums"]["market_regime"] | null
@@ -336,6 +338,8 @@ export type Database = {
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           commander_enabled?: boolean
           commander_paused_reason?: string | null
+          commander_skip_probation?: boolean
+          commander_skip_tape_gate?: boolean
           created_at?: string | null
           current_drawdown?: number | null
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
@@ -389,6 +393,8 @@ export type Database = {
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
           commander_enabled?: boolean
           commander_paused_reason?: string | null
+          commander_skip_probation?: boolean
+          commander_skip_tape_gate?: boolean
           created_at?: string | null
           current_drawdown?: number | null
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
@@ -724,6 +730,48 @@ export type Database = {
           provider?: string
           secret_key_encrypted?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      commander_memory: {
+        Row: {
+          active: boolean
+          content: string
+          created_at: string
+          id: string
+          kind: string
+          retired_at: string | null
+          retired_reason: string | null
+          rule_params: Json | null
+          rule_type: string | null
+          symbol: string | null
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          content: string
+          created_at?: string
+          id?: string
+          kind?: string
+          retired_at?: string | null
+          retired_reason?: string | null
+          rule_params?: Json | null
+          rule_type?: string | null
+          symbol?: string | null
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          content?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          retired_at?: string | null
+          retired_reason?: string | null
+          rule_params?: Json | null
+          rule_type?: string | null
+          symbol?: string | null
           user_id?: string
         }
         Relationships: []

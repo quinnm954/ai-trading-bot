@@ -49,7 +49,16 @@ and the results of your previous orders. Think, then act ONLY through tools. Rul
 - You may hire_agent (new AI specialist with a Greek-mythology name and a focused mission) or fire_agent at any time.
   The team is capped at 12 (you, 5 core agents, up to ${MAX_SPECIALISTS} specialists). Each specialist costs AI credits every
   cycle, so hire only when a mission adds real edge, and fire specialists whose reports are not useful.
-  Specialist reports arrive in the briefing under specialist_reports. Core agents cannot be fired, only paused.`;
+  Specialist reports arrive in the briefing under specialist_reports. Core agents cannot be fired, only paused.
+- YOU MAKE YOUR OWN RULES. The market-falling gate and strategy probation are yours to switch off or on with
+  set_gate_overrides. Only the emergency floor and the kill switch are fixed.
+- LEARN EVERY CYCLE. The briefing has trades_to_review (closed since your last cycle), your_lessons and your_rules.
+  For each reviewed trade, call record_lesson with what worked or failed and why (specific: symbol, setup, timing, size).
+  When a pattern repeats, turn it into an enforced rule with make_rule; the system then blocks any of your buys that
+  break it. Retire rules that cost you good trades with retire_rule. Never repeat a mistake already in your lessons.
+  Rule types: block_symbol {symbol}, max_change24h_pct {value} (no buys if 24h gain above value),
+  min_change1h_pct {value}, min_change24h_pct {value}, max_trade_usd {value}, min_stop_loss_pct {value},
+  max_stop_loss_pct {value}, block_hours_utc {from,to}, guidance {} (advice to yourself, not enforced).`;
 
 const TOOLS = [
   {
@@ -126,6 +135,31 @@ const TOOLS = [
     parameters: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, reason: { type: "string" } }, required: ["name", "reason"] },
   },
   {
+    type: "function", name: "set_gate_overrides", strict: false,
+    description: "Turn off (true) or back on (false) the market-falling gate and/or strategy probation for this account.",
+    parameters: { type: "object", additionalProperties: false, properties: { skip_tape_gate: { type: "boolean" }, skip_probation: { type: "boolean" }, reason: { type: "string" } }, required: ["reason"] },
+  },
+  {
+    type: "function", name: "record_lesson", strict: false,
+    description: "Save a lesson to your permanent memory. You will see it every cycle.",
+    parameters: { type: "object", additionalProperties: false, properties: { lesson: { type: "string" }, symbol: { type: "string" } }, required: ["lesson"] },
+  },
+  {
+    type: "function", name: "make_rule", strict: false,
+    description: "Create a rule the system enforces on your future buys (except type guidance, which is advisory).",
+    parameters: { type: "object", additionalProperties: false, properties: {
+      rule_type: { type: "string", enum: ["block_symbol", "max_change24h_pct", "min_change1h_pct", "min_change24h_pct", "max_trade_usd", "min_stop_loss_pct", "max_stop_loss_pct", "block_hours_utc", "guidance"] },
+      params: { type: "object", description: "e.g. {symbol:'PYTH'} or {value:15} or {from:0,to:6}" },
+      text: { type: "string", description: "The rule in plain words" },
+      reason: { type: "string" },
+    }, required: ["rule_type", "text", "reason"] },
+  },
+  {
+    type: "function", name: "retire_rule", strict: false,
+    description: "Retire one of your rules by id.",
+    parameters: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, reason: { type: "string" } }, required: ["id", "reason"] },
+  },
+  {
     type: "function", name: "note", strict: false,
     description: "Record your plan for the next cycle. Call once at the end.",
     parameters: { type: "object", additionalProperties: false, properties: { plan: { type: "string" } }, required: ["plan"] },
@@ -160,13 +194,21 @@ export async function buildBriefing(ctx: CommanderCtx, reports: Record<string, u
     sb.from("titan_fusion_signals").select("symbol, conviction, direction, horizon, rationale").order("generated_at", { ascending: false }).limit(15),
     sb.from("copy_trading_settings").select("enabled, auto_copy").eq("user_id", ctx.userId).maybeSingle(),
   ]);
+  const [{ data: lessons }, { data: rules }, { data: lastScore }] = await Promise.all([
+    sb.from("commander_memory").select("content, symbol, created_at").eq("user_id", ctx.userId).eq("kind", "lesson").order("created_at", { ascending: false }).limit(40),
+    sb.from("commander_memory").select("id, rule_type, rule_params, content, created_at").eq("user_id", ctx.userId).eq("kind", "rule").eq("active", true).order("created_at", { ascending: false }).limit(30),
+    sb.from("commander_scores").select("created_at").eq("user_id", ctx.userId).order("created_at", { ascending: false }).limit(1),
+  ]);
+  const reviewSince = lastScore?.[0]?.created_at ?? new Date(Date.now() - 2 * 3.6e6).toISOString();
+  const { data: toReview } = await sb.from("trades").select("symbol, side, entry_price, exit_price, pnl, exit_reason, ai_reasoning, created_at, closed_at")
+    .eq("user_id", ctx.userId).eq("status", "closed").gte("closed_at", reviewSince).order("closed_at", { ascending: false }).limit(15);
   const acct = await equityOf(ctx, settings, positions ?? []);
   const topQuotes = Object.entries(ctx.quotes)
     .sort((a, b) => Math.abs(b[1].change24h ?? 0) - Math.abs(a[1].change24h ?? 0))
     .slice(0, 40)
     .map(([s, q]) => ({ s, p: q.price, h1: q.change1h, d1: q.change24h }));
   return {
-    settings, positions: positions ?? [], acct,
+    settings, positions: positions ?? [], acct, rules: rules ?? [],
     text: JSON.stringify({
       now: new Date().toISOString(),
       account: { mode: acct.isPaper ? "paper" : "live", market: settings?.market_mode ?? "crypto", cash: acct.cash, equity: acct.equity, starting_balance: acct.start, hard_floor_pct: settings?.hard_floor_pct },
@@ -178,6 +220,8 @@ export async function buildBriefing(ctx: CommanderCtx, reports: Record<string, u
       copy_only_mode: !!(copyCfg?.enabled && copyCfg?.auto_copy !== false),
       positions: positions ?? [], recent_trades: trades ?? [],
       quotes: topQuotes, fusion_signals: fusion ?? [],
+      gate_overrides: { tape_gate_off: !!settings?.commander_skip_tape_gate, probation_off: !!settings?.commander_skip_probation },
+      trades_to_review: toReview ?? [], your_lessons: lessons ?? [], your_rules: rules ?? [],
       agent_reports: reports,
       your_previous_orders: orders ?? [], your_recent_scores: scores ?? [],
     }),
@@ -239,7 +283,29 @@ async function record(ctx: CommanderCtx, agent: string, action: string, payload:
   });
 }
 
-async function execTool(ctx: CommanderCtx, name: string, args: any, state: { settings: any; acct: any; positions: any[]; plan: string | null; copyOnly: boolean }) {
+function checkRules(rules: any[], sym: string, q: { price: number; change1h?: number; change24h?: number }, args: any): string | null {
+  const hour = new Date().getUTCHours();
+  for (const r of rules) {
+    const p = r.rule_params ?? {}; const v = Number(p.value);
+    const hit = (() => {
+      switch (r.rule_type) {
+        case "block_symbol": return String(p.symbol ?? "").toUpperCase().replace(/-USD$/, "") === sym;
+        case "max_change24h_pct": return q.change24h != null && q.change24h > v;
+        case "min_change1h_pct": return q.change1h != null && q.change1h < v;
+        case "min_change24h_pct": return q.change24h != null && q.change24h < v;
+        case "max_trade_usd": return Number(args.usd_amount) > v;
+        case "min_stop_loss_pct": return Math.abs(Number(args.stop_loss_pct)) < v;
+        case "max_stop_loss_pct": return Math.abs(Number(args.stop_loss_pct)) > v;
+        case "block_hours_utc": { const f = Number(p.from), t = Number(p.to); return f <= t ? hour >= f && hour < t : hour >= f || hour < t; }
+        default: return false;
+      }
+    })();
+    if (hit) return r.content || r.rule_type;
+  }
+  return null;
+}
+
+async function execTool(ctx: CommanderCtx, name: string, args: any, state: { settings: any; acct: any; positions: any[]; plan: string | null; copyOnly: boolean; rules?: any[] }) {
   const sb = ctx.supabase;
   try {
     switch (name) {
@@ -275,6 +341,8 @@ async function execTool(ctx: CommanderCtx, name: string, args: any, state: { set
           const r = { ok: false, error: `Hard floor hit (equity below ${100 - floorPct}% of start)` };
           await record(ctx, "risk", name, args, "rejected", r); return r;
         }
+        const broken = checkRules(state.rules ?? [], sym, q, args);
+        if (broken) { const r = { ok: false, error: `Blocked by your own rule: ${broken}` }; await record(ctx, "commander", name, args, "rejected", r); return r; }
         const usd = Math.min(Number(args.usd_amount), state.acct.cash * 0.99);
         if (!(usd >= 5)) { const r = { ok: false, error: `Not enough cash (have $${state.acct.cash.toFixed(2)})` }; await record(ctx, "trader", name, args, "rejected", r); return r; }
         const qty = usd / q.price;
@@ -366,6 +434,39 @@ async function execTool(ctx: CommanderCtx, name: string, args: any, state: { set
         await record(ctx, "commander", name, args, data?.length ? "done" : "failed", r);
         return r;
       }
+      case "set_gate_overrides": {
+        const patch: Record<string, unknown> = {};
+        if (typeof args.skip_tape_gate === "boolean") patch.commander_skip_tape_gate = args.skip_tape_gate;
+        if (typeof args.skip_probation === "boolean") patch.commander_skip_probation = args.skip_probation;
+        const { error } = await sb.from("ai_settings").update(patch).eq("user_id", ctx.userId);
+        const r = error ? { ok: false, error: error.message } : { ok: true, applied: patch };
+        await record(ctx, "risk", name, args, error ? "failed" : "done", r);
+        return r;
+      }
+      case "record_lesson": {
+        const { error } = await sb.from("commander_memory").insert({ user_id: ctx.userId, kind: "lesson", content: String(args.lesson ?? "").slice(0, 600), symbol: args.symbol ? String(args.symbol).toUpperCase() : null });
+        const r = error ? { ok: false, error: error.message } : { ok: true };
+        await record(ctx, "commander", name, args, error ? "failed" : "done", r);
+        return r;
+      }
+      case "make_rule": {
+        const { count } = await sb.from("commander_memory").select("id", { count: "exact", head: true }).eq("user_id", ctx.userId).eq("kind", "rule").eq("active", true);
+        if ((count ?? 0) >= 30) return { ok: false, error: "30 active rules max — retire one first" };
+        const row = { user_id: ctx.userId, kind: "rule", rule_type: String(args.rule_type), rule_params: args.params ?? {}, content: String(args.text ?? "").slice(0, 400) };
+        const { data, error } = await sb.from("commander_memory").insert(row).select("id, rule_type, rule_params, content").single();
+        if (data) state.rules = [...(state.rules ?? []), data];
+        const r = error ? { ok: false, error: error.message } : { ok: true, id: data?.id };
+        await record(ctx, "commander", name, args, error ? "failed" : "done", r);
+        return r;
+      }
+      case "retire_rule": {
+        const { data } = await sb.from("commander_memory").update({ active: false, retired_at: new Date().toISOString(), retired_reason: String(args.reason ?? "").slice(0, 300) })
+          .eq("user_id", ctx.userId).eq("kind", "rule").eq("id", String(args.id)).select("id");
+        state.rules = (state.rules ?? []).filter((x: any) => x.id !== args.id);
+        const r = data?.length ? { ok: true } : { ok: false, error: "No such active rule" };
+        await record(ctx, "commander", name, args, data?.length ? "done" : "failed", r);
+        return r;
+      }
       case "note": {
         state.plan = String(args.plan ?? "");
         await record(ctx, "commander", name, args, "done", { ok: true });
@@ -417,7 +518,7 @@ export async function runCommander(ctx: CommanderCtx, reports: Record<string, un
 
   const brief = await buildBriefing(ctx, reports);
   const state = {
-    settings: brief.settings, acct: brief.acct, positions: brief.positions, plan: null as string | null,
+    settings: brief.settings, acct: brief.acct, positions: brief.positions, plan: null as string | null, rules: brief.rules as any[],
     copyOnly: JSON.parse(brief.text).copy_only_mode,
   };
 
