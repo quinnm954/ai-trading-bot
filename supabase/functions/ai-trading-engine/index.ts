@@ -1888,7 +1888,9 @@ async function filterByTrend(
   // and only turns positive while the tape is rising. So the engine does not
   // open ANY swing unless the market as a whole is climbing.
   const tape = computeAggregateTape(marketData);
-  if (!tape.rising) {
+  if (!tape.rising && opts.skipTape) {
+    console.log(`🌐 TAPE GATE — BYPASSED BY COMMANDER: ${tape.label}`);
+  } else if (!tape.rising) {
     console.log(`🌐 TAPE GATE — STAND DOWN: ${tape.label}`);
     return { tradeable: [], trendAnalysis: [] };
   }
@@ -3935,12 +3937,12 @@ serve(async (req) => {
     // 📈 TREND ANALYSIS - Filter out downtrending coins
     const memeOnly = !!(settings as any).meme_coins_only;
     if (memeOnly) console.log('🐸 MEME-ONLY MODE ENABLED — restricting universe to meme-coin allowlist');
-    let { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly });
+    let { tradeable, trendAnalysis } = await filterByTrend(marketData, scalpCfg, { memeOnly, skipTape: !!(settings as any).commander_skip_tape_gate });
 
     // The tape gate inside filterByTrend is the most common reason for a quiet day —
     // surface it in notifications with the exact numbers every cycle it blocks entries.
     const tapeRead = computeAggregateTape(marketData);
-    if (!tapeRead.rising) {
+    if (!tapeRead.rising && !(settings as any).commander_skip_tape_gate) {
       await logStandDown(supabase, user.id, 'stand_down_market_tape',
         `Bots standing down — market tape not rising: ${tapeRead.label}`,
         { avg24h: tapeRead.avg24h, avg1h: tapeRead.avg1h, breadth: tapeRead.breadth });
@@ -4789,7 +4791,9 @@ serve(async (req) => {
         const exp = Number(row.expectancy_per_trade || 0);
         const wr = Number(row.win_rate || 0);
         const belowBreakeven = sample >= EXPECTANCY_MIN_SAMPLE && wr < BREAKEVEN_WIN_RATE;
-        if (sample >= EXPECTANCY_MIN_SAMPLE && (exp <= 0 || belowBreakeven)) {
+        if ((settings as any).commander_skip_probation && sample >= EXPECTANCY_MIN_SAMPLE && (exp <= 0 || belowBreakeven)) {
+          console.log(`📉 PROBATION for "${row.strategy}" bypassed by Commander`);
+        } else if (sample >= EXPECTANCY_MIN_SAMPLE && (exp <= 0 || belowBreakeven)) {
           probationStrategies.add(String(row.strategy));
           if (String(row.strategy) === 'scalp' && belowBreakeven) winRateBelowBreakeven = true;
           console.log(
