@@ -59,7 +59,7 @@ export function BotControlBar() {
     }
     const { error } = await supabase
       .from('ai_settings')
-      .update({ enabled: next, bot_status: next ? 'trading' : 'idle' })
+      .update({ enabled: next, bot_status: next ? 'trading' : 'idle', ...(next ? { commander_paused_reason: null } : {}) })
       .eq('user_id', user.id);
     setSaving(false);
     if (error) {
@@ -69,10 +69,10 @@ export function BotControlBar() {
     setEnabled(next);
     setBotStatus(next ? 'trading' : 'idle');
     toast({
-      title: next ? 'Trading bot started' : 'Trading bot stopped',
+      title: next ? 'Commander started' : 'Commander stopped',
       description: next
-        ? 'Agents run every 30 minutes on the server, even with the app closed.'
-        : 'No new entries will be opened until you start it again.',
+        ? 'The Commander and its agents run every 30 minutes on the server, even with the app closed.'
+        : 'No new orders will be given until you start it again.',
     });
   };
 

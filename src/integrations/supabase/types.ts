@@ -281,12 +281,15 @@ export type Database = {
           ai_monthly_budget_usd: number
           allowed_markets: string[] | null
           bot_status: Database["public"]["Enums"]["bot_status"] | null
+          commander_enabled: boolean
+          commander_paused_reason: string | null
           created_at: string | null
           current_drawdown: number | null
           current_regime: Database["public"]["Enums"]["market_regime"] | null
           daily_loss_today: number | null
           enabled: boolean | null
           execution_mode: string
+          hard_floor_pct: number
           id: string
           kill_switch_active: boolean | null
           kill_switch_triggered_at: string | null
@@ -304,6 +307,7 @@ export type Database = {
           peak_equity: number | null
           prioritize_moonshots: boolean | null
           reinvest_profits: boolean
+          risk_controlled_by: string
           risk_tolerance: string | null
           stock_allow_extended_hours: boolean
           stock_cash_account: boolean
@@ -330,12 +334,15 @@ export type Database = {
           ai_monthly_budget_usd?: number
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
+          commander_enabled?: boolean
+          commander_paused_reason?: string | null
           created_at?: string | null
           current_drawdown?: number | null
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
           daily_loss_today?: number | null
           enabled?: boolean | null
           execution_mode?: string
+          hard_floor_pct?: number
           id?: string
           kill_switch_active?: boolean | null
           kill_switch_triggered_at?: string | null
@@ -353,6 +360,7 @@ export type Database = {
           peak_equity?: number | null
           prioritize_moonshots?: boolean | null
           reinvest_profits?: boolean
+          risk_controlled_by?: string
           risk_tolerance?: string | null
           stock_allow_extended_hours?: boolean
           stock_cash_account?: boolean
@@ -379,12 +387,15 @@ export type Database = {
           ai_monthly_budget_usd?: number
           allowed_markets?: string[] | null
           bot_status?: Database["public"]["Enums"]["bot_status"] | null
+          commander_enabled?: boolean
+          commander_paused_reason?: string | null
           created_at?: string | null
           current_drawdown?: number | null
           current_regime?: Database["public"]["Enums"]["market_regime"] | null
           daily_loss_today?: number | null
           enabled?: boolean | null
           execution_mode?: string
+          hard_floor_pct?: number
           id?: string
           kill_switch_active?: boolean | null
           kill_switch_triggered_at?: string | null
@@ -402,6 +413,7 @@ export type Database = {
           peak_equity?: number | null
           prioritize_moonshots?: boolean | null
           reinvest_profits?: boolean
+          risk_controlled_by?: string
           risk_tolerance?: string | null
           stock_allow_extended_hours?: boolean
           stock_cash_account?: boolean
@@ -712,6 +724,81 @@ export type Database = {
           provider?: string
           secret_key_encrypted?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      commander_orders: {
+        Row: {
+          action: string
+          agent: string
+          created_at: string
+          cycle_id: string
+          id: string
+          payload: Json
+          reason: string | null
+          result: Json | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          agent: string
+          created_at?: string
+          cycle_id: string
+          id?: string
+          payload?: Json
+          reason?: string | null
+          result?: Json | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          agent?: string
+          created_at?: string
+          cycle_id?: string
+          id?: string
+          payload?: Json
+          reason?: string | null
+          result?: Json | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      commander_scores: {
+        Row: {
+          created_at: string
+          cycle_id: string
+          equity: number
+          id: string
+          max_drawdown: number | null
+          plan: string | null
+          pnl_per_hour: number | null
+          pnl_since_start: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_id: string
+          equity: number
+          id?: string
+          max_drawdown?: number | null
+          plan?: string | null
+          pnl_per_hour?: number | null
+          pnl_since_start: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          cycle_id?: string
+          equity?: number
+          id?: string
+          max_drawdown?: number | null
+          plan?: string | null
+          pnl_per_hour?: number | null
+          pnl_since_start?: number
           user_id?: string
         }
         Relationships: []

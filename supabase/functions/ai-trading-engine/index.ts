@@ -3580,6 +3580,14 @@ serve(async (req) => {
       });
     }
 
+    // 🎖️ COMMANDER IN CHARGE — the systematic engine only runs when the
+    // Commander orders a cycle; it never trades on its own schedule.
+    if (settings.commander_enabled && body?.commander_call !== true) {
+      return new Response(JSON.stringify({ message: 'Commander in charge — engine waits for orders', status: 'commander' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // 🛑 KILL SWITCH CHECK - Block all trading if kill switch is active
     if (settings.kill_switch_active) {
       console.log('🛑 KILL SWITCH ACTIVE - Trading blocked until manual reset');

@@ -19,6 +19,7 @@ import {
   priceSnapshot,
   baseAsset,
 } from "../_shared/market-feed.ts";
+import { runCommander } from "../_shared/commander.ts";
 
 
 const corsHeaders = {
@@ -716,14 +717,42 @@ async function runHealer(ctx: Ctx) {
 async function runOneCycle(ctx: Ctx, agents?: AgentName[]) {
   const run = (a: AgentName) => !agents || agents.includes(a);
   const out: Record<string, any> = {};
+
+  const { data: cfg } = await ctx.supabase.from("ai_settings")
+    .select("enabled, commander_enabled").eq("user_id", ctx.userId).maybeSingle();
+  const commanderMode = !!cfg?.commander_enabled && !agents;
+
+  // 1) Subordinates report.
   const observation = run("watcher") ? await runWatcher(ctx) : null;
   if (observation) out.observation = observation;
   const analysis = run("analyst") ? await runAnalyst(ctx, observation as any) : null;
   if (analysis) out.analysis = analysis;
   if (run("risk")) out.risk = await runRisk(ctx, analysis as any, observation);
-  if (run("trader")) out.trade = await runTrader(ctx, (out.risk ?? null) as any);
   if (run("healer")) out.heal = await runHealer(ctx);
+
+  if (!commanderMode) {
+    if (run("trader")) out.trade = await runTrader(ctx, (out.risk ?? null) as any);
+    return out;
+  }
+
+  // 2) Commander decides and orders; risk is advisory only.
+  if (!cfg?.enabled) { out.commander = { skipped: "stopped" }; return out; }
+  const feed = await fetchLiveMarket();
+  const quotes: Record<string, any> = {};
+  for (const q of feed.quotes) quotes[baseAsset(q.symbol)] = { price: q.price, change1h: q.change1h, change24h: q.change24h };
+  out.commander = await runCommander({
+    supabase: ctx.supabase, userId: ctx.userId, supabaseUrl: SUPABASE_URL, serviceRole: SERVICE_ROLE,
+    cycleId: crypto.randomUUID(), quotes,
+  }, {
+    watcher: summarize(observation), analyst: summarize(analysis), risk_advice: out.risk ?? null, healer: summarize(out.heal),
+  });
   return out;
+}
+
+function summarize(v: unknown) {
+  if (!v) return null;
+  const s = JSON.stringify(v);
+  return s.length > 4000 ? JSON.parse(JSON.stringify(v, (k, val) => (k === "priceSnapshot" || k === "quotes" ? undefined : val))) : v;
 }
 
 

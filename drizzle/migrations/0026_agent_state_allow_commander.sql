@@ -1,0 +1,2 @@
+ALTER TABLE public.agent_state DROP CONSTRAINT agent_state_agent_check;
+ALTER TABLE public.agent_state ADD CONSTRAINT agent_state_agent_check CHECK (agent = ANY (ARRAY['commander'::text, 'trader'::text, 'analyst'::text, 'watcher'::text, 'risk'::text, 'healer'::text]));
