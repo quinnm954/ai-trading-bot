@@ -204,6 +204,13 @@
       "when": 1791473989380,
       "tag": "0028_commander_memory_and_gate_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792157958624,
+      "tag": "0029_bots_off_by_default",
+      "breakpoints": true
     }
   ]
 }
