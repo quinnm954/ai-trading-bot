@@ -115,26 +115,6 @@ const TOOLS = [
     parameters: { type: "object", additionalProperties: false, properties: { reason: { type: "string" } }, required: ["reason"] },
   },
   {
-    type: "function", name: "pause_agent", strict: false,
-    description: "Pause or resume a subordinate agent.",
-    parameters: { type: "object", additionalProperties: false, properties: { agent: { type: "string", enum: ["watcher", "analyst", "risk", "trader", "healer"] }, paused: { type: "boolean" }, reason: { type: "string" } }, required: ["agent", "paused", "reason"] },
-  },
-  {
-    type: "function", name: "hire_agent", strict: false,
-    description: "Hire a new AI specialist. It reports to you every cycle starting next cycle (or this cycle if hired before analysis).",
-    parameters: { type: "object", additionalProperties: false, properties: {
-      name: { type: "string", description: "Unique Greek/Titan mythology name, e.g. Apollo" },
-      title: { type: "string", description: "Short role title, e.g. Momentum Scout" },
-      mission: { type: "string", description: "Exactly what to analyse and report each cycle" },
-      reason: { type: "string" },
-    }, required: ["name", "title", "mission", "reason"] },
-  },
-  {
-    type: "function", name: "fire_agent", strict: false,
-    description: "Dismiss a hired specialist by name.",
-    parameters: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, reason: { type: "string" } }, required: ["name", "reason"] },
-  },
-  {
     type: "function", name: "set_gate_overrides", strict: false,
     description: "Turn off (true) or back on (false) the market-falling gate and/or strategy probation for this account.",
     parameters: { type: "object", additionalProperties: false, properties: { skip_tape_gate: { type: "boolean" }, skip_probation: { type: "boolean" }, reason: { type: "string" } }, required: ["reason"] },
