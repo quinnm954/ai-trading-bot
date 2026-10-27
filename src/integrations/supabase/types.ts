@@ -1995,6 +1995,7 @@ export type Database = {
           is_paper: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           max_hold_minutes: number | null
+          mirror_of: string | null
           mirror_only: boolean
           partial_tp_done: boolean
           peak_pnl_percent: number | null
@@ -2017,6 +2018,7 @@ export type Database = {
           is_paper?: boolean
           market_type: Database["public"]["Enums"]["market_type"]
           max_hold_minutes?: number | null
+          mirror_of?: string | null
           mirror_only?: boolean
           partial_tp_done?: boolean
           peak_pnl_percent?: number | null
@@ -2039,6 +2041,7 @@ export type Database = {
           is_paper?: boolean
           market_type?: Database["public"]["Enums"]["market_type"]
           max_hold_minutes?: number | null
+          mirror_of?: string | null
           mirror_only?: boolean
           partial_tp_done?: boolean
           peak_pnl_percent?: number | null
