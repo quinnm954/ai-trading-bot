@@ -3584,7 +3584,10 @@ serve(async (req) => {
 
     // 🎖️ COMMANDER IN CHARGE — the systematic engine only runs when the
     // Commander orders a cycle; it never trades on its own schedule.
-    if (settings.commander_enabled && body?.commander_call !== true) {
+    // Non-leader accounts never run their own systematic cycle (they mirror the leader).
+    const { data: leaderRow } = await supabase.from('user_roles').select('user_id, created_at').eq('role', 'admin').order('created_at', { ascending: true }).limit(1);
+    const isFollower = !!leaderRow?.[0]?.user_id && leaderRow[0].user_id !== settings.user_id;
+    if (isFollower || (settings.commander_enabled && body?.commander_call !== true)) {
       return new Response(JSON.stringify({ message: 'Commander in charge — engine waits for orders', status: 'commander' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

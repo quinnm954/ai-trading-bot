@@ -20,6 +20,7 @@ import {
   baseAsset,
 } from "../_shared/market-feed.ts";
 import { runCommander } from "../_shared/commander.ts";
+import { getLeaderId, runMirror } from "../_shared/mirror.ts";
 
 
 const corsHeaders = {
@@ -732,6 +733,21 @@ async function runOneCycle(ctx: Ctx, agents?: AgentName[]) {
   const { data: cfg } = await ctx.supabase.from("ai_settings")
     .select("enabled, commander_enabled").eq("user_id", ctx.userId).maybeSingle();
   const commanderMode = !!cfg?.commander_enabled && !agents;
+
+  // Non-leader accounts never decide for themselves: they mirror the leader.
+  const leaderId = await getLeaderId(ctx.supabase);
+  if (leaderId && ctx.userId !== leaderId) {
+    if (!cfg?.enabled) return { trade: { skipped: "stopped" } };
+    await setState(ctx, "trader", "working", "Executing orders");
+    const feed = await fetchLiveMarket();
+    const quotes: Record<string, any> = {};
+    for (const q of feed.quotes) quotes[baseAsset(q.symbol)] = { price: q.price };
+    const m = await runMirror({ sb: ctx.supabase, userId: ctx.userId, leaderId, supabaseUrl: SUPABASE_URL, serviceRole: SERVICE_ROLE, quotes });
+    for (const o of m.opened) await post(ctx, "trader", "all", "trade_executed", `Bought ${o.symbol} ($${o.usd})`, { reasoning: o.reasoning });
+    for (const s of m.closed) await post(ctx, "trader", "all", "exit_ordered", `Closing ${s}`, {});
+    await setState(ctx, "trader", "idle", null, { opened: m.opened.length, closed: m.closed.length });
+    return { trade: m };
+  }
 
   // 1) Subordinates report.
   const observation = run("watcher") ? await runWatcher(ctx) : null;
