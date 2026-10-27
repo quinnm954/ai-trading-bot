@@ -148,7 +148,7 @@ const TOOLS = [
     type: "function", name: "make_rule", strict: false,
     description: "Create a rule the system enforces on your future buys (except type guidance, which is advisory).",
     parameters: { type: "object", additionalProperties: false, properties: {
-      rule_type: { type: "string", enum: ["block_symbol", "max_change24h_pct", "min_change1h_pct", "min_change24h_pct", "max_trade_usd", "min_stop_loss_pct", "max_stop_loss_pct", "block_hours_utc", "guidance"] },
+      rule_type: { type: "string", enum: ["block_symbol", "max_change24h_pct", "min_change1h_pct", "min_change24h_pct", "max_trade_usd", "min_stop_loss_pct", "max_stop_loss_pct", "min_hold_minutes", "block_hours_utc", "guidance"] },
       params: { type: "object", description: "e.g. {symbol:'PYTH'} or {value:15} or {from:0,to:6}" },
       text: { type: "string", description: "The rule in plain words" },
       reason: { type: "string" },
@@ -296,6 +296,8 @@ function checkRules(rules: any[], sym: string, q: { price: number; change1h?: nu
         case "max_trade_usd": return Number(args.usd_amount) > v;
         case "min_stop_loss_pct": return Math.abs(Number(args.stop_loss_pct)) < v;
         case "max_stop_loss_pct": return Math.abs(Number(args.stop_loss_pct)) > v;
+        // Blocks buys planned to be held shorter than v minutes (missing hold = no limit = allowed).
+        case "min_hold_minutes": return args.max_hold_minutes != null && Number(args.max_hold_minutes) < v;
         case "block_hours_utc": { const f = Number(p.from), t = Number(p.to); return f <= t ? hour >= f && hour < t : hour >= f || hour < t; }
         default: return false;
       }
