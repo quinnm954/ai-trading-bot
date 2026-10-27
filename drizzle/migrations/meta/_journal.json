@@ -232,6 +232,20 @@
       "when": 1793119905514,
       "tag": "0032_block_proton_signups",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793119986442,
+      "tag": "0033_block_all_proton_signups",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793120041243,
+      "tag": "0034_lock_payment_config_and_whale_signals",
+      "breakpoints": true
     }
   ]
 }
