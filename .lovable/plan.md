@@ -14,7 +14,7 @@
 2. Followers skip their own Kronos and engine cycle while mirroring.
 3. After every buy your account completes, create the same buy for each follower at the same percentage of their balance, through the normal buy path, so paper and live behave the same. Skip a follower if it has too little cash (under $5), has hit its floor, or already holds that coin.
 4. After your account closes a position, flag the matching follower positions to close immediately through the normal exit path.
-5. Show "Mirroring quinnm954" on follower dashboards and in the Agent Console instead of their own agent activity.
+5. Followers see nothing about mirroring: their dashboard, trade history and Agent Console show the trades as their own agents' normal activity, with your account's reasoning copied across. Your email and account are never shown to them.
 6. Test it on practice money: trigger one buy and one sell on your account, then confirm all five followers opened and closed the same coin at the right size.
 
 ## Live-money note
