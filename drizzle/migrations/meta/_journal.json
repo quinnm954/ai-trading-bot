@@ -225,6 +225,13 @@
       "when": 1793119764632,
       "tag": "0031_positions_mirror_of",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793119905514,
+      "tag": "0032_block_proton_signups",
+      "breakpoints": true
     }
   ]
 }
