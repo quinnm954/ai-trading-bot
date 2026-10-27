@@ -10,8 +10,8 @@
 - Bots stay off until you say go.
 
 ## Steps
-1. Add a per-account setting "Mirror leader account", on for the five other accounts and pointed at yours.
-2. Followers skip their own Kronos and engine cycle while mirroring.
+1. Mirroring is built in, with no setting, toggle or option anywhere. Every account except yours follows your account automatically, including all future sign-ups.
+2. Followers never run their own Kronos or engine cycle.
 3. After every buy your account completes, create the same buy for each follower at the same percentage of their balance, through the normal buy path, so paper and live behave the same. Skip a follower if it has too little cash (under $5), has hit its floor, or already holds that coin.
 4. After your account closes a position, flag the matching follower positions to close immediately through the normal exit path.
 5. Followers see nothing about mirroring: their dashboard, trade history and Agent Console show the trades as their own agents' normal activity, with your account's reasoning copied across. Your email and account are never shown to them.
