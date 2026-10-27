@@ -9,6 +9,7 @@
 // is the hard floor (default 30% below starting balance), enforced in code.
 
 // deno-lint-ignore-file no-explicit-any
+import { PLAYBOOK, CORE_LESSONS, CORE_RULES } from "./kronos_knowledge.ts";
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
 const MODEL = "openai/gpt-6-astra";
 const MAX_STEPS = 50;
@@ -58,7 +59,10 @@ and the results of your previous orders. Think, then act ONLY through tools. Rul
   break it. Retire rules that cost you good trades with retire_rule. Never repeat a mistake already in your lessons.
   Rule types: block_symbol {symbol}, max_change24h_pct {value} (no buys if 24h gain above value),
   min_change1h_pct {value}, min_change24h_pct {value}, max_trade_usd {value}, min_stop_loss_pct {value},
-  max_stop_loss_pct {value}, block_hours_utc {from,to}, guidance {} (advice to yourself, not enforced).`;
+  max_stop_loss_pct {value}, block_hours_utc {from,to}, guidance {} (advice to yourself, not enforced).
+- Rules with ids starting "core-" are built in permanently; you cannot retire them.
+
+${PLAYBOOK}`;
 
 const TOOLS = [
   {
