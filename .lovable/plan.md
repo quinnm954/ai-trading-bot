@@ -1,27 +1,29 @@
-# Stop bot sign-ups with an "I'm not a robot" check
+# Every account mirrors your account
 
-## What you'll see
-- The sign-up and sign-in forms get a small Cloudflare Turnstile check. Most real people only see a brief "Verifying..." tick and never solve a puzzle.
-- Bots that skip the check are refused by the server, even if they bypass the page and send requests directly.
-- The block on "keyhunt" and "probe" emails stays in place as a second layer.
-
-## What I need from you
-A free Cloudflare account lets you create a Turnstile "site" for titanaitrader.app. It gives you two keys:
-- **Site key** (public): this goes into the app.
-- **Secret key**: you'll paste it into a secure box I open for you, and it's never shown in chat.
-
-I'll list the exact clicks when we get there, so this takes about 2 minutes.
+## What you'll get
+- Only your account (quinnm954) runs Kronos and makes decisions.
+- When your account buys, every other account buys the same coin within seconds, scaled to its own balance. For example, if you put 2.5% of your balance into a coin, they each put 2.5% of theirs.
+- When your account sells (target hit, stop hit, time limit or Kronos's call), every follower sells the same position.
+- Followers no longer make their own AI calls, which saves roughly 5/6 of the AI credits.
+- Followers inherit your Conservative settings, rules and lessons automatically, since the decisions are yours.
+- The 30% emergency floor and kill switch still apply on every account separately. A follower that hits its floor stops copying.
+- Bots stay off until you say go.
 
 ## Steps
-1. Add the Turnstile widget to the sign-up, sign-in and password-reset forms. The submit button stays disabled until the check passes.
-2. Pass the check's token with each sign-up, sign-in and reset request.
-3. Turn on server-side robot checking for accounts using your secret key, so requests without a valid token are rejected.
-4. Show a friendly message if the check fails or expires, with a retry.
-5. Test a real sign-up end to end, and confirm that a request with no token is refused.
+1. Add a per-account setting "Mirror leader account", on for the five other accounts and pointed at yours.
+2. Followers skip their own Kronos and engine cycle while mirroring.
+3. After every buy your account completes, create the same buy for each follower at the same percentage of their balance, through the normal buy path, so paper and live behave the same. Skip a follower if it has too little cash (under $5), has hit its floor, or already holds that coin.
+4. After your account closes a position, flag the matching follower positions to close immediately through the normal exit path.
+5. Show "Mirroring quinnm954" on follower dashboards and in the Agent Console instead of their own agent activity.
+6. Test it on practice money: trigger one buy and one sell on your account, then confirm all five followers opened and closed the same coin at the right size.
+
+## Live-money note
+With real money, all accounts buying a small coin together can push the price up. Each follower checks the price before buying and skips the trade if it has moved more than 0.5% from your fill.
 
 ## Technical notes
-- Files: `src/pages/Auth.tsx`, plus `src/hooks/useAuth.tsx` where `signUp`, `signInWithPassword` and `resetPasswordForEmail` get `options.captchaToken`.
-- Widget: `@marsidev/react-turnstile`. The site key is stored in code as a publishable value.
-- Server: auth captcha is enabled (provider turnstile) through the auth configuration tool with the user's secret.
-- Google / Lovable sign-in buttons go through their own provider checks and need no token.
-- The existing database trigger blocking "keyhunt"/"probe" emails is kept.
+- New nullable `ai_settings.mirror_leader_user_id` (uuid), added in an additive migration.
+- `agent-orchestrator` skips the Commander for accounts with a leader set.
+- `ai-trading-engine` `execute_approved_trade`: on a successful leader buy, fan out `pending_trades` (status approved, strategy "custom", reasoning "Mirror of leader") for each follower, sized as `leader_usd / leader_equity × follower_equity`, then call `execute_approved_trade` for each.
+- Exit engine: when a leader position closes, set `max_hold_minutes = 1` on follower positions with the same symbol, `is_paper` and mirror flag. A new `positions.mirror_of` column ties them together.
+- The hard floor and kill switch are checked per follower before the fan-out.
+- The decision gets recorded as a rule in `AGENTS.md`: one leader, followers mirror through the shared execution path.
