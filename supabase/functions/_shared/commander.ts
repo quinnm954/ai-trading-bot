@@ -212,7 +212,7 @@ export async function buildBriefing(ctx: CommanderCtx, reports: Record<string, u
     .slice(0, 40)
     .map(([s, q]) => ({ s, p: q.price, h1: q.change1h, d1: q.change24h }));
   return {
-    settings, positions: positions ?? [], acct, rules: rules ?? [],
+    settings, positions: positions ?? [], acct, rules: [...CORE_RULES, ...(rules ?? [])],
     text: JSON.stringify({
       now: new Date().toISOString(),
       account: { mode: acct.isPaper ? "paper" : "live", market: settings?.market_mode ?? "crypto", cash: acct.cash, equity: acct.equity, starting_balance: acct.start, hard_floor_pct: settings?.hard_floor_pct },
@@ -225,7 +225,7 @@ export async function buildBriefing(ctx: CommanderCtx, reports: Record<string, u
       positions: positions ?? [], recent_trades: trades ?? [],
       quotes: topQuotes, fusion_signals: fusion ?? [],
       gate_overrides: { tape_gate_off: !!settings?.commander_skip_tape_gate, probation_off: !!settings?.commander_skip_probation },
-      trades_to_review: toReview ?? [], your_lessons: lessons ?? [], your_rules: rules ?? [],
+      trades_to_review: toReview ?? [], your_lessons: [...CORE_LESSONS, ...(lessons ?? [])], your_rules: [...CORE_RULES, ...(rules ?? [])],
       agent_reports: reports,
       your_previous_orders: orders ?? [], your_recent_scores: scores ?? [],
     }),
@@ -466,6 +466,7 @@ async function execTool(ctx: CommanderCtx, name: string, args: any, state: { set
         return r;
       }
       case "retire_rule": {
+        if (String(args.id ?? "").startsWith("core-")) return { ok: false, error: "Built-in rules are permanent and cannot be retired" };
         const { data } = await sb.from("commander_memory").update({ active: false, retired_at: new Date().toISOString(), retired_reason: String(args.reason ?? "").slice(0, 300) })
           .eq("user_id", ctx.userId).eq("kind", "rule").eq("id", String(args.id)).select("id");
         state.rules = (state.rules ?? []).filter((x: any) => x.id !== args.id);
